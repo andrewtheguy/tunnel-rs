@@ -280,28 +280,6 @@ fn validate_cidr(cidr: &str) -> Result<()> {
     Ok(())
 }
 
-/// Validate that a string is a valid IPv6-only CIDR network.
-fn validate_ipv6_cidr(cidr: &str) -> Result<()> {
-    cidr.parse::<ipnet::Ipv6Net>().with_context(|| {
-        format!(
-            "Invalid IPv6 CIDR '{}'. Expected format: fd00::/64 or ::/0",
-            cidr
-        )
-    })?;
-    Ok(())
-}
-
-/// Generate context message for invalid route6 CIDR errors.
-///
-/// If `section` is provided, prefixes the message with `[section]`.
-fn route6_context(route: &str, section: Option<&str>) -> String {
-    let msg = format!("Invalid route6 CIDR '{}' (must be IPv6, e.g., ::/0)", route);
-    match section {
-        Some(s) => format!("[{}] {}", s, msg),
-        None => msg,
-    }
-}
-
 /// Validate that a string is a valid tcp:// or udp:// URL with host and port.
 fn validate_tcp_udp_url(value: &str, field_name: &str) -> Result<()> {
     let url = url::Url::parse(value).with_context(|| {
@@ -376,34 +354,6 @@ fn validate_allowed_sources(allowed: &AllowedSources) -> Result<()> {
     Ok(())
 }
 
-/// Validate MTU value is within acceptable range (576-1500).
-fn validate_mtu(mtu: u16, section: &str) -> Result<()> {
-    if !(576..=1500).contains(&mtu) {
-        anyhow::bail!(
-            "[{}] MTU {} is out of range. Valid range: 576-1500",
-            section,
-            mtu
-        );
-    }
-    Ok(())
-}
-
-/// Validate channel buffer size is within acceptable range (1-65536).
-fn validate_channel_size(size: usize, field_name: &str, section: &str) -> Result<()> {
-    if size == 0 {
-        anyhow::bail!("[{}] {} must be at least 1", section, field_name);
-    }
-    if size > 65536 {
-        anyhow::bail!(
-            "[{}] {} value {} exceeds maximum of 65536",
-            section,
-            field_name,
-            size
-        );
-    }
-    Ok(())
-}
-
 /// Minimum QUIC window size (1 KB).
 const MIN_WINDOW_SIZE: u32 = 1024;
 
@@ -443,7 +393,6 @@ pub fn validate_transport_tuning(tuning: &TransportTuning, section: &str) -> Res
     }
     Ok(())
 }
-
 
 // ============================================================================
 // Config Accessor Methods
@@ -809,4 +758,3 @@ pub const DEFAULT_NOSTR_RELAYS: &[&str] = &[
 pub fn default_nostr_relays() -> &'static [&'static str] {
     DEFAULT_NOSTR_RELAYS
 }
-
