@@ -1,5 +1,0 @@
-# Tunnel test keys - generated Tue Dec 23 12:35:19 PST 2025
-SENDER_NSEC_FILE=/Users/it3/codes/andrew/tunnel-rs/.keys/sender.nsec
-SENDER_NPUB=
-RECEIVER_NSEC_FILE=/Users/it3/codes/andrew/tunnel-rs/.keys/receiver.nsec
-RECEIVER_NPUB=
