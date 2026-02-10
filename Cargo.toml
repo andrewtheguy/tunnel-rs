@@ -4,10 +4,8 @@ members = [
     "crates/tunnel-common",
     "crates/tunnel-iroh",
     "crates/tunnel-ice",
-    "crates/tunnel-vpn",
     "crates/tunnel-rs",
     "crates/tunnel-rs-ice",
-    "crates/tunnel-rs-vpn",
 ]
 
 

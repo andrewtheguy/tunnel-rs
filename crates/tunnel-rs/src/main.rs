@@ -1,7 +1,7 @@
 //! tunnel-rs
 //!
 //! Forwards TCP or UDP traffic through iroh P2P connections.
-//! For VPN mode, use the separate tunnel-rs-vpn binary.
+
 
 use ::iroh::SecretKey;
 use anyhow::{Context, Result};

@@ -46,7 +46,7 @@ Uses full ICE (Interactive Connectivity Establishment) with str0m + quinn QUIC. 
    ssh -p 2222 user@127.0.0.1
    ```
 
-### UDP Tunnel (e.g., WireGuard/Game/DNS)
+### UDP Tunnel (e.g., game traffic or DNS)
 
 ```bash
 # Client (starts first)
@@ -104,12 +104,12 @@ ICE connection established!
 
 > Use this mode if you want decentralized signaling without depending on iroh infrastructure.
 
-Uses full ICE with Nostr-based signaling. Instead of manual copy-paste, ICE offers/answers are exchanged automatically via Nostr relays using static keypairs (like WireGuard).
+Uses full ICE with Nostr-based signaling. Instead of manual copy-paste, ICE offers/answers are exchanged automatically via Nostr relays using static keypairs.
 
-> **Summary:** Automated signaling via Nostr relays, static WireGuard-like keys, full ICE NAT traversal, no relay fallback. See [Architecture: nostr Mode](ARCHITECTURE.md#nostr-mode) for detailed diagrams.
+> **Summary:** Automated signaling via Nostr relays, static long-lived keys, full ICE NAT traversal, no relay fallback. See [Architecture: nostr Mode](ARCHITECTURE.md#nostr-mode) for detailed diagrams.
 
 **Key Features:**
-- **Static keys** — Persistent identity using nsec/npub keypairs (like WireGuard)
+- **Static keys** — Persistent identity using nsec/npub keypairs
 - **Automated signaling** — No copy-paste required; offers/answers exchanged via Nostr relays
 - **Full ICE** — Same NAT traversal as manual mode (str0m + quinn)
 - **Deterministic pairing** — Transfer ID derived from both pubkeys; no coordination needed
@@ -168,7 +168,7 @@ tunnel-rs-ice client nostr \
 ssh -p 2222 user@127.0.0.1
 ```
 
-### UDP Tunnel (e.g., WireGuard/Game/DNS)
+### UDP Tunnel (e.g., game traffic or DNS)
 
 ```bash
 # Server (allows UDP traffic to localhost)
@@ -242,7 +242,7 @@ When no relays are specified, these public relays are used:
 
 ### Notes
 
-- Keys are static like WireGuard — generate once, use repeatedly
+- Keys are static and long-lived — generate once, use repeatedly
 - Transfer ID is derived from SHA256 of sorted pubkeys — both peers compute the same ID
 - Signaling uses Nostr event kind 24242 with tags for transfer ID and peer pubkey
 - Full ICE provides reliable NAT traversal (same as custom mode)
@@ -300,7 +300,7 @@ tunnel-rs-ice generate-nostr-key --output ./nostr.nsec
 # Overwrite existing file
 tunnel-rs-ice generate-nostr-key --output ./nostr.nsec --force
 
-# Output nsec to stdout and npub to stderr (wireguard-style)
+# Output nsec to stdout and npub to stderr (keypair-style)
 tunnel-rs-ice generate-nostr-key --output -
 ```
 

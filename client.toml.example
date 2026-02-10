@@ -48,7 +48,7 @@ auth_token = "iXXXXXXXXXXXXXXXXX"  # Replace with real token from generate-token
 # ]
 
 # Custom DNS server URL for iroh endpoint discovery (pkarr), or "none" to disable DNS discovery.
-# This is NOT VPN DNS and does not affect client DNS resolution.
+# This is NOT system DNS routing and does not affect client DNS resolution.
 # Must match the server's dns_server configuration.
 # NOTE: URL must include the /pkarr path
 # dns_server = "https://dns.example.com/pkarr"
