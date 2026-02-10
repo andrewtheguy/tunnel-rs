@@ -4687,15 +4687,10 @@ dependencies = [
  "iroh-quinn-proto",
  "log",
  "rand 0.9.2",
- "rustls",
- "serde",
- "serde_json",
  "tempfile",
  "tokio",
- "tokio-rustls",
  "tunnel-common",
  "url",
- "webpki-roots 1.0.6",
 ]
 
 [[package]]
