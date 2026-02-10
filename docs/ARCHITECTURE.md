@@ -1,6 +1,6 @@
 # tunnel-rs Architecture
 
-This document provides a comprehensive overview of the tunnel-rs architecture, including detailed diagrams of all four operational modes, component interactions, data flows, and security considerations.
+This document provides a comprehensive overview of the tunnel-rs architecture, including detailed diagrams of all operational modes, component interactions, data flows, and security considerations.
 
 ## Table of Contents
 
@@ -25,7 +25,6 @@ tunnel-rs is a P2P TCP/UDP port forwarding tool that supports multiple distinct 
 
 Binary layout:
 - `tunnel-rs`: iroh mode (port forwarding)
-- `tunnel-rs-vpn`: VPN mode (iroh)
 - `tunnel-rs-ice`: manual and nostr modes (port forwarding)
 
 > **Design Goal:** The project's primary goal is to provide a convenient way to connect to different networks for development or homelab purposes without the hassle and security risk of opening a port. It is **not** meant for production setups or designed to be performant at scale.
@@ -34,14 +33,12 @@ Binary layout:
 graph TB
     subgraph "tunnel-rs Modes"
         A[iroh]
-        A2[vpn]
         C[manual]
         D2[nostr]
     end
 
     subgraph "Use Cases"
         D[Persistent<br/>Best NAT Traversal]
-        D3[Full Network VPN<br/>Direct QUIC Encryption]
         F[Manual Signaling<br/>Full ICE]
         F2[Automated Signaling<br/>Static Keys]
     end
@@ -53,17 +50,14 @@ graph TB
     end
 
     A --> D
-    A2 --> D3
     C --> F
     D2 --> F2
 
     A --> G
-    A2 --> G
     C --> I
     D2 --> I2
 
     style A fill:#4CAF50
-    style A2 fill:#2196F3
     style C fill:#FF9800
     style D2 fill:#9C27B0
 ```
@@ -75,7 +69,6 @@ The project is split into separate binaries to isolate dependencies:
 | Binary | Modes | Key Modules |
 |--------|-------|-------------|
 | `tunnel-rs` | `iroh` | `iroh_mode`, `auth` |
-| `tunnel-rs-vpn` | `vpn` (iroh) | `tunnel_vpn`, `auth` |
 | `tunnel-rs-ice` | `manual`, `nostr` | `custom`, `nostr`, `transport` |
 
 Relay-only is a CLI-only flag that forces connections through relay servers instead of attempting direct connections. It is intended for testing or special scenarios and is not supported in config files to avoid accidental activation. See `tunnel-rs --help` for usage.
@@ -215,7 +208,6 @@ graph LR
 Detailed architecture for each mode lives in separate documents:
 
 - Port Forwarding (iroh, manual, nostr): `docs/ARCHITECTURE-PORT-FORWARDING.md`
-- VPN (TUN + NAT64): `docs/ARCHITECTURE-VPN.md`
 
 ## Configuration System
 
@@ -754,13 +746,11 @@ graph TB
 | Mode | Multi-Session | Dynamic Source | Encryption | Platform |
 |------|---------------|----------------|------------|----------|
 | `iroh` | **Yes** | **Yes** | QUIC/TLS 1.3 | Linux, macOS, Windows |
-| `vpn` (iroh) | **Yes** | N/A (full tunnel) | QUIC (TLS 1.3) | Linux, macOS, Windows |
 | `nostr` | **Yes** | **Yes** | QUIC/TLS 1.3 | Linux, macOS, Windows |
 | `manual` | No | **Yes** | QUIC/TLS 1.3 | Linux, macOS, Windows |
 
 **Multi-Session** = Multiple concurrent connections to the same server
 **Dynamic Source** = Client specifies which service to tunnel (via `--source`)
-**VPN Mode** = Full network tunneling with automatic IP assignment (no per-port config)
 
 ---
 

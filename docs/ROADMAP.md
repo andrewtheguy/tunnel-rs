@@ -4,41 +4,18 @@ This document outlines planned features and improvements for tunnel-rs.
 
 ## Current Status
 
-tunnel-rs currently supports four operational modes:
+tunnel-rs currently supports three operational modes:
 - **iroh**: Persistent identity with automatic discovery, relay fallback, and receiver-requested sources
-- **vpn**: Native TUN-based VPN with automatic IP assignment (Linux/macOS/Windows)
 - **nostr**: Full ICE with automated Nostr relay signaling and receiver-requested sources
 - **manual**: Full ICE with manual signaling (single-target)
 
-Port forwarding modes (iroh, nostr, manual) support TCP and UDP tunneling with end-to-end encryption via QUIC/TLS 1.3. VPN mode provides full network access via direct IP-over-QUIC using iroh's TLS 1.3 transport.
+Port forwarding modes (iroh, nostr, manual) support TCP and UDP tunneling with end-to-end encryption via QUIC/TLS 1.3.
 
 ---
 
 ## Planned Features
 
 ### Medium Priority
-
-#### NAT64 Enhancements
-
-**Status:** Experimental / Partial
-
-NAT64 basic translation is implemented for TCP, UDP, and ICMP echo (ping). It is **experimental** and intended primarily for IPv6-only VPN deployments (also **experimental**) that need IPv4 reachability. The table below shows the implementation status for each NAT64 feature:
-
-| Feature | Status | Notes |
-|---------|--------|-------|
-| TCP/UDP translation | **Implemented** | Full NAPT with connection tracking |
-| ICMP Echo (ping) | **Implemented** | Echo request/reply only |
-| ICMP Error Messages | Not implemented | Destination Unreachable, Time Exceeded, etc. |
-| IPv6 Extension Headers | Not implemented | Assumes simple IPv6 header |
-| IPv4 Fragmentation | Not implemented | DF bit is set; large packets may be dropped |
-| Path MTU Discovery | Not implemented | No ICMPv6 Packet Too Big generation |
-| ALG (FTP, SIP, etc.) | Not implemented | Protocols embedding IP addresses in payload won't work |
-
-**Priority improvements:**
-1. **ICMP Error Translation** - Translating error messages enables proper TCP path MTU discovery and error reporting
-2. **IPv6 Extension Header Handling** - Skip extension headers to find the transport layer
-
----
 
 #### Multi-Source/Target per Client
 
@@ -201,44 +178,6 @@ QUIC natively supports connection migration, allowing sessions to continue when 
 **Status:** Idea
 
 Built-in monitoring for connection latency, throughput, packet loss, and uptime.
-
----
-
-#### VPN Performance Optimizations
-
-**Status:** Partial (quick wins implemented)
-
-Performance improvements inspired by [quincy-rs/quincy](https://github.com/quincy-rs/quincy), a QUIC-based VPN implementation.
-
-**Implemented:**
-- LTO release profile with strip, fat LTO, single codegen unit
-- jemalloc allocator (optional feature on tunnel-rs-vpn)
-- Uninitialized TUN read buffers (unsafe optimization to skip buffer zeroing)
-- **QUIC transport tuning** - Configurable congestion controller (Cubic/BBR/NewReno) and window sizes
-
-**Future Improvements:**
-
-| Improvement | Impact | Complexity | Notes |
-|------------|--------|------------|-------|
-| Batch TUN I/O (GSO/GRO) | High | High | Requires switching to `tun_rs` crate for Linux batch operations |
-
-**QUIC Transport Tuning (Implemented):**
-
-Configure congestion control algorithm and QUIC flow control windows via `[iroh.transport]`:
-
-```toml
-[iroh.transport]
-congestion_controller = "cubic"  # cubic (default), bbr, newreno
-receive_window = 2097152         # 2MB default (valid: 1KB-16MB)
-send_window = 2097152            # 2MB default (valid: 1KB-16MB)
-```
-
-- **Cubic** (default): Loss-based, widely deployed, best for general internet
-- **BBR**: Model-based, may perform better on high-bandwidth/high-latency links
-- **NewReno**: Classic TCP-like, most conservative
-
-**Batch TUN I/O Details:**
-The `tun_rs` crate supports `recv_multiple`/`send_multiple` with Linux GSO/GRO offload, reducing syscall overhead by batching up to 64 packets per syscall. Current `tun` crate (v0.8) only supports single-packet operations.
 
 ---
 

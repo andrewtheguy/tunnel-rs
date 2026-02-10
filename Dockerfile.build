@@ -1,36 +1,23 @@
-# Build stage - buildx handles platform selection automatically
-FROM rust:1.91 AS builder
+FROM rust:1.93 AS builder
 
 ARG TARGETPLATFORM
-
 WORKDIR /build
 
-# Copy manifests
 COPY Cargo.toml Cargo.lock ./
-
-# Copy workspace crates
 COPY crates ./crates
 
-# Build for the target platform with per-platform cargo cache mounts
 RUN --mount=type=cache,target=/usr/local/cargo/registry,id=cargo-registry-${TARGETPLATFORM} \
     --mount=type=cache,target=/usr/local/cargo/git,id=cargo-git-${TARGETPLATFORM} \
     --mount=type=cache,target=/build/target,id=cargo-target-${TARGETPLATFORM} \
-    cargo build --release -p tunnel-rs -p tunnel-rs-ice -p tunnel-rs-vpn -p tunnel-rs-vpn-ice && \
+    cargo build --release -p tunnel-rs -p tunnel-rs-ice && \
     cp target/release/tunnel-rs /tunnel-rs && \
-    cp target/release/tunnel-rs-ice /tunnel-rs-ice && \
-    cp target/release/tunnel-rs-vpn /tunnel-rs-vpn && \
-    cp target/release/tunnel-rs-vpn-ice /tunnel-rs-vpn-ice
+    cp target/release/tunnel-rs-ice /tunnel-rs-ice
 
-# Export stage - contains both binaries (used by docker-bake.hcl)
 FROM scratch AS export
 COPY --from=builder /tunnel-rs /tunnel-rs
 COPY --from=builder /tunnel-rs-ice /tunnel-rs-ice
-COPY --from=builder /tunnel-rs-vpn /tunnel-rs-vpn
-COPY --from=builder /tunnel-rs-vpn-ice /tunnel-rs-vpn-ice
 
-# Runtime stage - minimal image for container deployment (builds from source)
 FROM debian:trixie-slim AS runtime
-
 LABEL org.opencontainers.image.source=https://github.com/andrewtheguy/tunnel-rs
 
 RUN apt-get update && apt-get install -y \
@@ -39,12 +26,9 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /tunnel-rs /usr/local/bin/tunnel-rs
-
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/tunnel-rs"]
 
-# Runtime stage for pre-built binary (used by CI to avoid double build)
 FROM debian:trixie-slim AS runtime-prebuilt
-
 LABEL org.opencontainers.image.source=https://github.com/andrewtheguy/tunnel-rs
 
 RUN apt-get update && apt-get install -y \
@@ -52,7 +36,5 @@ RUN apt-get update && apt-get install -y \
     tini \
     && rm -rf /var/lib/apt/lists/*
 
-# Binary must be passed via build context
 COPY tunnel-rs /usr/local/bin/tunnel-rs
-
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/tunnel-rs"]

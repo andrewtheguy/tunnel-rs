@@ -4,8 +4,6 @@
 
 Tunnel-rs enables you to forward TCP and UDP traffic between machines without requiring public IP addresses, open ports, or VPN infrastructure. It establishes direct encrypted connections between peers using modern P2P networking techniques.
 
-For full-network VPN mode (requires root/admin), see [`crates/tunnel-rs-vpn/README.md`](crates/tunnel-rs-vpn/README.md).
-
 > [!IMPORTANT]
 > **Project Goal:** This tool provides a convenient way to connect to different networks for **development or homelab purposes** without the hassle and security risk of opening a port. It is **not** meant for production setups or designed to be performant at scale.
 
@@ -47,10 +45,6 @@ For full-network VPN mode (requires root/admin), see [`crates/tunnel-rs-vpn/READ
 | Access UDP services (WireGuard, DNS, game servers) | Port Forwarding (iroh mode) | `tunnel-rs` |
 | Alternative to `kubectl port-forward` with UDP support | Port Forwarding (iroh mode) | `tunnel-rs` |
 | No root/admin privileges available | Port Forwarding (iroh mode) | `tunnel-rs` |
-| Route all traffic through tunnel | VPN Mode (requires root/admin) | `tunnel-rs-vpn` |
-| Access an entire remote subnet | VPN Mode (requires root/admin) | `tunnel-rs-vpn` |
-
-VPN mode docs live in [`crates/tunnel-rs-vpn/README.md`](crates/tunnel-rs-vpn/README.md).
 
 ### Alternative Port Forwarding Modes (Niche Use Cases)
 
@@ -65,12 +59,11 @@ VPN mode docs live in [`crates/tunnel-rs-vpn/README.md`](crates/tunnel-rs-vpn/RE
 
 tunnel-rs provides multiple modes for establishing tunnels. **Use `iroh` mode** for most use cases — it provides the best NAT traversal with relay fallback, automatic discovery, and client authentication.
 
-**Identity note:** iroh discovery uses shareable identities. Port-forwarding sessions are independent; VPN sessions are keyed by `(EndpointId, device_id)` to avoid conflicts. For VPN details, see [`crates/tunnel-rs-vpn/README.md`](crates/tunnel-rs-vpn/README.md).
+**Identity note:** iroh discovery uses shareable identities. Port-forwarding sessions are independent, and clients use ephemeral identities by default.
 
 **Binary layout:**
 - `tunnel-rs`: Port forwarding with iroh mode (install script or download from releases)
 - `tunnel-rs-ice`: Port forwarding with manual and nostr modes (download from releases)
-- `tunnel-rs-vpn`: VPN mode (iroh) (see [`crates/tunnel-rs-vpn/README.md`](crates/tunnel-rs-vpn/README.md))
 
 ### Port Forwarding Modes
 
@@ -147,11 +140,6 @@ curl -sSL https://andrewtheguy.github.io/tunnel-rs/install.sh | bash -s 20251210
 
 </details>
 
-### VPN Mode (`tunnel-rs-vpn`)
-
-VPN mode is documented separately (installers, Windows WinTun requirements, usage):
-[`crates/tunnel-rs-vpn/README.md`](crates/tunnel-rs-vpn/README.md).
-
 ### From Source
 
 ```bash
@@ -160,10 +148,6 @@ cargo install --path . -p tunnel-rs
 
 # Port forwarding (nostr/manual modes)
 cargo install --path . -p tunnel-rs-ice
-
-# VPN mode (requires root/admin to run)
-# See: crates/tunnel-rs-vpn/README.md
-cargo install --path . -p tunnel-rs-vpn
 ```
 
 ### Feature Flags
@@ -189,7 +173,7 @@ Access services running in Docker or Kubernetes remotely — without opening por
 
 # Common Configuration
 
-These settings apply to Port Forwarding (`tunnel-rs`) using iroh. (VPN mode has similar concepts; see `crates/tunnel-rs-vpn/README.md`.)
+These settings apply to Port Forwarding (`tunnel-rs`) using iroh.
 
 ## Persistent Server Identity
 
@@ -317,7 +301,7 @@ Uses iroh's P2P network for automatic peer discovery and NAT traversal with rela
      Client Side                                            Server Side
 ```
 
-For full network tunneling (TUN/VPN), see [`crates/tunnel-rs-vpn/README.md`](crates/tunnel-rs-vpn/README.md).
+For deeper architecture diagrams and protocol flows, see [docs/ARCHITECTURE-PORT-FORWARDING.md](docs/ARCHITECTURE-PORT-FORWARDING.md).
 
 ## Quick Start
 
@@ -533,13 +517,6 @@ tunnel-rs client --default-config
 # Load from custom path
 tunnel-rs client -c ./my-client.toml
 ```
-
----
-
-# VPN Mode
-
-VPN mode (`tunnel-rs-vpn`) is documented separately (installers, Windows WinTun requirements, quick start, config, and CLI):
-[`crates/tunnel-rs-vpn/README.md`](crates/tunnel-rs-vpn/README.md).
 
 ---
 

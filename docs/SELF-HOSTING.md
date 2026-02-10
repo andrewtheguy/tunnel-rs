@@ -1,6 +1,6 @@
 # Self-Hosting Iroh Infrastructure
 
-This document covers how to self-host iroh's relay and DNS servers for fully independent operation. This applies to both port forwarding (`tunnel-rs`) and VPN (`tunnel-rs-vpn`) modes.
+This document covers how to self-host iroh's relay and DNS servers for fully independent operation in port forwarding mode (`tunnel-rs`).
 
 ## Custom Relay Server
 
@@ -147,51 +147,6 @@ tunnel-rs client \
   --server-node-id <ID> \
   --source tcp://127.0.0.1:22 \
   --target 127.0.0.1:2222 \
-  --auth-token "$AUTH_TOKEN"
-```
-
-## VPN Mode with Self-Hosted Infrastructure
-
-The same relay and DNS options work with VPN mode. Configure them in `vpn_server.toml`:
-
-Example `vpn_server.toml` with self-hosted infrastructure:
-```toml
-role = "vpnserver"
-mode = "iroh"
-
-[iroh]
-# VPN network configuration
-network = "10.0.0.0/24"
-
-# Server identity (for persistent EndpointId)
-secret_file = "./vpn-server.key"
-
-# Authentication
-auth_tokens = ["iXXXXXXXXXXXXXXXXX"]  # Replace with real token
-
-# Self-hosted relay server(s)
-relay_urls = [
-    "https://relay.example.com",
-    "https://relay-backup.example.com",  # Optional failover
-]
-
-# Self-hosted DNS server for iroh endpoint discovery (pkarr)
-# This is NOT VPN DNS and does not affect client DNS resolution.
-# NOTE: URL must include the /pkarr path
-dns_server = "https://dns.example.com/pkarr"
-```
-
-Start the VPN server:
-```bash
-sudo tunnel-rs-vpn server -c vpn_server.toml
-```
-
-VPN client with self-hosted infrastructure:
-```bash
-sudo tunnel-rs-vpn client \
-  --server-node-id <ID> \
-  --relay-url https://relay.example.com \
-  --dns-server https://dns.example.com/pkarr \
   --auth-token "$AUTH_TOKEN"
 ```
 

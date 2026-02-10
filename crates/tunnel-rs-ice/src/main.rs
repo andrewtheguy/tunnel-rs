@@ -197,7 +197,7 @@ enum ServerMode {
         #[arg(long)]
         no_stun: bool,
     },
-    /// Full ICE with Nostr-based signaling (WireGuard-like static keys)
+    /// Full ICE with Nostr-based signaling (static-key identity)
     #[command(name = "nostr")]
     Nostr {
         /// Allowed TCP source networks in CIDR notation (repeatable)
@@ -273,7 +273,7 @@ enum ClientMode {
         #[arg(long)]
         no_stun: bool,
     },
-    /// Full ICE with Nostr-based signaling (WireGuard-like static keys)
+    /// Full ICE with Nostr-based signaling (static-key identity)
     #[command(name = "nostr")]
     Nostr {
         /// Local address to listen on (e.g., 127.0.0.1:2222 or tcp://127.0.0.1:2222)

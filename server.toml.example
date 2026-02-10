@@ -32,7 +32,7 @@ secret_file = "./server.key"
 
 # Custom DNS server URL for iroh endpoint discovery (pkarr), or "none" to disable DNS discovery.
 # Used with self-hosted iroh-dns-server for fully independent operation.
-# This is NOT VPN DNS and does not affect client DNS resolution.
+# This is NOT system DNS routing and does not affect client DNS resolution.
 # NOTE: URL must include the /pkarr path
 # dns_server = "https://dns.example.com/pkarr"
 #
