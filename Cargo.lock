@@ -4637,7 +4637,7 @@ dependencies = [
 
 [[package]]
 name = "tunnel-common"
-version = "0.1.79"
+version = "0.1.80"
 dependencies = [
  "anyhow",
  "base64",
@@ -4654,7 +4654,7 @@ dependencies = [
 
 [[package]]
 name = "tunnel-ice"
-version = "0.1.79"
+version = "0.1.80"
 dependencies = [
  "anyhow",
  "base64",
@@ -4679,7 +4679,7 @@ dependencies = [
 
 [[package]]
 name = "tunnel-iroh"
-version = "0.1.79"
+version = "0.1.80"
 dependencies = [
  "anyhow",
  "base64",
@@ -4687,20 +4687,15 @@ dependencies = [
  "iroh-quinn-proto",
  "log",
  "rand 0.9.2",
- "rustls",
- "serde",
- "serde_json",
  "tempfile",
  "tokio",
- "tokio-rustls",
  "tunnel-common",
  "url",
- "webpki-roots 1.0.6",
 ]
 
 [[package]]
 name = "tunnel-rs"
-version = "0.1.79"
+version = "0.1.80"
 dependencies = [
  "anyhow",
  "clap",
@@ -4714,7 +4709,7 @@ dependencies = [
 
 [[package]]
 name = "tunnel-rs-ice"
-version = "0.1.79"
+version = "0.1.80"
 dependencies = [
  "anyhow",
  "clap",
