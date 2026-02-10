@@ -173,5 +173,5 @@ dig @127.0.0.1 -p 5353 kubernetes.default.svc.cluster.local
 |----------|-------------|
 | Dev/staging access | Access services without exposing them publicly |
 | Cluster-wide access | Single server, multiple services |
-| UDP tunneling | DNS and game servers |
+| UDP tunneling | DNS, WireGuard, game servers |
 | NAT traversal | Works behind restrictive firewalls |
