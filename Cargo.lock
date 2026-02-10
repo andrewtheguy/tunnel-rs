@@ -4637,7 +4637,7 @@ dependencies = [
 
 [[package]]
 name = "tunnel-common"
-version = "0.1.78"
+version = "0.1.79"
 dependencies = [
  "anyhow",
  "base64",
@@ -4654,7 +4654,7 @@ dependencies = [
 
 [[package]]
 name = "tunnel-ice"
-version = "0.1.78"
+version = "0.1.79"
 dependencies = [
  "anyhow",
  "base64",
@@ -4679,7 +4679,7 @@ dependencies = [
 
 [[package]]
 name = "tunnel-iroh"
-version = "0.1.78"
+version = "0.1.79"
 dependencies = [
  "anyhow",
  "base64",
@@ -4700,7 +4700,7 @@ dependencies = [
 
 [[package]]
 name = "tunnel-rs"
-version = "0.1.78"
+version = "0.1.79"
 dependencies = [
  "anyhow",
  "clap",
@@ -4714,7 +4714,7 @@ dependencies = [
 
 [[package]]
 name = "tunnel-rs-ice"
-version = "0.1.78"
+version = "0.1.79"
 dependencies = [
  "anyhow",
  "clap",
