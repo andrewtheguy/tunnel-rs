@@ -288,7 +288,7 @@ Forward specific TCP/UDP ports between machines. Cross-platform (Linux, macOS, W
 
 ## iroh Mode (Recommended)
 
-Uses iroh's P2P network for automatic peer discovery and NAT traversal with relay fallback. Best for containerized environments and persistent tunnels.
+Uses iroh's P2P network for automatic peer discovery and NAT traversal with relay fallback. Best for containerized environments.
 
 > **Summary:** Automatic discovery via Pkarr/DNS, relay fallback for restrictive NATs, multi-session support. See [Architecture: iroh Mode](docs/ARCHITECTURE.md#iroh-mode) for detailed diagrams.
 

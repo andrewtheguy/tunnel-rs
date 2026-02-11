@@ -38,7 +38,7 @@ graph TB
     end
 
     subgraph "Use Cases"
-        D[Persistent<br/>Best NAT Traversal]
+        D[Best NAT Traversal<br/>Relay Fallback]
         F[Manual Signaling<br/>Full ICE]
         F2[Automated Signaling<br/>Static Keys]
     end

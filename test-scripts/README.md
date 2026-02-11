@@ -1,18 +1,18 @@
 # Multi-Session Testing Scripts
 
-Scripts for testing receiver-initiated multi-session nostr tunnel.
+Scripts for testing client-initiated multi-session nostr tunnel.
 
 > [!NOTE]
 > These scripts test `nostr` mode which uses STUN-only NAT traversal. For containerized environments (Docker, Kubernetes, cloud VMs), use `iroh` mode instead, which includes relay fallback for reliable connectivity behind restrictive NATs.
 
 ## Architecture
 
-In receiver-initiated mode:
-- **Sender** whitelists allowed networks with `--allowed-tcp` (CIDR notation)
-- **Receiver** specifies the source service with `--source` (hostname:port)
+In client-initiated mode:
+- **Server** whitelists allowed networks with `--allowed-tcp` (CIDR notation)
+- **Client** specifies the source service with `--source` (hostname:port)
 
 ```
-[Echo Server]     [Sender]                      [Receiver]              [Test Client]
+[Echo Server]     [Server]                      [Client]                [Test Client]
   :19999    <--  --allowed-tcp 127.0.0.0/8  <--  --source tcp://localhost:19999  <-->  :17001-17003
                   (waits for connections)       (initiates, tests DNS)
 ```
@@ -64,7 +64,7 @@ source test-scripts/keys.sh && generate_keys
 
 # Use keys in custom commands
 source test-scripts/keys.sh
-echo $SENDER_NSEC_FILE $SENDER_NPUB $RECEIVER_NSEC_FILE $RECEIVER_NPUB
+echo $SERVER_NSEC_FILE $SERVER_NPUB $CLIENT_NSEC_FILE $CLIENT_NPUB
 ```
 
 ## Test Modes

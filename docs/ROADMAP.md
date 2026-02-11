@@ -5,9 +5,9 @@ This document outlines planned features and improvements for tunnel-rs.
 ## Current Status
 
 tunnel-rs currently supports three operational modes:
-- **iroh**: Persistent identity with automatic discovery, relay fallback, and receiver-requested sources
-- **nostr**: Full ICE with automated Nostr relay signaling and receiver-requested sources
-- **manual**: Full ICE with manual signaling (single-target)
+- **iroh**: Persistent identity with automatic discovery, relay fallback, and client-requested sources
+- **nostr**: Full ICE with automated Nostr relay signaling and client-requested sources
+- **manual**: Full ICE with manual signaling (single-session)
 
 Port forwarding modes (iroh, nostr, manual) support TCP and UDP tunneling with end-to-end encryption via QUIC/TLS 1.3.
 
@@ -157,8 +157,8 @@ manual and nostr modes use full ICE but have no relay fallback for symmetric NAT
 | Connection-level auto-reconnect | Idea |
 
 **iroh mode (Moderate complexity):**
-- Add receiver-side connection retry loop with exponential backoff
-- Iroh's discovery automatically re-resolves sender's new IP/relay address
+- Add client-side connection retry loop with exponential backoff
+- Iroh's discovery automatically re-resolves server's new IP/relay address
 
 **nostr mode (Higher complexity):**
 - Re-signal via Nostr relays and re-establish ICE/QUIC

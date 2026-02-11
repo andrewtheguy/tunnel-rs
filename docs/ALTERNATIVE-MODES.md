@@ -118,7 +118,7 @@ Uses full ICE with Nostr-based signaling. Instead of manual copy-paste, ICE offe
 
 ```
 +-----------------+        +-----------------+        +---------------+        +-----------------+        +-----------------+
-| SSH Client      |  TCP   | receiver        |  ICE   |   Nostr       |  ICE   | sender          |  TCP   | SSH Server      |
+| SSH Client      |  TCP   | client          |  ICE   |   Nostr       |  ICE   | server          |  TCP   | SSH Server      |
 |                 |<------>| (local:2222)    |<======>|   Relays      |<======>|                 |<------>| (local:22)      |
 |                 |        |                 |  QUIC  | (signaling)   |  QUIC  |                 |        |                 |
 +-----------------+        +-----------------+        +---------------+        +-----------------+        +-----------------+
@@ -261,7 +261,7 @@ When no relays are specified, these public relays are used:
 | `nostr` | **Yes** | **Yes** | Multiple clients, client chooses source |
 | `manual` | No | **Yes** | Single session, client chooses source |
 
-**Multi-Session** = Multiple concurrent connections to the same sender
+**Multi-Session** = Multiple concurrent connections to the same server
 **Dynamic Source** = Client specifies which service to tunnel (like SSH `-L`)
 
 ### nostr (Multi-Session + Dynamic Source)
