@@ -138,6 +138,8 @@ curl -sSL https://andrewtheguy.github.io/tunnel-rs/install.sh | bash -s 20251210
 & ([scriptblock]::Create((irm https://andrewtheguy.github.io/tunnel-rs/install.ps1))) 20251210172710
 ```
 
+> **Note:** Prerelease artifacts may not include Windows binaries. If unavailable, use a stable release tag or build from source.
+
 </details>
 
 ### From Source
@@ -156,10 +158,14 @@ Relay-only is a **CLI-only** flag that forces connections through relay servers 
 
 ### Supported Platforms
 
-tunnel-rs is fully supported on:
+tunnel-rs works on Linux, macOS, and Windows.
+
+Official prebuilt release artifacts currently include:
 - **Linux** (x86_64, ARM64)
-- **macOS** (Intel, Apple Silicon)
-- **Windows** (x86_64)
+- **macOS** (Apple Silicon)
+- **Windows** (x86_64, stable releases)
+
+Intel macOS is supported when building from source.
 
 All modes (iroh, manual, nostr) work across all platforms, enabling cross-platform P2P tunneling.
 
@@ -212,7 +218,7 @@ Iroh mode requires authentication using pre-shared tokens. Clients must provide 
 - Ends with a [Luhn mod N](https://en.wikipedia.org/wiki/Luhn_mod_N_algorithm) checksum character
 - Middle 16 characters: `A-Za-z0-9` and `-` `_` `.` (period is valid but rare in generated tokens)
 
-The checksum detects all single-character typos and adjacent transpositions (same algorithm family as credit cards).
+The checksum detects all single-character typos and most adjacent transpositions (same algorithm family as credit cards).
 
 Generate tokens with: `tunnel-rs generate-token`
 

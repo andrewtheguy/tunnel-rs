@@ -5,7 +5,7 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KEYS_DIR="$SCRIPT_DIR/.keys"
 KEYS_FILE="$SCRIPT_DIR/.tunnel_keys"
-TUNNEL_BIN="$SCRIPT_DIR/../target/release/tunnel-rs"
+TUNNEL_BIN="$SCRIPT_DIR/../target/release/tunnel-rs-ice"
 
 generate_keys() {
     echo "Generating new key pairs..."

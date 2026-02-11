@@ -62,7 +62,7 @@ tunnel-rs client \
 Expose services via tunnel-rs with token authentication:
 
 ```bash
-cd docker
+cd container-deploy/docker
 
 # 1. Generate server key
 docker run --rm ghcr.io/andrewtheguy/tunnel-rs:latest \
@@ -147,7 +147,7 @@ tunnel-rs client \
 **Advantages over `kubectl port-forward`:**
 - Supports UDP (kubectl doesn't)
 - Works across NAT without kubectl access
-- Persistent connections with auto-reconnect
+- QUIC keepalive and stream retry logic
 - No need for cluster credentials on client
 - Multiple clients can connect simultaneously
 
@@ -160,7 +160,7 @@ Tunnel UDP services like DNS (something `kubectl port-forward` can't do):
 tunnel-rs client \
   --server-node-id <SERVER_NODE_ID> \
   --source udp://kube-dns.kube-system.svc.cluster.local:53 \
-  --target udp://127.0.0.1:5353 \
+  --target 127.0.0.1:5353 \
   --auth-token "$AUTH_TOKEN"
 
 # Query cluster DNS locally

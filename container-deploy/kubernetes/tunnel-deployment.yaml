@@ -44,7 +44,7 @@
 #      tunnel-rs client \
 #        --server-node-id <SERVER_NODE_ID> \
 #        --source udp://kube-dns.kube-system.svc.cluster.local:53 \
-#        --target udp://127.0.0.1:5353 \
+#        --target 127.0.0.1:5353 \
 #        --auth-token <AUTH_TOKEN>
 
 apiVersion: apps/v1

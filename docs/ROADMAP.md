@@ -47,7 +47,7 @@ target = "127.0.0.1:5432"
 
 [[iroh.tunnels]]
 source = "udp://127.0.0.1:53"
-target = "udp://127.0.0.1:5353"
+target = "127.0.0.1:5353"
 ```
 
 **Complexity:** High
