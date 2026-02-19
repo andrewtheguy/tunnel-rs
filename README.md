@@ -10,11 +10,9 @@ Tunnel-rs enables you to forward TCP and UDP traffic between machines without re
 > [!WARNING]
 > **No Backward Compatibility (Pre-1.0):** During initial development before version 1.0, no backward compatibility or migration path is provided between minor versions (e.g., 0.1.x to 0.2.x). Expect to regenerate server keys and rebuild client/server configurations when upgrading in between minor versions.
 
-**Common Features:**
+**Features:**
 - **No account or registration required** — Just download and run
 - **No publicly accessible IPs or port forwarding required** — Automatic NAT hole punching
-
-**Port Forwarding Features:**
 - **Full TCP and UDP support** — Seamlessly tunnel any TCP or UDP traffic
 - **Cross-platform** — Works on Linux, macOS, and Windows
 - **No root required** — Runs as unprivileged user
@@ -23,7 +21,7 @@ Tunnel-rs enables you to forward TCP and UDP traffic between machines without re
 - **Flexible signaling** — Automated discovery (iroh), decentralized (Nostr), or manual exchange
 - **Offline/LAN support** — manual mode works without internet
 
-**Common Use Cases:**
+**Use Cases:**
 - **SSH access** to machines behind NAT/firewalls
 - **UDP Tunneling** — A key advantage over AWS SSM and `kubectl port-forward` which typically lack UDP support. Ideal for:
   - WireGuard/OpenVPN over P2P
@@ -37,16 +35,7 @@ Tunnel-rs enables you to forward TCP and UDP traffic between machines without re
 - **Homelab Networking** — Connecting distributed homelab nodes or accessing local services remotely without complex VPN setups or public IP requirements
 - **Cross-platform Tunneling** for both TCP and UDP workflows (including Windows endpoints)
 
-## Which Should I Use?
-
-| Need | Recommended | Binary |
-|------|-------------|--------|
-| Forward a specific port (SSH, HTTP, database) | Port Forwarding (iroh mode) | `tunnel-rs` |
-| Access UDP services (WireGuard, DNS, game servers) | Port Forwarding (iroh mode) | `tunnel-rs` |
-| Alternative to `kubectl port-forward` with UDP support | Port Forwarding (iroh mode) | `tunnel-rs` |
-| No root/admin privileges available | Port Forwarding (iroh mode) | `tunnel-rs` |
-
-### Alternative Port Forwarding Modes (Niche Use Cases)
+## Alternative Modes (Niche Use Cases)
 
 | Need | Recommended | Binary |
 |------|-------------|--------|
@@ -57,15 +46,13 @@ Tunnel-rs enables you to forward TCP and UDP traffic between machines without re
 
 ## Overview
 
-tunnel-rs provides multiple modes for establishing tunnels. **Use `iroh` mode** for most use cases — it provides the best NAT traversal with relay fallback, automatic discovery, and client authentication.
+tunnel-rs provides multiple modes for establishing tunnels. **Use `iroh` mode** for most use cases — it provides the best NAT traversal with relay fallback, automatic discovery, and client authentication. Clients use ephemeral identities by default, so multiple clients can connect to the same server with the same auth token — each session is independent.
 
-**Identity note:** iroh discovery uses shareable identities. Port-forwarding sessions are independent, and clients use ephemeral identities by default.
+**Binaries:**
+- `tunnel-rs`: iroh mode (install script or download from releases)
+- `tunnel-rs-ice`: manual and nostr modes (download from releases)
 
-**Binary layout:**
-- `tunnel-rs`: Port forwarding with iroh mode (install script or download from releases)
-- `tunnel-rs-ice`: Port forwarding with manual and nostr modes (download from releases)
-
-### Port Forwarding Modes
+### Modes
 
 | Mode | NAT Traversal | Discovery | External Dependency |
 |------|---------------|-----------|---------------------|
@@ -91,8 +78,6 @@ Choose an alternative mode only if you have specific requirements:
 ## Installation
 
 You only need the binary in your PATH; no runtime dependencies or package managers are required.
-
-### Port Forwarding (`tunnel-rs`)
 
 **Linux & macOS:**
 ```bash
@@ -145,11 +130,8 @@ curl -sSL https://andrewtheguy.github.io/tunnel-rs/install.sh | bash -s 20251210
 ### From Source
 
 ```bash
-# Port forwarding (iroh mode)
-cargo install --path . -p tunnel-rs
-
-# Port forwarding (nostr/manual modes)
-cargo install --path . -p tunnel-rs-ice
+cargo install --path . -p tunnel-rs       # iroh mode
+cargo install --path . -p tunnel-rs-ice   # nostr/manual modes
 ```
 
 ### Feature Flags
@@ -167,7 +149,7 @@ Official prebuilt release artifacts currently include:
 
 Intel macOS is supported when building from source.
 
-All modes (iroh, manual, nostr) work across all platforms, enabling cross-platform P2P tunneling.
+All modes work across all platforms.
 
 ### Docker & Kubernetes
 
@@ -177,9 +159,7 @@ Access services running in Docker or Kubernetes remotely — without opening por
 
 ---
 
-# Common Configuration
-
-These settings apply to Port Forwarding (`tunnel-rs`) using iroh.
+# Configuration
 
 ## Persistent Server Identity
 
@@ -282,17 +262,7 @@ For custom relay servers, DNS discovery, or fully independent operation without 
 
 ---
 
-# Port Forwarding
-
-Forward specific TCP/UDP ports between machines. Cross-platform (Linux, macOS, Windows), no root required.
-
-## iroh Mode (Recommended)
-
-Uses iroh's P2P network for automatic peer discovery and NAT traversal with relay fallback. Best for containerized environments.
-
-> **Summary:** Automatic discovery via Pkarr/DNS, relay fallback for restrictive NATs, multi-session support. See [Architecture: iroh Mode](docs/ARCHITECTURE.md#iroh-mode) for detailed diagrams.
-
-**Note:** While discovery and relay are fully automatic, peers still need to exchange the server's **EndpointId** to initiate the connection. The server whitelists allowed networks, and the client specifies which service to tunnel.
+# Usage
 
 ## Architecture
 
@@ -558,15 +528,6 @@ tunnel-rs show-server-id --secret-file ./server.key
 ```
 
 ---
-
-## Platform Compatibility
-
-tunnel-rs is designed to work across different operating systems:
-- **Windows** can receive connections from Linux/macOS and vice versa
-- **macOS** endpoints can tunnel to Linux systems
-- **Linux** endpoints work with all platforms
-
-All protocol modes and features are available on all platforms.
 
 ## Security
 
