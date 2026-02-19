@@ -20,7 +20,15 @@ jobs:
     outputs:
       release_tag: ${{ steps.tag.outputs.release_tag }}
       is_prerelease: ${{ steps.tag.outputs.is_prerelease }}
+      minor_version: ${{ steps.version.outputs.minor_version }}
     steps:
+      - uses: actions/checkout@v4
+      - name: Extract minor version from Cargo.toml
+        id: version
+        run: |
+          VERSION=$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)"/\1/')
+          MINOR=$(echo "$VERSION" | cut -d. -f1-2)
+          echo "minor_version=$MINOR" >> "$GITHUB_OUTPUT"
       - name: Generate Tag
         id: tag
         env:
@@ -219,6 +227,17 @@ jobs:
             ${{ env.GHCR_IMAGE }}:${TAG}-amd64 \
             ${{ env.GHCR_IMAGE }}:${TAG}-arm64
           docker manifest push ${{ env.GHCR_IMAGE }}:${TAG}
+
+      - name: Create and push minor version multi-arch manifest
+        if: needs.setup.outputs.is_prerelease == 'false'
+        run: |
+          TAG=${{ needs.setup.outputs.release_tag }}
+          MINOR=${{ needs.setup.outputs.minor_version }}
+
+          docker manifest create ${{ env.GHCR_IMAGE }}:${MINOR} \
+            ${{ env.GHCR_IMAGE }}:${TAG}-amd64 \
+            ${{ env.GHCR_IMAGE }}:${TAG}-arm64
+          docker manifest push ${{ env.GHCR_IMAGE }}:${MINOR}
 
       - name: Create and push latest multi-arch manifest
         if: needs.setup.outputs.is_prerelease == 'false'
