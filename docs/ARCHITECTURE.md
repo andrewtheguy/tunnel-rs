@@ -788,7 +788,7 @@ graph TB
 - Use `iroh` mode for multi-client support
 - Run separate server instances for each tunnel
 
-See [Roadmap](ROADMAP.md) for planned multi-session support.
+Use `iroh` or `nostr` mode for multi-session support.
 
 ---
 

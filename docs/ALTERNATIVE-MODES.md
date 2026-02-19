@@ -245,7 +245,7 @@ When no relays are specified, these public relays are used:
 - Keys are static like WireGuard — generate once, use repeatedly
 - Transfer ID is derived from SHA256 of sorted pubkeys — both peers compute the same ID
 - Signaling uses Nostr event kind 24242 with tags for transfer ID and peer pubkey
-- Full ICE provides reliable NAT traversal (same as custom mode)
+- Full ICE provides reliable NAT traversal (same as manual mode)
 - **Client-first protocol:** The client initiates the connection by publishing a request first; server waits for a request before publishing its offer
 
 > [!WARNING]

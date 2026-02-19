@@ -20,10 +20,10 @@ On macOS, when a tunnel-ice client listens on `localhost`, third-party applicati
 
 | File | Function | Issue |
 |------|----------|-------|
-| `nostr/client.rs:122,234` | `run_nostr_tcp_client` | Uses `resolve_listen_addr`, binds TCP to single address |
-| `nostr/client.rs:354,466` | `run_nostr_udp_client` | Uses `resolve_listen_addr`, binds UDP to single address |
-| `custom/tunnel.rs:315` | `run_manual_client` | Takes single `SocketAddr`, binds to single address |
-| `main.rs:636` | manual client entry | Calls `resolve_listen_addr` (singular) |
+| `nostr/client.rs` | `run_nostr_tcp_client` | Uses `resolve_listen_addr`, binds TCP to single address |
+| `nostr/client.rs` | `run_nostr_udp_client` | Uses `resolve_listen_addr`, binds UDP to single address |
+| `custom/tunnel.rs` | `run_manual_client` | Takes single `SocketAddr`, binds to single address |
+| `main.rs` | manual client entry | Calls `resolve_listen_addr` (singular) |
 
 ## Why Dual-Stack Sockets Don't Work
 
