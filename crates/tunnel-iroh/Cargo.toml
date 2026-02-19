@@ -10,7 +10,7 @@ path = "src/lib.rs"
 
 [dependencies]
 tunnel-common = { path = "../tunnel-common" }
-iroh = { version = "0.96.1", features = ["address-lookup-mdns"] }
+iroh.workspace = true
 iroh-quinn-proto = "0.15.1"
 tokio = { version = "1", features = ["full"] }
 anyhow = "1"

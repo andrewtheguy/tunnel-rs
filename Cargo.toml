@@ -12,6 +12,9 @@ members = [
 [workspace.package]
 version = "0.1.80"
 
+[workspace.dependencies]
+iroh = { version = "0.96.1", features = ["address-lookup-mdns"] }
+
 # [profile.release]
 # strip = true
 # lto = "fat"
