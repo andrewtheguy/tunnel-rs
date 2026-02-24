@@ -4,11 +4,13 @@ use anyhow::{Context, Result};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use iroh::{
     address_lookup::{DnsAddressLookup, MdnsAddressLookup, PkarrPublisher, PkarrResolver},
-    endpoint::{Builder as EndpointBuilder, ControllerFactory, QuicTransportConfig},
-    Endpoint, EndpointAddr, EndpointId, RelayMap, RelayMode, RelayUrl, SecretKey, Watcher,
+    endpoint::{Builder as EndpointBuilder, ControllerFactory, PathInfoList, QuicTransportConfig},
+    Endpoint, EndpointAddr, EndpointId, RelayMap, RelayMode, RelayUrl, SecretKey, TransportAddr,
+    Watcher,
 };
 use iroh_quinn_proto::congestion::{BbrConfig, CubicConfig, NewRenoConfig};
 use log::{info, warn};
+use tokio::task::JoinHandle;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -397,26 +399,59 @@ pub async fn connect_to_server(
     }
 }
 
-/// Print connection type information.
-pub fn print_connection_paths(conn: &iroh::endpoint::Connection) {
-    let paths = conn.paths().get();
+/// Format connection path info for display, showing selected paths with RTT.
+fn format_paths(paths: &PathInfoList) -> String {
     if paths.is_empty() {
-        info!("Connection paths: none");
-        return;
+        return "establishing...".to_string();
     }
-    for path in paths.iter() {
-        let selected = if path.is_selected() { " (selected)" } else { "" };
-        let remote = path.remote_addr();
-        match remote {
-            iroh::TransportAddr::Ip(addr) => {
-                info!("Connection path: direct {}{}", addr, selected);
+    let parts: Vec<String> = paths
+        .iter()
+        .filter(|p| p.is_selected())
+        .map(|path| {
+            let rtt = path.rtt();
+            match path.remote_addr() {
+                TransportAddr::Ip(addr) => format!("Direct {} (rtt {:.0?})", addr, rtt),
+                TransportAddr::Relay(url) => format!("Relay {} (rtt {:.0?})", url, rtt),
+                other => format!("{:?} (rtt {:.0?})", other, rtt),
             }
-            iroh::TransportAddr::Relay(relay_url) => {
-                info!("Connection path: relay {}{}", relay_url, selected);
-            }
-            _ => {
-                info!("Connection path: other {:?}{}", remote, selected);
+        })
+        .collect();
+    if parts.is_empty() {
+        "no selected path".to_string()
+    } else {
+        parts.join(", ")
+    }
+}
+
+/// RAII guard that aborts the background path watcher task on drop.
+pub struct PathWatcherGuard(JoinHandle<()>);
+
+impl Drop for PathWatcherGuard {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+/// Log the current connection paths and spawn a background task that
+/// logs updates whenever the active path changes (e.g., relay -> direct).
+///
+/// The returned [`PathWatcherGuard`] aborts the background task when dropped.
+/// Callers must keep the guard alive for the duration of the connection.
+pub fn watch_connection_paths(conn: &iroh::endpoint::Connection) -> PathWatcherGuard {
+    let mut watcher = conn.paths();
+
+    // Log initial snapshot
+    let initial = watcher.get();
+    info!("Connection: {}", format_paths(&initial));
+
+    // Spawn background task that logs on changes
+    let mut last = initial;
+    PathWatcherGuard(tokio::spawn(async move {
+        while let Ok(paths) = watcher.updated().await {
+            if paths != last {
+                info!("Connection: {}", format_paths(&paths));
+                last = paths;
             }
         }
-    }
+    }))
 }
