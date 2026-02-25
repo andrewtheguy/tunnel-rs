@@ -97,8 +97,8 @@ impl std::fmt::Debug for MultiSourceClientConfig {
 use crate::auth::is_token_valid;
 
 use crate::iroh_mode::endpoint::{
-    connect_to_server, create_client_endpoint, create_server_endpoint, print_connection_paths,
-    validate_relay_only, MULTI_ALPN,
+    connect_to_server, create_client_endpoint, create_server_endpoint, validate_relay_only,
+    watch_connection_paths, MULTI_ALPN,
 };
 use crate::iroh_mode::helpers::{
     bridge_streams, forward_stream_to_udp_client, forward_stream_to_udp_server,
@@ -308,6 +308,9 @@ async fn handle_multi_source_connection(
             return Err(anyhow::anyhow!("auth_timeout"));
         }
     }
+
+    // Monitor connection path changes (e.g., relay -> direct)
+    let _path_watcher = watch_connection_paths(&conn);
 
     // Phase 2: Handle source streams (existing logic)
     let mut stream_tasks: JoinSet<()> = JoinSet::new();
@@ -564,7 +567,7 @@ pub async fn run_multi_source_client(config: MultiSourceClientConfig) -> Result<
     .await?;
 
     log::info!("Connected to server!");
-    print_connection_paths(&conn);
+    let _path_watcher = watch_connection_paths(&conn);
 
     // Authenticate immediately after connection
     authenticate_connection(&conn, &config.auth_token).await?;
