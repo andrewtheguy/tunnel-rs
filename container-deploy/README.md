@@ -5,8 +5,8 @@ Docker and Kubernetes configurations for running tunnel-rs in containerized envi
 Note: The container image `ghcr.io/andrewtheguy/tunnel-rs:latest` is iroh-only.
 The `tunnel-rs-ice` binary is published in GitHub releases but is not containerized.
 
-> [!TIP]
-> **Recommended Mode:** Use iroh mode for all deployments. It is the default behavior for `tunnel-rs server` and `tunnel-rs client`, and provides the best NAT traversal with relay fallback, client authentication via tokens, and multi-source capability where clients choose what to tunnel.
+> [!IMPORTANT]
+> **Project Goal:** This tool provides a convenient way to connect to different networks for **development or homelab purposes** without the hassle and security risk of opening a port. It is **not** meant for production setups or designed to be performant at scale.
 
 > [!WARNING]
 > **No Backward Compatibility (Pre-1.0):** During initial development before version 1.0, no backward compatibility or migration path is provided between minor versions (e.g., 0.1.x to 0.2.x). Expect to regenerate server keys and rebuild client/server configurations when upgrading between minor versions. To avoid unexpected breakage, pin the container image to a specific patch version (e.g., `ghcr.io/andrewtheguy/tunnel-rs:0.1.81`) or minor version (e.g., `ghcr.io/andrewtheguy/tunnel-rs:0.1`).
