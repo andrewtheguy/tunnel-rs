@@ -645,10 +645,10 @@ sequenceDiagram
 ### Token Security Notes (iroh Mode)
 
 - Tokens are **bearer credentials**: possession is sufficient for access. Use one token per client to enable revocation.
-- Token strength comes from **randomness, not format**: 16 random characters from a 65‑symbol alphabet (~96 bits of entropy). Treat tokens like high‑entropy secrets.
+- Token strength comes from **randomness, not format**: 32 random bytes (256 bits of entropy). Treat tokens like high‑entropy secrets.
 - Tokens are sent only **after** the QUIC/TLS 1.3 handshake, so the auth stream is encrypted in transit.
-- The checksum is **for typo detection only**, not cryptographic security.
-- Tokens are validated as ASCII and limited to safe characters to avoid shell/TOML parsing issues.
+- The CRC16-CCITT-FALSE checksum is **for typo detection only**, not cryptographic security.
+- Tokens are Base64URL-encoded and validated as ASCII.
 - Avoid logging or sharing tokens; the `AuthToken` wrapper redacts values in Debug output, but treat them like passwords.
 - Prefer token files with restricted permissions (e.g., `0600`) and rotate tokens if exposure is suspected.
 

@@ -20,14 +20,14 @@ server_node_id = "2xnbkpbc7izsilvewd7c62w7wnwziacmpfwvhcrya5nt76dqkpga"
 # Authentication (REQUIRED)
 # ============================================================================
 # Token provided by the server admin for authentication
-# Token format: exactly 18 characters (i + 16 body chars + checksum)
+# Token format: exactly 47 characters (i + 46 Base64URL chars, no padding)
 # Generate with: tunnel-rs generate-token
 #
 # IMPORTANT: Use 'auth_token' or 'auth_token_file' (NOT 'secret' or 'secret_file'
 # which are server-only options for persistent identity)
 #
 # NOTE: Use either auth_token OR auth_token_file, not both.
-auth_token = "iXXXXXXXXXXXXXXXXX"  # Replace with real token from generate-token
+auth_token = "iXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"  # Replace with real token from generate-token
 
 # Or use a file containing the token (one token, no comments)
 # NOTE: Use either auth_token OR auth_token_file, not both.

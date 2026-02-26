@@ -3,127 +3,75 @@
 //! Provides pre-shared token authentication for the iroh multi-source server.
 //!
 //! ## Token Format
-//! - Exactly 18 characters
-//! - Starts with lowercase 'i' (for iroh)
-//! - Ends with a Luhn mod N checksum character
-//! - Middle 16 characters: A-Za-z0-9 and - _ . (hyphen, underscore, period)
-//!
-//! ## Checksum Algorithm
-//! Uses [Luhn mod N](https://en.wikipedia.org/wiki/Luhn_mod_N_algorithm), a generalization
-//! of the credit card checksum algorithm. This detects:
-//! - All single-character substitution errors (typos)
-//! - Most adjacent transposition errors (swapping two neighboring characters)
-//!
-//! Note: With alphabet size 65, one pair ('A' and '.') cannot be detected when
-//! swapped adjacently due to mathematical properties of the algorithm.
+//! - Exactly 47 characters
+//! - Starts with lowercase `i` (for iroh)
+//! - Remaining 46 characters are Base64URL (no padding)
+//! - Decoded payload is exactly 34 bytes:
+//!   - First 32 bytes: random entropy
+//!   - Last 2 bytes: CRC16-CCITT-FALSE checksum (big-endian) of the 32 random bytes
 //!
 //! Generate tokens with: `tunnel-rs generate-token`
 
 use anyhow::{Context, Result};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+use rand::RngCore;
 use std::collections::HashSet;
 use std::path::Path;
 
 /// Required length for authentication tokens.
-pub const TOKEN_LENGTH: usize = 18;
+pub const TOKEN_LENGTH: usize = 47;
 
 /// Required prefix character for tokens.
 pub const TOKEN_PREFIX: char = 'i';
 
-/// Valid characters for the token body (excludes prefix and checksum).
-const VALID_CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.";
+/// Number of random bytes in token payload.
+const RANDOM_BYTES_LEN: usize = 32;
 
-/// Check if a character is valid for the token body.
-/// Allowed: A-Za-z0-9 and - _ . (safe symbols that don't conflict with shell/TOML syntax)
-#[inline]
-fn is_valid_token_char(c: char) -> bool {
-    c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.'
-}
+/// Number of checksum bytes in token payload.
+const CHECKSUM_BYTES_LEN: usize = 2;
 
-/// Map a character to its index in VALID_CHARS (0-64).
-#[inline]
-fn char_to_index(c: char) -> usize {
-    VALID_CHARS.iter().position(|&x| x == c as u8).unwrap_or(0)
-}
+/// Number of decoded bytes in token payload.
+const TOKEN_PAYLOAD_LEN: usize = RANDOM_BYTES_LEN + CHECKSUM_BYTES_LEN;
 
-/// Compute Luhn mod N sum for a string.
-/// Used both for generating and validating checksums.
-fn luhn_sum(s: &str) -> usize {
-    let n = VALID_CHARS.len(); // 65
-    let mut factor = 1;
-    let mut sum = 0;
+/// Compute CRC16-CCITT-FALSE.
+///
+/// Parameters:
+/// - Poly: 0x1021
+/// - Init: 0xFFFF
+/// - RefIn: false
+/// - RefOut: false
+/// - XorOut: 0x0000
+fn crc16_ccitt_false(data: &[u8]) -> u16 {
+    let mut crc = 0xFFFFu16;
 
-    // Process characters from right to left
-    for c in s.chars().rev() {
-        let code = char_to_index(c);
-        let mut addend = code * factor;
-
-        // Alternate factor between 1 and 2
-        factor = if factor == 1 { 2 } else { 1 };
-
-        // Sum the "digits" of the product (in base N)
-        addend = (addend / n) + (addend % n);
-        sum += addend;
+    for &byte in data {
+        crc ^= (byte as u16) << 8;
+        for _ in 0..8 {
+            if (crc & 0x8000) != 0 {
+                crc = (crc << 1) ^ 0x1021;
+            } else {
+                crc <<= 1;
+            }
+        }
     }
 
-    sum % n
-}
-
-/// Calculate checksum character using Luhn mod N algorithm.
-///
-/// This is a generalization of the Luhn algorithm (used in credit cards) for
-/// arbitrary alphabets. It detects:
-/// - All single-character substitution errors
-/// - Most adjacent transposition errors (swapping two neighboring characters)
-///
-/// Note: With alphabet size 65, one pair ('A' and '.') cannot be detected when
-/// swapped adjacently due to mathematical properties of the algorithm.
-///
-/// Reference: https://en.wikipedia.org/wiki/Luhn_mod_N_algorithm
-fn calculate_checksum(body: &str) -> char {
-    let n = VALID_CHARS.len();
-
-    // Find check character that makes luhn_sum(body + check) == 0
-    // The check char will be processed with factor=1 (rightmost position)
-    // We recompute the sum with factor starting at 2 (since check gets factor=1)
-    let mut factor = 2;
-    let mut sum = 0;
-    for c in body.chars().rev() {
-        let code = char_to_index(c);
-        let mut addend = code * factor;
-        factor = if factor == 2 { 1 } else { 2 };
-        addend = (addend / n) + (addend % n);
-        sum += addend;
-    }
-
-    let check_index = (n - (sum % n)) % n;
-    VALID_CHARS[check_index] as char
-}
-
-/// Verify a string (body + checksum) has valid Luhn mod N checksum.
-fn verify_checksum(full: &str) -> bool {
-    luhn_sum(full) == 0
+    crc
 }
 
 /// Generate a new authentication token.
 ///
-/// Format: 'i' + 16 random chars + checksum = 18 characters total
+/// Format: `i` + base64url_no_pad(32 random bytes + 2-byte CRC16) = 47 characters total.
 pub fn generate_token() -> String {
-    use rand::Rng;
+    let mut random = [0u8; RANDOM_BYTES_LEN];
     let mut rng = rand::rng();
+    rng.fill_bytes(&mut random);
 
-    // Generate 16 random characters for the body
-    let body: String = (0..16)
-        .map(|_| {
-            let idx = rng.random_range(0..VALID_CHARS.len());
-            VALID_CHARS[idx] as char
-        })
-        .collect();
+    let checksum = crc16_ccitt_false(&random).to_be_bytes();
+    let mut payload = [0u8; TOKEN_PAYLOAD_LEN];
+    payload[..RANDOM_BYTES_LEN].copy_from_slice(&random);
+    payload[RANDOM_BYTES_LEN..].copy_from_slice(&checksum);
 
-    // Calculate checksum
-    let checksum = calculate_checksum(&body);
-
-    // Combine: prefix + body + checksum
-    format!("{}{}{}", TOKEN_PREFIX, body, checksum)
+    format!("{}{}", TOKEN_PREFIX, URL_SAFE_NO_PAD.encode(payload))
 }
 
 /// Validate token format.
@@ -152,17 +100,24 @@ pub fn validate_token(token: &str) -> Result<()> {
         );
     }
 
-    // Check body characters (positions 1-16) and checksum character
-    let body_and_checksum = &token[1..];
-    if let Some(invalid_char) = body_and_checksum.chars().find(|c| !is_valid_token_char(*c)) {
+    let encoded_payload = &token[TOKEN_PREFIX.len_utf8()..];
+    let payload = URL_SAFE_NO_PAD
+        .decode(encoded_payload)
+        .context("Token payload is not valid base64url without padding")?;
+
+    if payload.len() != TOKEN_PAYLOAD_LEN {
         anyhow::bail!(
-            "Token contains invalid character '{}'. Allowed: A-Za-z0-9 and - _ .",
-            invalid_char
+            "Token payload must decode to exactly {} bytes, got {} bytes",
+            TOKEN_PAYLOAD_LEN,
+            payload.len()
         );
     }
 
-    // Verify checksum using Luhn mod N (body + checksum should sum to 0)
-    if !verify_checksum(body_and_checksum) {
+    let random = &payload[..RANDOM_BYTES_LEN];
+    let checksum = &payload[RANDOM_BYTES_LEN..];
+    let expected_checksum = crc16_ccitt_false(random).to_be_bytes();
+
+    if checksum != expected_checksum {
         anyhow::bail!("Token checksum is invalid");
     }
 
@@ -205,7 +160,7 @@ pub fn load_auth_tokens(cli_tokens: &[String], file: Option<&Path>) -> Result<Ha
 /// Load authentication tokens from a file.
 ///
 /// # File Format
-/// - One token per line (18 chars: 'i' + 16 body + checksum)
+/// - One token per line (`i` + 46 Base64URL chars, no padding)
 /// - Lines starting with `#` are treated as comments
 /// - Empty lines are ignored
 /// - Inline comments (after token) are supported with `#`
@@ -213,8 +168,8 @@ pub fn load_auth_tokens(cli_tokens: &[String], file: Option<&Path>) -> Result<Ha
 /// # Example file:
 /// ```text
 /// # Authentication tokens (generate with: tunnel-rs generate-token)
-/// ikAdvudu_ZxNXhNLCD  # Client A
-/// iw3nLKic3oV7zmFJ8v  # Client B
+/// imfNFxTPDKB3jsM1Q8kzAvZnQHbmJ1W49Rk8i1S2Jzrze9Q
+/// ih9SwOUD1nHkQpl4Gf0fQrVrRIt6QctNfPzIlcwkPhzv0ig
 /// ```
 pub fn load_auth_tokens_from_file(path: &Path) -> Result<HashSet<String>> {
     let content = std::fs::read_to_string(path)
@@ -253,7 +208,7 @@ pub fn load_auth_tokens_from_file(path: &Path) -> Result<HashSet<String>> {
 /// Load a single auth token from a file.
 ///
 /// # File Format
-/// - First non-empty, non-comment line is the token (18 chars: 'i' + 16 body + checksum)
+/// - First non-empty, non-comment line is the token (`i` + 46 Base64URL chars, no padding)
 /// - Lines starting with `#` are treated as comments
 /// - Empty lines are ignored
 /// - Inline comments (after token) are supported with `#`
@@ -304,11 +259,24 @@ mod tests {
     use std::io::Write;
     use tempfile::NamedTempFile;
 
-    // Helper to create a valid test token with known body
-    fn make_test_token(body: &str) -> String {
-        assert_eq!(body.len(), 16, "Test body must be 16 chars");
-        let checksum = calculate_checksum(body);
-        format!("{}{}{}", TOKEN_PREFIX, body, checksum)
+    fn make_test_token(random: [u8; RANDOM_BYTES_LEN]) -> String {
+        let checksum = crc16_ccitt_false(&random).to_be_bytes();
+        let mut payload = [0u8; TOKEN_PAYLOAD_LEN];
+        payload[..RANDOM_BYTES_LEN].copy_from_slice(&random);
+        payload[RANDOM_BYTES_LEN..].copy_from_slice(&checksum);
+        format!("{}{}", TOKEN_PREFIX, URL_SAFE_NO_PAD.encode(payload))
+    }
+
+    fn decode_payload(token: &str) -> Vec<u8> {
+        URL_SAFE_NO_PAD
+            .decode(&token[TOKEN_PREFIX.len_utf8()..])
+            .unwrap()
+    }
+
+    #[test]
+    fn test_crc16_ccitt_false_known_vector() {
+        // Standard check value for CRC16-CCITT-FALSE with "123456789".
+        assert_eq!(crc16_ccitt_false(b"123456789"), 0x29B1);
     }
 
     #[test]
@@ -328,7 +296,7 @@ mod tests {
 
     #[test]
     fn test_validate_token_valid() {
-        let token = generate_token();
+        let token = make_test_token([0xAB; RANDOM_BYTES_LEN]);
         assert!(validate_token(&token).is_ok());
     }
 
@@ -339,23 +307,27 @@ mod tests {
         assert!(result
             .unwrap_err()
             .to_string()
-            .contains("exactly 18 characters"));
+            .contains("exactly 47 characters"));
     }
 
     #[test]
     fn test_validate_token_too_long() {
-        let result = validate_token("ithisistoolongtokenXX");
+        let token = format!("{}{}", TOKEN_PREFIX, "A".repeat(TOKEN_LENGTH));
+        let result = validate_token(&token);
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
             .to_string()
-            .contains("exactly 18 characters"));
+            .contains("exactly 47 characters"));
     }
 
     #[test]
     fn test_validate_token_wrong_prefix() {
-        // Valid length but wrong prefix
-        let result = validate_token("xABCDEF1234567890Y");
+        let mut token = generate_token().chars().collect::<Vec<_>>();
+        token[0] = 'x';
+        let token: String = token.into_iter().collect();
+
+        let result = validate_token(&token);
         assert!(result.is_err());
         assert!(result
             .unwrap_err()
@@ -364,95 +336,51 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_token_invalid_chars() {
-        let result = validate_token("iabc@def#123$456!X");
+    fn test_validate_token_invalid_base64url_chars() {
+        let token = format!("{}{}", TOKEN_PREFIX, "!".repeat(TOKEN_LENGTH - 1));
+        let result = validate_token(&token);
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("invalid character"));
+        assert!(result.unwrap_err().to_string().contains("base64url"));
     }
 
     #[test]
     fn test_validate_token_non_ascii() {
-        // Token with non-ASCII characters (emoji, accented chars)
-        let result = validate_token("i🔐secret_token!");
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("ASCII"));
-
-        let result = validate_token("iàbcdéf1234567890");
+        let result = validate_token("i🔐notascii");
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("ASCII"));
     }
 
     #[test]
     fn test_validate_token_bad_checksum() {
-        // Valid format but wrong checksum
-        let result = validate_token("iABCDEF1234567890X");
+        let mut payload = decode_payload(&generate_token());
+        payload[RANDOM_BYTES_LEN] ^= 0x01;
+        let bad = format!("{}{}", TOKEN_PREFIX, URL_SAFE_NO_PAD.encode(payload));
+
+        let result = validate_token(&bad);
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("checksum"));
     }
 
     #[test]
-    fn test_checksum_detects_single_char_substitution() {
-        // Luhn mod N guarantees detection of all single-character substitutions
-        for _ in 0..10 {
-            let token = generate_token();
-            let chars: Vec<char> = token.chars().collect();
+    fn test_validate_token_rejects_mutated_random_byte() {
+        let mut payload = decode_payload(&generate_token());
+        payload[0] ^= 0x80;
+        let bad = format!("{}{}", TOKEN_PREFIX, URL_SAFE_NO_PAD.encode(payload));
 
-            // Try changing each character in the body (positions 1-16)
-            for pos in 1..17 {
-                let mut modified_chars = chars.clone();
-                // Change to a different valid character
-                let original = modified_chars[pos];
-                modified_chars[pos] = if original == 'A' { 'B' } else { 'A' };
-                let modified: String = modified_chars.into_iter().collect();
-                assert!(
-                    validate_token(&modified).is_err(),
-                    "Single-char substitution at position {} should be detected",
-                    pos
-                );
-            }
-        }
+        let result = validate_token(&bad);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("checksum"));
     }
 
     #[test]
-    fn test_checksum_detects_adjacent_transposition() {
-        // Luhn mod N detects most adjacent transpositions, but with alphabet size n=65,
-        // there's one edge case: swapping chars at indices 0 ('A') and 64 ('.') is
-        // undetectable because g(0) = g(64) where g(x) = x for x<=32, x-64 for x>=33.
-        // This is a known mathematical property of Luhn mod N with this alphabet size.
-        fn is_undetectable_pair(c1: char, c2: char) -> bool {
-            (c1 == 'A' && c2 == '.') || (c1 == '.' && c2 == 'A')
-        }
+    fn test_validate_token_rejects_mutated_checksum_byte() {
+        let mut payload = decode_payload(&generate_token());
+        payload[TOKEN_PAYLOAD_LEN - 1] ^= 0x01;
+        let bad = format!("{}{}", TOKEN_PREFIX, URL_SAFE_NO_PAD.encode(payload));
 
-        for _ in 0..10 {
-            let token = generate_token();
-            let chars: Vec<char> = token.chars().collect();
-
-            // Try swapping each pair of adjacent characters in the body
-            for pos in 1..16 {
-                // Skip if adjacent chars are the same (transposition would be identical)
-                if chars[pos] == chars[pos + 1] {
-                    continue;
-                }
-
-                // Skip the known undetectable pair (A <-> .)
-                if is_undetectable_pair(chars[pos], chars[pos + 1]) {
-                    continue;
-                }
-
-                let mut modified_chars = chars.clone();
-                modified_chars.swap(pos, pos + 1);
-                let modified: String = modified_chars.into_iter().collect();
-                assert!(
-                    validate_token(&modified).is_err(),
-                    "Adjacent transposition at positions {}-{} should be detected",
-                    pos,
-                    pos + 1
-                );
-            }
-        }
+        let result = validate_token(&bad);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("checksum"));
     }
 
     #[test]
@@ -565,13 +493,5 @@ mod tests {
         let cli_tokens = vec!["short".to_string()];
         let result = load_auth_tokens(&cli_tokens, None);
         assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_make_test_token_helper() {
-        let token = make_test_token("ABCDEF1234567890");
-        assert_eq!(token.len(), 18);
-        assert!(token.starts_with('i'));
-        assert!(validate_token(&token).is_ok());
     }
 }

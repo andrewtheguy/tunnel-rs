@@ -9,7 +9,10 @@ The `tunnel-rs-ice` binary is published in GitHub releases but is not containeri
 > **Project Goal:** This tool provides a convenient way to connect to different networks for **development or homelab purposes** without the hassle and security risk of opening a port. It is **not** meant for production setups or designed to be performant at scale.
 
 > [!WARNING]
-> **No Backward Compatibility (Pre-1.0):** During initial development before version 1.0, no backward compatibility or migration path is provided between minor versions (e.g., 0.1.x to 0.2.x). Expect to regenerate server keys and rebuild client/server configurations when upgrading between minor versions. To avoid unexpected breakage, pin the container image to a specific patch version (e.g., `ghcr.io/andrewtheguy/tunnel-rs:0.1.81`) or minor version (e.g., `ghcr.io/andrewtheguy/tunnel-rs:0.1`).
+> **No Backward Compatibility (Pre-1.0):** During initial development before version 1.0, no backward compatibility or migration path is provided between minor versions (e.g., 0.1.x to 0.2.x). Expect to regenerate server keys and rebuild client/server configurations when upgrading between minor versions. To avoid unexpected breakage, pin the container image to a specific patch version (e.g., `ghcr.io/andrewtheguy/tunnel-rs:0.2.0`) or minor version (e.g., `ghcr.io/andrewtheguy/tunnel-rs:0.2`).
+
+> [!WARNING]
+> **Breaking Change (v0.2):** The auth token format changed from 18-char Luhn mod N tokens to 47-char Base64URL tokens with CRC16 checksum. Old tokens are **not** accepted. Regenerate all tokens with `tunnel-rs generate-token` and update your `tokens.txt` files and client configurations.
 
 ## How It Works
 

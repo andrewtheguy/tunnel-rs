@@ -10,6 +10,9 @@ Tunnel-rs enables you to forward TCP and UDP traffic between machines without re
 > [!WARNING]
 > **No Backward Compatibility (Pre-1.0):** During initial development before version 1.0, no backward compatibility or migration path is provided between minor versions (e.g., 0.1.x to 0.2.x). Expect to regenerate server keys and rebuild client/server configurations when upgrading in between minor versions.
 
+> [!WARNING]
+> **Breaking Change (v0.2):** The auth token format changed from 18-char Luhn mod N tokens to 47-char Base64URL tokens with CRC16 checksum. Old tokens are **not** accepted. Regenerate all tokens with `tunnel-rs generate-token` and update server/client configurations.
+
 **Features:**
 - **No account or registration required** — Just download and run
 - **No publicly accessible IPs or port forwarding required** — Automatic NAT hole punching
@@ -193,12 +196,12 @@ secret_file = "./server.key"
 Iroh mode requires authentication using pre-shared tokens. Clients must provide a valid token to connect.
 
 **Token Format:**
-- Exactly 18 characters
+- Exactly 47 characters
 - Starts with `i` (for iroh)
-- Ends with a [Luhn mod N](https://en.wikipedia.org/wiki/Luhn_mod_N_algorithm) checksum character
-- Middle 16 characters: `A-Za-z0-9` and `-` `_` `.` (period is valid but rare in generated tokens)
+- Remaining 46 characters are Base64URL-encoded (no padding)
+- Decoded payload: 32 random bytes + 2-byte CRC16-CCITT-FALSE checksum
 
-The checksum detects all single-character typos and most adjacent transpositions (same algorithm family as credit cards).
+The CRC16 checksum detects all single-byte errors in the token payload.
 
 Generate tokens with: `tunnel-rs generate-token`
 
@@ -231,10 +234,10 @@ tunnel-rs server \
 **Example `auth_tokens.txt`:**
 ```text
 # Alice's token (generate with: tunnel-rs generate-token)
-iXXXXXXXXXXXXXXXXX
+iXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 # Bob's token
-iYYYYYYYYYYYYYYYYY
+iYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY
 ```
 
 ### Configuration File
@@ -243,8 +246,8 @@ iYYYYYYYYYYYYYYYYY
 ```toml
 [iroh]
 auth_tokens = [
-    "iXXXXXXXXXXXXXXXXX",  # Alice
-    "iYYYYYYYYYYYYYYYYY",  # Bob
+    "iXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",  # Alice
+    "iYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY",  # Bob
 ]
 # Or use: auth_tokens_file = "/etc/tunnel-rs/auth_tokens.txt"
 ```
@@ -252,7 +255,7 @@ auth_tokens = [
 **Client** (`client.toml` or CLI):
 ```toml
 [iroh]
-auth_token = "iXXXXXXXXXXXXXXXXX"
+auth_token = "iXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
 # Or use: auth_token_file = "~/.config/tunnel-rs/token.txt"
 ```
 
@@ -438,11 +441,11 @@ secret_file = "./server.key"
 dns_server = "https://dns.example.com/pkarr"
 max_sessions = 100
 
-# Authentication: clients must provide one of these tokens (18 chars)
+# Authentication: clients must provide one of these tokens (47 chars)
 # Generate with: tunnel-rs generate-token
 auth_tokens = [
-    "iXXXXXXXXXXXXXXXXX",
-    "iYYYYYYYYYYYYYYYYY",
+    "iXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    "iYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY",
 ]
 # Or use: auth_tokens_file = "/etc/tunnel-rs/auth_tokens.txt"
 
@@ -478,8 +481,8 @@ target = "127.0.0.1:2222"
 # relay_urls = ["https://relay.example.com"]
 dns_server = "https://dns.example.com/pkarr"
 
-# Authentication token (get from server admin, 18 chars)
-auth_token = "iXXXXXXXXXXXXXXXXX"
+# Authentication token (get from server admin, 47 chars)
+auth_token = "iXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
 # Or use: auth_token_file = "~/.config/tunnel-rs/token.txt"
 ```
 
@@ -505,13 +508,13 @@ Generate authentication tokens for iroh mode:
 ```bash
 # Generate a single token
 tunnel-rs generate-token
-# Output: i<random-16-chars><checksum>
+# Output: i<base64url-encoded-payload>
 
 # Generate multiple tokens
 tunnel-rs generate-token -c 5
 ```
 
-Token format: `i` + 16 random chars + Luhn mod N checksum = 18 characters total.
+Token format: `i` + Base64URL-encoded(32 random bytes + CRC16 checksum) = 47 characters total.
 
 ## generate-server-key
 

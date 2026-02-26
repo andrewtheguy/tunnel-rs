@@ -49,14 +49,14 @@ max_sessions = 100
 # Authentication (REQUIRED)
 # ============================================================================
 # Clients must provide one of these tokens to connect.
-# Token format: exactly 18 characters (i + 16 body chars + checksum)
+# Token format: exactly 47 characters (i + 46 Base64URL chars, no padding)
 # Generate with: tunnel-rs generate-token
 
 # Authentication tokens (inline list)
 # NOTE: Use either auth_tokens OR auth_tokens_file, not both.
 auth_tokens = [
-    "iXXXXXXXXXXXXXXXXX",  # Replace with real tokens from generate-token
-    # "iYYYYYYYYYYYYYYYYY",  # Add more tokens as needed
+    "iXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",  # Replace with real tokens from generate-token
+    # "iYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY",  # Add more tokens as needed
 ]
 
 # Or use a file (one token per line, # comments allowed)

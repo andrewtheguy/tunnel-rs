@@ -1,7 +1,7 @@
 # Authentication tokens (one per line)
 # Generate tokens with: tunnel-rs generate-token
 #
-# Token format: 18 chars (i + 16 body + Luhn mod N checksum)
+# Token format: 47 chars (i + 46 Base64URL chars, no padding)
 # Replace placeholder tokens below with real ones from generate-token:
-# iXXXXXXXXXXXXXXXXX
-# iYYYYYYYYYYYYYYYYY
+# iXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+# iYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY
