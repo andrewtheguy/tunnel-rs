@@ -1,6 +1,6 @@
 # Alternative Modes (Niche Use Cases)
 
-This document covers the alternative port forwarding modes (`manual` and `nostr`) which use the `tunnel-rs-ice` binary. For most use cases, use [iroh mode](../README.md#iroh-mode-recommended) with the `tunnel-rs` binary.
+This document covers the alternative port forwarding modes (`manual` and `nostr`) which use the `tunnel-rs-ice` binary. For most use cases, use [iroh mode](../README.md#iroh-mode) with the `tunnel-rs` binary.
 
 ## manual Mode
 
@@ -321,8 +321,8 @@ graph TB
         E[Create quinn Endpoint] --> F[Bind to ICE socket]
         F --> G[TLS Configuration]
         G --> H{Role?}
-        H -->|Server| I[Connect to remote]
-        H -->|Client| J[Accept connection]
+        H -->|Server| I[Accept connection]
+        H -->|Client| J[Connect to remote]
     end
 
     subgraph "Data Transfer"
@@ -555,7 +555,7 @@ Nostr mode combines the full ICE implementation from manual mode with automated 
 All modes use a **client-initiated** model for consistent UX:
 
 - **Server**: Whitelists allowed networks with `--allowed-tcp`/`--allowed-udp` (CIDR notation)
-- **Client**: Specifies which service to tunnel with `--source` (hostname:port)
+- **Client**: Specifies which service to tunnel with `--source` (`tcp://host:port` or `udp://host:port`)
 
 This is similar to SSH's `-L` flag for local port forwarding, where the client chooses the destination.
 

@@ -26,7 +26,7 @@ tunnel-rs uses a **client-initiated** model similar to SSH `-L` tunneling:
 - Does NOT specify ports — clients choose the destination
 
 **Client** (initiates connection from remote machine):
-- Uses `--source` with **hostname:port** (e.g., `tcp://postgres:5432`) to request a specific service
+- Uses `--source` with **protocol + address** (e.g., `tcp://postgres:5432` or `udp://kube-dns.kube-system.svc.cluster.local:53`) to request a specific service
 - Uses `--target` to specify local listen address
 - Uses `--auth-token` to authenticate with the server
 

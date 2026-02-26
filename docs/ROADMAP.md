@@ -69,7 +69,7 @@ target = "127.0.0.1:5353"
 
 Rate limiting for token authentication to prevent brute-force attacks. Hybrid approach with per-client limits (for typo handling) and global limits (for distributed attack detection).
 
-See [RATE_LIMITING_PROPOSAL.md](RATE_LIMITING_PROPOSAL.md) for detailed design.
+Design to be documented in a dedicated proposal file.
 
 ---
 

@@ -9,7 +9,7 @@ Scripts for testing client-initiated multi-session nostr tunnel.
 
 In client-initiated mode:
 - **Server** whitelists allowed networks with `--allowed-tcp` (CIDR notation)
-- **Client** specifies the source service with `--source` (hostname:port)
+- **Client** specifies the source service with `--source` (`tcp://host:port` or `udp://host:port`)
 
 ```
 [Echo Server]     [Server]                      [Client]                [Test Client]
