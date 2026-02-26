@@ -277,7 +277,7 @@ For custom relay servers, DNS discovery, or fully independent operation without 
      Client Side                                            Server Side
 ```
 
-For deeper architecture diagrams and protocol flows, see [docs/ARCHITECTURE-PORT-FORWARDING.md](docs/ARCHITECTURE-PORT-FORWARDING.md).
+For deeper architecture diagrams and protocol flows, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Quick Start
 

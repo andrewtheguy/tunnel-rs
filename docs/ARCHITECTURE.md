@@ -6,7 +6,7 @@ This document provides a comprehensive overview of the tunnel-rs architecture, i
 
 - [System Overview](#system-overview)
 - [Mode Comparison](#mode-comparison)
-- [Mode-Specific Architecture](#mode-specific-architecture)
+- [iroh Mode Architecture](#iroh-mode-architecture)
 - [Configuration System](#configuration-system)
 - [Security Model](#security-model)
 - [Protocol Support](#protocol-support)
@@ -203,11 +203,212 @@ graph LR
 
 ---
 
-## Mode-Specific Architecture
+## iroh Mode Architecture
 
-Detailed architecture for each mode lives in separate documents:
+> For manual and nostr mode architecture, see [docs/ALTERNATIVE-MODES.md](ALTERNATIVE-MODES.md).
 
-- Port Forwarding (iroh, manual, nostr): `docs/ARCHITECTURE-PORT-FORWARDING.md`
+### Architecture Overview
+
+```mermaid
+graph TB
+    subgraph "Server Side"
+        A[tunnel-rs server]
+        B[iroh Endpoint]
+        C[Target Service<br/>e.g., SSH:22]
+        D[Discovery<br/>Pkarr/DNS]
+        E[Relay Server]
+    end
+
+    subgraph "Client Side"
+        F[tunnel-rs client]
+        G[iroh Endpoint]
+        H[Local Client<br/>e.g., SSH client]
+        I[Discovery<br/>Pkarr/DNS]
+        J[Relay Server]
+    end
+
+    A --> B
+    B --> C
+    B --> D
+    B --> E
+
+    F --> G
+    G --> H
+    G --> I
+    G --> J
+
+    B <-.QUIC/TLS.-> G
+    D <-.Publish/Resolve.-> I
+    E <-.Fallback.-> J
+
+    style A fill:#E8F5E9
+    style F fill:#E8F5E9
+    style B fill:#BBDEFB
+    style G fill:#BBDEFB
+```
+
+### Connection Establishment Flow
+
+```mermaid
+sequenceDiagram
+    participant S as Server
+    participant SD as Discovery Service
+    participant C as Client
+    participant RS as Relay Server
+
+    Note over S: Generate/Load Secret Key
+    S->>S: Create iroh Endpoint
+    S->>SD: Publish EndpointId + Addresses
+    Note over S: Display EndpointId
+    S->>RS: Connect to relay
+
+    Note over C: User provides EndpointId
+    C->>C: Create iroh Endpoint
+    C->>SD: Resolve EndpointId
+    SD-->>C: Return addresses
+    C->>RS: Connect to relay
+
+    alt Direct Connection Possible
+        C->>S: Direct QUIC connection
+        S-->>C: Accept connection
+    else NAT Traversal Failed
+        C->>RS: Connect via relay
+        RS->>S: Forward connection
+        S-->>RS: Accept via relay
+        RS-->>C: Relay established
+    end
+
+    Note over S,C: Encrypted QUIC tunnel established
+
+    Note over C,S: Authentication Phase
+    C->>S: Open auth stream
+    C->>S: AuthRequest {token}
+    alt Token Valid
+        S-->>C: AuthResponse {accepted}
+    else Token Invalid
+        S-->>C: AuthResponse {rejected}
+        S->>C: Close connection
+    end
+
+    Note over C,S: Source Request Phase
+    C->>S: Open source stream
+    C->>S: SourceRequest {source}
+    S-->>C: SourceResponse {accepted}
+
+    loop Data Transfer
+        C->>S: Forward client traffic
+        S->>S: Forward to target
+        S->>C: Return target response
+        C->>C: Forward to client
+    end
+```
+
+### TCP Tunnel Data Flow
+
+```mermaid
+graph LR
+    subgraph "Client"
+        A[TCP Client] -->|connect| B[Listen Socket]
+        B -->|accept| C[TCP Stream]
+        C -->|read| D[Buffer]
+        D -->|write| E[iroh SendStream]
+    end
+
+    subgraph "QUIC Transport"
+        E <-->|encrypted| F[iroh RecvStream]
+    end
+
+    subgraph "Server"
+        F -->|read| G[Buffer]
+        G -->|write| H[TCP Stream]
+        H -->|connect| I[Target Service]
+        I -->|response| H
+        H -->|read| J[Buffer]
+        J -->|write| K[iroh SendStream]
+    end
+
+    subgraph "Return Path"
+        K <-->|encrypted| L[iroh RecvStream]
+        L -->|read| M[Buffer]
+        M -->|write| C
+        C -->|send| A
+    end
+
+    style E fill:#BBDEFB
+    style F fill:#BBDEFB
+    style K fill:#BBDEFB
+    style L fill:#BBDEFB
+```
+
+### UDP Tunnel Data Flow
+
+```mermaid
+graph TB
+    subgraph "Client"
+        A[UDP Client] -->|sendto| B[UDP Socket]
+        B -->|recvfrom| C[Packet Buffer]
+        C -->|encode length + data| D[iroh SendStream]
+    end
+
+    subgraph "QUIC Transport"
+        D <-->|encrypted| E[iroh RecvStream]
+    end
+
+    subgraph "Server"
+        E -->|decode| F[Packet Buffer]
+        F -->|sendto| G[UDP Socket]
+        G -->|forward| H[Target Service]
+        H -->|response| G
+        G -->|recvfrom| I[Response Buffer]
+        I -->|encode| J[iroh SendStream]
+    end
+
+    subgraph "Return Path"
+        J <-->|encrypted| K[iroh RecvStream]
+        K -->|decode| L[Packet Buffer]
+        L -->|sendto| B
+        B -->|deliver| A
+    end
+
+    style D fill:#BBDEFB
+    style E fill:#BBDEFB
+    style J fill:#BBDEFB
+    style K fill:#BBDEFB
+```
+
+### Endpoint Management
+
+```mermaid
+graph TB
+    subgraph "Endpoint Creation"
+        A[Load/Generate Secret] --> B[Create Endpoint Builder]
+        B --> C{Relay URLs?}
+        C -->|Yes| D[Add Custom Relays]
+        C -->|No| E[Use Default Relays]
+        D --> F{Relay Only? (CLI-only)}
+        E --> F
+        F -->|Yes| G[Disable IP transports]
+        F -->|No| H[Keep IP + relay transports]
+        G --> I{DNS Server?}
+        H --> I
+        I -->|Yes| J[Add Custom DNS]
+        I -->|No| K[Use Default DNS]
+        J --> L[Build Endpoint]
+        K --> L
+    end
+
+    subgraph "Discovery"
+        L --> M[Publish to Pkarr/DNS]
+        M --> N[Enable mDNS]
+        N --> O[Endpoint Ready]
+    end
+
+    style A fill:#FFE0B2
+    style L fill:#C8E6C9
+    style O fill:#C8E6C9
+```
+
+---
 
 ## Configuration System
 
