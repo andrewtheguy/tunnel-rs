@@ -76,7 +76,7 @@ Choose an alternative mode only if you have specific requirements:
 - **manual**: You want complete independence from third-party services (disable STUN for fully self-contained operation), or no internet is available (offline/LAN-only). Signaling is done via manual copy-paste.
 
 > [!NOTE]
-> The `nostr` and `manual` modes use STUN-only NAT traversal, which may fail when both peers are behind symmetric NATs. For containerized environments (Docker, Kubernetes, cloud VMs), use `iroh` mode which includes relay fallback.
+> The `nostr` and `manual` modes use STUN-only NAT traversal, which may fail when both peers are behind symmetric NATs. The `iroh` mode includes relay fallback for these scenarios. In Kubernetes, `hostNetwork: true` enables direct P2P and NAT hole-punching for `iroh` mode; `nostr` and `manual` modes with `hostNetwork: true` might also work, but they have not been tested yet. See [container-deploy/](container-deploy/) for details.
 
 > [!TIP]
 > If you only need iroh mode, use the `tunnel-rs` binary. ICE modes are in `tunnel-rs-ice`.
