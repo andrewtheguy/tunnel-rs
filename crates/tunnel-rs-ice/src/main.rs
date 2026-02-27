@@ -343,7 +343,7 @@ enum ClientMode {
 }
 
 /// Load server config based on flags. Returns (config, was_loaded_from_file).
-fn resolve_server_config(
+async fn resolve_server_config(
     config: Option<PathBuf>,
     default_config: bool,
     config_stdin: bool,
@@ -356,7 +356,7 @@ fn resolve_server_config(
     }
 
     if config_stdin {
-        Ok((parse_config_from_reader(std::io::stdin())?, true))
+        Ok((parse_config_from_reader(std::io::stdin()).await?, true))
     } else if let Some(path) = config {
         Ok((load_server_config(Some(&path))?, true))
     } else if default_config {
@@ -378,7 +378,7 @@ fn resolve_server_config(
 }
 
 /// Load client config based on flags. Returns (config, was_loaded_from_file).
-fn resolve_client_config(
+async fn resolve_client_config(
     config: Option<PathBuf>,
     default_config: bool,
     config_stdin: bool,
@@ -391,7 +391,7 @@ fn resolve_client_config(
     }
 
     if config_stdin {
-        Ok((parse_config_from_reader(std::io::stdin())?, true))
+        Ok((parse_config_from_reader(std::io::stdin()).await?, true))
     } else if let Some(path) = config {
         Ok((load_client_config(Some(&path))?, true))
     } else if default_config {
@@ -428,7 +428,7 @@ async fn main() -> Result<()> {
             mode,
         } => {
             let (cfg, from_file) =
-                resolve_server_config(config.clone(), default_config, config_stdin)?;
+                resolve_server_config(config.clone(), default_config, config_stdin).await?;
 
             // Determine effective mode: CLI mode takes precedence, else read from config
             let effective_mode = match (&mode, &cfg.mode) {
@@ -635,7 +635,7 @@ async fn main() -> Result<()> {
             config_stdin,
             mode,
         } => {
-            let (cfg, from_file) = resolve_client_config(config, default_config, config_stdin)?;
+            let (cfg, from_file) = resolve_client_config(config, default_config, config_stdin).await?;
 
             let effective_mode = match (&mode, &cfg.mode) {
                 (Some(_), _) => mode.as_ref().map(|m| match m {
