@@ -197,41 +197,17 @@ tunnel-rs client \
 dig @127.0.0.1 -p 5353 kubernetes.default.svc.cluster.local
 ```
 
-### Kubernetes Networking Options
+### Kubernetes Networking: hostNetwork
 
-By default, tunnel-rs pods use Kubernetes overlay networking. Because K8s overlay NAT is symmetric (conntrack-based), iroh's STUN-based hole-punching cannot establish direct P2P connections — all traffic falls back to iroh relay servers. This works out of the box but adds a relay hop.
+The default deployment uses `hostNetwork: true` so the pod shares the node's network namespace. This enables direct P2P connections via NAT hole-punching instead of falling back to relay servers.
 
-#### hostNetwork for Direct P2P
-
-To enable direct P2P connections and NAT hole-punching, run the pod with `hostNetwork: true`. This bypasses the overlay network entirely — the pod shares the node's network namespace, so STUN discovers the node's real external address.
-
-Use the `tunnel-deployment-hostnetwork.yaml` variant:
-
-```bash
-kubectl apply -f kubernetes/tunnel-deployment-hostnetwork.yaml
-```
-
-Key differences from the standard deployment:
-
-```yaml
-spec:
-  template:
-    spec:
-      hostNetwork: true
-      dnsPolicy: ClusterFirstWithHostNet
-```
-
-- **`hostNetwork: true`** — pod uses the node's network stack directly
+- **`hostNetwork: true`** — pod uses the node's network stack directly, so STUN discovers the node's real external address
 - **`dnsPolicy: ClusterFirstWithHostNet`** — required to resolve cluster DNS names (e.g., `service.namespace.svc.cluster.local`). Without this, the pod uses the node's `/etc/resolv.conf` and can't resolve K8s service names.
 
 > [!NOTE]
 > The pod can still access ClusterIP services and pod IPs — kube-proxy rules and CNI routes are installed at the node level, so hostNetwork pods inherit them.
 
-**Tradeoffs:**
-- No Kubernetes network policy enforcement (traffic appears as node-originated)
-- Pod is exposed to all node network traffic
-
-**Recommendation:** Use `hostNetwork: true` for single-node dev/homelab clusters where direct P2P is preferred. For multi-tenant or production clusters, use the default overlay deployment with a [self-hosted relay](../docs/SELF-HOSTING.md) for lower latency.
+With `hostNetwork: true`, traffic from the pod appears as node-originated, so Kubernetes network policies do not apply. If you need network policy enforcement (e.g., in multi-tenant clusters), remove `hostNetwork: true` and `dnsPolicy: ClusterFirstWithHostNet` from the deployment. Without `hostNetwork`, the pod uses K8s overlay networking where NAT hole-punching cannot work — connections will fall back to iroh relay servers. Consider using a [self-hosted relay](../docs/SELF-HOSTING.md) for lower latency in this case.
 
 ## Use Cases
 

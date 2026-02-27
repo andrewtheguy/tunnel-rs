@@ -10,6 +10,11 @@
 #   - Allows clients to choose which service to access
 #   - Provides client authentication via pre-shared tokens
 #
+# Uses hostNetwork: true so the pod shares the node's network namespace,
+# enabling direct P2P connections via NAT hole-punching instead of falling
+# back to relay servers. dnsPolicy: ClusterFirstWithHostNet ensures cluster
+# DNS names (e.g., service.namespace.svc.cluster.local) still resolve.
+#
 # Note: Server uses CIDR notation to whitelist allowed networks.
 #       Client specifies which service to connect to.
 #
@@ -69,6 +74,8 @@ spec:
       labels:
         app: tunnel-server
     spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
       containers:
         - name: tunnel
           image: ghcr.io/andrewtheguy/tunnel-rs:latest
