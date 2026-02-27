@@ -18,12 +18,15 @@ pub fn default_ice_transport_tuning() -> TransportTuning {
 }
 
 /// Default public STUN servers for ICE mode.
-pub fn default_stun_servers() -> Vec<String> {
-    vec![
-        "stun.l.google.com:19302".to_string(),
-        "stun1.l.google.com:19302".to_string(),
-        "stun.cloudflare.com:3478".to_string(),
-    ]
+pub const DEFAULT_STUN_SERVERS: &[&str] = &[
+    "stun.l.google.com:19302",
+    "stun1.l.google.com:19302",
+    "stun.cloudflare.com:3478",
+];
+
+/// Default public STUN servers for ICE mode.
+pub fn default_stun_servers() -> &'static [&'static str] {
+    DEFAULT_STUN_SERVERS
 }
 
 /// Default public Nostr relays for signaling.

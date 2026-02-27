@@ -73,7 +73,10 @@ fn resolve_stun_servers(
     if let Some(servers) = config_stun_servers {
         return Ok(servers);
     }
-    Ok(default_stun_servers())
+    Ok(default_stun_servers()
+        .iter()
+        .map(|&server| server.to_string())
+        .collect())
 }
 
 fn resolve_relays(relays: Vec<String>) -> Vec<String> {
