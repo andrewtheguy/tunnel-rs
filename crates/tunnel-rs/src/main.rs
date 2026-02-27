@@ -82,6 +82,12 @@ enum Command {
         /// Can be combined with --auth-tokens for additional inline tokens.
         #[arg(long, value_name = "FILE")]
         auth_tokens_file: Option<PathBuf>,
+
+        /// ALPN token for QUIC handshake-level filtering (14-char Base64URL with CRC16 checksum).
+        /// Both server and client must use the same token.
+        /// Generate with: tunnel-rs generate-token --alpn
+        #[arg(long)]
+        alpn_token: Option<String>,
     },
     /// Run as client (connects to server and exposes local port)
     Client {
@@ -126,6 +132,12 @@ enum Command {
         /// Path to file containing authentication token
         #[arg(long)]
         auth_token_file: Option<PathBuf>,
+
+        /// ALPN token for QUIC handshake-level filtering (14-char Base64URL with CRC16 checksum).
+        /// Must match the server's --alpn-token value.
+        /// Generate with: tunnel-rs generate-token --alpn
+        #[arg(long)]
+        alpn_token: Option<String>,
     },
     /// Generate a server private key for persistent identity
     ///
@@ -156,6 +168,10 @@ enum Command {
         /// Number of tokens to generate (default: 1)
         #[arg(short, long, default_value = "1")]
         count: usize,
+
+        /// Generate an ALPN token (14-char Base64URL) instead of an auth token
+        #[arg(long)]
+        alpn: bool,
     },
 }
 
@@ -175,6 +191,7 @@ struct ServerIrohParams {
     dns_server: Option<String>,
     auth_tokens: Vec<String>,
     auth_tokens_file: Option<PathBuf>,
+    alpn_token: Option<String>,
     transport: TransportTuning,
 }
 
@@ -197,6 +214,7 @@ fn resolve_server_iroh_params(
         dns_server,
         auth_tokens,
         auth_tokens_file,
+        alpn_token,
         ..
     } = cli
     else {
@@ -235,6 +253,7 @@ fn resolve_server_iroh_params(
             auth_tokens.clone()
         },
         auth_tokens_file: auth_tokens_file.clone().or(cfg.auth_tokens_file.clone()),
+        alpn_token: alpn_token.clone().or(cfg.alpn_token.clone()),
         transport: cfg.transport.clone(),
     }
 }
@@ -249,6 +268,7 @@ struct ClientIrohParams {
     dns_server: Option<String>,
     auth_token: Option<String>,
     auth_token_file: Option<PathBuf>,
+    alpn_token: Option<String>,
     transport: TransportTuning,
 }
 
@@ -268,6 +288,7 @@ fn resolve_client_iroh_params(
         dns_server,
         auth_token,
         auth_token_file,
+        alpn_token,
         ..
     } = cli
     else {
@@ -293,6 +314,7 @@ fn resolve_client_iroh_params(
         dns_server: dns_server.clone().or(cfg.dns_server.clone()),
         auth_token,
         auth_token_file,
+        alpn_token: alpn_token.clone().or(cfg.alpn_token.clone()),
         transport: cfg.transport.clone(),
     }
 }
@@ -403,6 +425,7 @@ async fn main() -> Result<()> {
                 dns_server,
                 auth_tokens,
                 auth_tokens_file,
+                alpn_token,
                 transport,
             } = resolve_server_iroh_params(&command, iroh_cfg);
 
@@ -424,6 +447,15 @@ async fn main() -> Result<()> {
 
             log::info!("Auth tokens: {} token(s) configured", auth_tokens.len());
 
+            // Validate and resolve ALPN token
+            let alpn_token = alpn_token.context(
+                "--alpn-token is required. Provide an ALPN token for QUIC handshake filtering.\n\
+                Generate one with: tunnel-rs generate-token --alpn",
+            )?;
+            auth::validate_alpn_token(&alpn_token).context(
+                "Invalid ALPN token format. Generate a valid token with: tunnel-rs generate-token --alpn",
+            )?;
+
             // Validate transport tuning window sizes
             validate_transport_tuning(&transport, "iroh.transport")?;
 
@@ -436,6 +468,7 @@ async fn main() -> Result<()> {
                 relay_only,
                 dns_server,
                 auth_tokens,
+                alpn_token,
                 transport,
             })
             .await
@@ -461,6 +494,7 @@ async fn main() -> Result<()> {
                 dns_server,
                 auth_token,
                 auth_token_file,
+                alpn_token,
                 transport,
             } = resolve_client_iroh_params(&command, iroh_cfg);
 
@@ -500,6 +534,15 @@ async fn main() -> Result<()> {
                 "Invalid auth token format. Generate a valid token with: tunnel-rs generate-token",
             )?;
 
+            // Validate and resolve ALPN token
+            let alpn_token = alpn_token.context(
+                "--alpn-token is required. Provide the ALPN token shared by the server.\n\
+                Generate one with: tunnel-rs generate-token --alpn",
+            )?;
+            auth::validate_alpn_token(&alpn_token).context(
+                "Invalid ALPN token format. Generate a valid token with: tunnel-rs generate-token --alpn",
+            )?;
+
             // Validate transport tuning window sizes
             validate_transport_tuning(&transport, "iroh.transport")?;
 
@@ -511,6 +554,7 @@ async fn main() -> Result<()> {
                 relay_only,
                 dns_server,
                 auth_token,
+                alpn_token,
                 transport,
             })
             .await
@@ -519,9 +563,13 @@ async fn main() -> Result<()> {
             secret::generate_secret(expand_tilde(output), *force)
         }
         Command::ShowServerId { secret_file } => secret::show_id(expand_tilde(secret_file)),
-        Command::GenerateToken { count } => {
+        Command::GenerateToken { count, alpn } => {
             for _ in 0..*count {
-                println!("{}", auth::generate_token());
+                if *alpn {
+                    println!("{}", auth::generate_alpn_token());
+                } else {
+                    println!("{}", auth::generate_token());
+                }
             }
             Ok(())
         }

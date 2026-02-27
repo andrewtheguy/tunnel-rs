@@ -60,6 +60,9 @@ pub struct IrohConfig {
     /// Local address to listen on (client only).
     /// Format: host:port
     pub target: Option<String>,
+    /// ALPN token for QUIC handshake-level filtering.
+    /// Both server and client must use the same token.
+    pub alpn_token: Option<String>,
     /// Transport layer tuning (congestion control, buffer sizes).
     #[serde(default)]
     pub transport: TransportTuning,

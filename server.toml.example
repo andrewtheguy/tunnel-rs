@@ -64,6 +64,15 @@ auth_tokens = [
 # auth_tokens_file = "/etc/tunnel-rs/auth_tokens.txt"
 
 # ============================================================================
+# ALPN Token (REQUIRED)
+# ============================================================================
+# Pre-shared token embedded in the QUIC ALPN protocol identifier.
+# Rejects unknown clients at the QUIC handshake level (before any streams open).
+# Both server and all clients must use the same ALPN token.
+# Generate with: tunnel-rs generate-token --alpn
+alpn_token = "XXXXXXXXXXXXXX"  # Replace with real token from generate-token --alpn
+
+# ============================================================================
 # Allowed source networks that clients can request (CIDR notation)
 # Clients MUST specify --source which must match one of these networks
 # Separate lists for TCP and UDP protocols

@@ -17,9 +17,16 @@ use std::time::Duration;
 use tunnel_common::config::{CongestionController, TransportTuning, DEFAULT_RECEIVE_WINDOW};
 use url::Url;
 
-/// ALPN for all iroh modes (client requests source)
-pub const MULTI_ALPN: &[u8] = b"multi-forward/1";
 pub const RELAY_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Build the ALPN protocol identifier with an embedded pre-shared token.
+///
+/// The ALPN acts as a lightweight "port knock" — connections from clients that
+/// don't know the token fail at the QUIC handshake level before any application
+/// streams are opened.
+pub fn build_multi_alpn(alpn_token: &str) -> Vec<u8> {
+    format!("mf/2/{}", alpn_token).into_bytes()
+}
 
 /// QUIC keep-alive interval for tunnel connections.
 ///

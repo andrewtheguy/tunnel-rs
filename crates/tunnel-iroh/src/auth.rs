@@ -253,6 +253,76 @@ pub fn is_token_valid(token: &str, valid_tokens: &HashSet<String>) -> bool {
     valid_tokens.contains(token)
 }
 
+// ============================================================================
+// ALPN Token
+// ============================================================================
+
+/// Number of random bytes in ALPN token payload.
+const ALPN_RANDOM_BYTES_LEN: usize = 8;
+
+/// Number of checksum bytes in ALPN token payload.
+const ALPN_CHECKSUM_BYTES_LEN: usize = 2;
+
+/// Total decoded payload length (8 random + 2 CRC16).
+const ALPN_PAYLOAD_LEN: usize = ALPN_RANDOM_BYTES_LEN + ALPN_CHECKSUM_BYTES_LEN;
+
+/// Expected length of the Base64URL-encoded ALPN token string (no padding).
+/// ceil(10 * 4 / 3) = 14 characters.
+pub const ALPN_TOKEN_LENGTH: usize = 14;
+
+/// Generate a new ALPN token.
+///
+/// Format: Base64URL-no-pad(8 random bytes + 2-byte CRC16-CCITT-FALSE checksum) = 14 characters.
+pub fn generate_alpn_token() -> String {
+    let mut random = [0u8; ALPN_RANDOM_BYTES_LEN];
+    let mut rng = rand::rng();
+    rng.fill_bytes(&mut random);
+
+    let checksum = crc16_ccitt_false(&random).to_be_bytes();
+    let mut payload = [0u8; ALPN_PAYLOAD_LEN];
+    payload[..ALPN_RANDOM_BYTES_LEN].copy_from_slice(&random);
+    payload[ALPN_RANDOM_BYTES_LEN..].copy_from_slice(&checksum);
+
+    URL_SAFE_NO_PAD.encode(payload)
+}
+
+/// Validate an ALPN token format and checksum.
+pub fn validate_alpn_token(token: &str) -> Result<()> {
+    if !token.is_ascii() {
+        anyhow::bail!("ALPN token must contain only ASCII characters");
+    }
+
+    if token.len() != ALPN_TOKEN_LENGTH {
+        anyhow::bail!(
+            "ALPN token must be exactly {} characters, got {}",
+            ALPN_TOKEN_LENGTH,
+            token.len()
+        );
+    }
+
+    let payload = URL_SAFE_NO_PAD
+        .decode(token)
+        .context("ALPN token is not valid base64url without padding")?;
+
+    if payload.len() != ALPN_PAYLOAD_LEN {
+        anyhow::bail!(
+            "ALPN token payload must decode to exactly {} bytes, got {} bytes",
+            ALPN_PAYLOAD_LEN,
+            payload.len()
+        );
+    }
+
+    let random = &payload[..ALPN_RANDOM_BYTES_LEN];
+    let checksum = &payload[ALPN_RANDOM_BYTES_LEN..];
+    let expected_checksum = crc16_ccitt_false(random).to_be_bytes();
+
+    if checksum != expected_checksum {
+        anyhow::bail!("ALPN token checksum is invalid");
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -493,5 +563,71 @@ mod tests {
         let cli_tokens = vec!["short".to_string()];
         let result = load_auth_tokens(&cli_tokens, None);
         assert!(result.is_err());
+    }
+
+    // ========================================================================
+    // ALPN Token Tests
+    // ========================================================================
+
+    #[test]
+    fn test_generate_alpn_token_format() {
+        let token = generate_alpn_token();
+        assert_eq!(token.len(), ALPN_TOKEN_LENGTH);
+        assert!(validate_alpn_token(&token).is_ok());
+    }
+
+    #[test]
+    fn test_generate_alpn_token_uniqueness() {
+        let t1 = generate_alpn_token();
+        let t2 = generate_alpn_token();
+        assert_ne!(t1, t2);
+    }
+
+    #[test]
+    fn test_validate_alpn_token_too_short() {
+        let result = validate_alpn_token("abc");
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains(&format!("exactly {}", ALPN_TOKEN_LENGTH)));
+    }
+
+    #[test]
+    fn test_validate_alpn_token_too_long() {
+        let result = validate_alpn_token("abcdefghijklmnop");
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains(&format!("exactly {}", ALPN_TOKEN_LENGTH)));
+    }
+
+    #[test]
+    fn test_validate_alpn_token_invalid_base64url() {
+        let result = validate_alpn_token("!!!!!!!!!!!!!=");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_alpn_token_bad_checksum() {
+        let token = generate_alpn_token();
+        let mut payload = URL_SAFE_NO_PAD.decode(&token).unwrap();
+        payload[0] ^= 0x80; // flip a bit in the random data
+        let bad = URL_SAFE_NO_PAD.encode(&payload);
+        let result = validate_alpn_token(&bad);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("checksum"));
+    }
+
+    #[test]
+    fn test_validate_alpn_token_mutated_checksum() {
+        let token = generate_alpn_token();
+        let mut payload = URL_SAFE_NO_PAD.decode(&token).unwrap();
+        payload[ALPN_PAYLOAD_LEN - 1] ^= 0x01; // flip a bit in the checksum
+        let bad = URL_SAFE_NO_PAD.encode(&payload);
+        let result = validate_alpn_token(&bad);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("checksum"));
     }
 }

@@ -14,6 +14,7 @@ Tunnel-rs enables you to forward TCP and UDP traffic between machines without re
 > **Breaking Changes (v0.2):**
 > - **Auth token format:** Changed from 18-char Luhn mod N tokens to 47-char Base64URL tokens with CRC16 checksum. Old tokens are **not** accepted. Regenerate all tokens with `tunnel-rs generate-token` and update server/client configurations.
 > - **Silent auth failure:** The server no longer sends a rejection message or closes the connection with an error code — it simply waits out the auth timeout and drops the connection. Clients with invalid tokens will see a generic connection timeout instead of a structured rejection. Server-side logs still show the reason for operators.
+> - **ALPN token required:** A new `--alpn-token` argument is required for both server and client. This embeds a pre-shared token into the QUIC ALPN protocol identifier, rejecting unknown clients at the handshake level before any application streams are opened. Generate with `tunnel-rs generate-token --alpn`.
 
 **Features:**
 - **No account or registration required** — Just download and run
@@ -182,7 +183,7 @@ Then reference the key in your server config or CLI:
 
 **CLI**:
 ```bash
-tunnel-rs server --secret-file ./server.key --allowed-tcp 127.0.0.0/8 --auth-tokens "$AUTH_TOKEN"
+tunnel-rs server --secret-file ./server.key --allowed-tcp 127.0.0.0/8 --auth-tokens "$AUTH_TOKEN" --alpn-token "$ALPN_TOKEN"
 ```
 
 **Config file** (`server.toml`):
@@ -299,6 +300,10 @@ tunnel-rs generate-server-key --output ./server.key
 # Share this token with authorized clients
 AUTH_TOKEN=$(tunnel-rs generate-token)
 echo $AUTH_TOKEN
+
+# Create an ALPN token (shared between server and all clients)
+ALPN_TOKEN=$(tunnel-rs generate-token --alpn)
+echo $ALPN_TOKEN
 ```
 
 ### 2. TCP Tunnel (e.g., SSH)
@@ -308,7 +313,8 @@ echo $AUTH_TOKEN
 tunnel-rs server \
   --secret-file ./server.key \
   --allowed-tcp 127.0.0.0/8 \
-  --auth-tokens "$AUTH_TOKEN"
+  --auth-tokens "$AUTH_TOKEN" \
+  --alpn-token "$ALPN_TOKEN"
 ```
 
 Output:
@@ -324,7 +330,8 @@ tunnel-rs client \
   --server-node-id <SERVER_ENDPOINT_ID> \
   --source tcp://127.0.0.1:22 \
   --target 127.0.0.1:2222 \
-  --auth-token "$AUTH_TOKEN"
+  --auth-token "$AUTH_TOKEN" \
+  --alpn-token "$ALPN_TOKEN"
 ```
 
 Then connect: `ssh -p 2222 user@127.0.0.1`
@@ -336,7 +343,8 @@ Then connect: `ssh -p 2222 user@127.0.0.1`
 tunnel-rs server \
   --secret-file ./server.key \
   --allowed-udp 127.0.0.0/8 \
-  --auth-tokens "$AUTH_TOKEN"
+  --auth-tokens "$AUTH_TOKEN" \
+  --alpn-token "$ALPN_TOKEN"
 ```
 
 **Client**:
@@ -345,7 +353,8 @@ tunnel-rs client \
   --server-node-id <SERVER_ENDPOINT_ID> \
   --source udp://127.0.0.1:51820 \
   --target 0.0.0.0:51820 \
-  --auth-token "$AUTH_TOKEN"
+  --auth-token "$AUTH_TOKEN" \
+  --alpn-token "$ALPN_TOKEN"
 ```
 
 ## CLI Options
@@ -365,6 +374,7 @@ tunnel-rs client \
 | `--allowed-udp` | - | Allowed UDP networks in CIDR notation (repeatable) |
 | `--auth-tokens` | required | Authentication tokens (repeatable). Clients must provide one of these tokens to connect. |
 | `--auth-tokens-file` | - | Path to file containing authentication tokens (one per line, # comments allowed) |
+| `--alpn-token` | required | ALPN token for QUIC handshake-level filtering (14-char Base64URL). Generate with `generate-token --alpn`. |
 | `--max-sessions` | 100 | Maximum concurrent sessions |
 | `--secret` | - | Base64-encoded secret key for persistent server identity |
 | `--secret-file` | - | Path to secret key file for persistent server identity |
@@ -388,6 +398,7 @@ tunnel-rs client \
 | `--target`, `-t` | required | Local address to listen on |
 | `--auth-token` | required | Authentication token to send to server |
 | `--auth-token-file` | - | Path to file containing authentication token |
+| `--alpn-token` | required | ALPN token for QUIC handshake-level filtering (must match server). Generate with `generate-token --alpn`. |
 | `--relay-url` | public | Custom relay server URL(s), repeatable |
 | `--relay-only` | false | Force all traffic through relay (CLI-only; not supported in config files) |
 | `--dns-server` | public | Custom DNS server URL, or "none" to disable DNS discovery |
@@ -451,6 +462,10 @@ auth_tokens = [
 ]
 # Or use: auth_tokens_file = "/etc/tunnel-rs/auth_tokens.txt"
 
+# ALPN token for QUIC handshake-level filtering (14-char Base64URL)
+# Generate with: tunnel-rs generate-token --alpn
+alpn_token = "XXXXXXXXXXXXXX"
+
 [iroh.allowed_sources]
 tcp = ["127.0.0.0/8", "192.168.0.0/16"]
 udp = ["10.0.0.0/8"]
@@ -486,6 +501,9 @@ dns_server = "https://dns.example.com/pkarr"
 # Authentication token (get from server admin, 47 chars)
 auth_token = "iXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
 # Or use: auth_token_file = "~/.config/tunnel-rs/token.txt"
+
+# ALPN token (must match server, 14-char Base64URL)
+alpn_token = "XXXXXXXXXXXXXX"
 ```
 
 > [!NOTE]
@@ -508,15 +526,20 @@ tunnel-rs client -c ./my-client.toml
 Generate authentication tokens for iroh mode:
 
 ```bash
-# Generate a single token
+# Generate a single auth token
 tunnel-rs generate-token
 # Output: i<base64url-encoded-payload>
 
-# Generate multiple tokens
+# Generate multiple auth tokens
 tunnel-rs generate-token -c 5
+
+# Generate an ALPN token (14-char Base64URL with checksum)
+tunnel-rs generate-token --alpn
 ```
 
-Token format: `i` + Base64URL-encoded(32 random bytes + CRC16 checksum) = 47 characters total.
+Auth token format: `i` + Base64URL-encoded(32 random bytes + CRC16 checksum) = 47 characters total.
+
+ALPN token format: Base64URL-encoded(8 random bytes + 2-byte CRC16 checksum) = 14 characters total.
 
 ## generate-server-key
 
@@ -538,9 +561,10 @@ tunnel-rs show-server-id --secret-file ./server.key
 
 - All traffic is encrypted using QUIC/TLS 1.3
 - The EndpointId is a public key that identifies the server
+- **ALPN-level filtering:** A pre-shared ALPN token is embedded in the QUIC protocol identifier (`mf/2/<token>`). Connections from clients without the correct token are rejected at the QUIC handshake level — before any application streams are opened — acting as a lightweight "port knock".
 - **Token Authentication (iroh mode):** Clients authenticate immediately after QUIC connection via a dedicated auth stream. Invalid tokens are silently dropped — the server waits out the auth timeout and closes the connection without sending a rejection, making failed attempts indistinguishable from timeouts. See [Architecture: Token Authentication](docs/ARCHITECTURE.md#token-authentication-iroh-mode).
 - Secret key files are created with `0600` permissions (Unix) and appropriate permissions on Windows
-- Treat secret key files and auth tokens like passwords
+- Treat secret key files, auth tokens, and ALPN tokens like passwords
 
 ## How It Works
 
@@ -548,7 +572,7 @@ tunnel-rs show-server-id --secret-file ./server.key
 1. Server creates an iroh endpoint with discovery services
 2. Server publishes its address via Pkarr/DNS
 3. Client resolves the server via discovery
-4. QUIC connection established via iroh's NAT traversal
+4. **ALPN handshake:** QUIC connection requires matching ALPN token (`mf/2/<token>`) — clients without the token are rejected at the handshake level
 5. **Authentication phase:** Client opens dedicated auth stream and sends `AuthRequest` with token
 6. **Server validates token** (10s timeout) — invalid tokens are silently dropped after timeout (no rejection sent)
    - *If authentication fails, the connection is silently dropped and steps 7–9 do not occur*

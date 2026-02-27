@@ -35,6 +35,8 @@ pub struct MultiSourceServerConfig {
     pub dns_server: Option<String>,
     /// Set of valid authentication tokens. **Sensitive field - redacted in Debug output.**
     pub auth_tokens: HashSet<String>,
+    /// ALPN token for QUIC handshake-level filtering. **Sensitive field - redacted in Debug output.**
+    pub alpn_token: String,
     /// Transport layer tuning (congestion control, buffer sizes).
     pub transport: TransportTuning,
 }
@@ -53,6 +55,7 @@ impl std::fmt::Debug for MultiSourceServerConfig {
                 "auth_tokens",
                 &format!("[{} tokens]", self.auth_tokens.len()),
             )
+            .field("alpn_token", &"[REDACTED]")
             .field("transport", &self.transport)
             .finish()
     }
@@ -75,6 +78,8 @@ pub struct MultiSourceClientConfig {
     pub dns_server: Option<String>,
     /// Authentication token for server access. **Sensitive field - redacted in Debug output.**
     pub auth_token: String,
+    /// ALPN token for QUIC handshake-level filtering. **Sensitive field - redacted in Debug output.**
+    pub alpn_token: String,
     /// Transport layer tuning (congestion control, buffer sizes).
     pub transport: TransportTuning,
 }
@@ -89,6 +94,7 @@ impl std::fmt::Debug for MultiSourceClientConfig {
             .field("relay_only", &self.relay_only)
             .field("dns_server", &self.dns_server)
             .field("auth_token", &"[REDACTED]")
+            .field("alpn_token", &"[REDACTED]")
             .field("transport", &self.transport)
             .finish()
     }
@@ -97,8 +103,8 @@ impl std::fmt::Debug for MultiSourceClientConfig {
 use crate::auth::is_token_valid;
 
 use crate::iroh_mode::endpoint::{
-    connect_to_server, create_client_endpoint, create_server_endpoint, validate_relay_only,
-    watch_connection_paths, MULTI_ALPN,
+    build_multi_alpn, connect_to_server, create_client_endpoint, create_server_endpoint,
+    validate_relay_only, watch_connection_paths,
 };
 use crate::iroh_mode::helpers::{
     bridge_streams, forward_stream_to_udp_client, forward_stream_to_udp_server,
@@ -157,12 +163,13 @@ pub async fn run_multi_source_server(config: MultiSourceServerConfig) -> Result<
     log::info!("==================================");
     log::info!("Creating iroh endpoint...");
 
+    let alpn = build_multi_alpn(&config.alpn_token);
     let endpoint = create_server_endpoint(
         &config.relay_urls,
         relay_only,
         config.secret,
         config.dns_server.as_deref(),
-        MULTI_ALPN,
+        &alpn,
         Some(&config.transport),
     )
     .await?;
@@ -558,12 +565,13 @@ pub async fn run_multi_source_client(config: MultiSourceClientConfig) -> Result<
     )
     .await?;
 
+    let alpn = build_multi_alpn(&config.alpn_token);
     let conn = connect_to_server(
         &endpoint,
         server_id,
         &config.relay_urls,
         relay_only,
-        MULTI_ALPN,
+        &alpn,
     )
     .await?;
 
