@@ -533,6 +533,8 @@ Example: spawning a client with `--config-stdin` from Python:
 import json, socket, subprocess, time
 
 config = {
+    "role": "client",
+    "mode": "iroh",
     "iroh": {
         "server_node_id": "<SERVER_NODE_ID>",
         "auth_token": "<AUTH_TOKEN>",
