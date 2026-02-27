@@ -258,6 +258,7 @@ async fn handle_multi_source_connection(
     let remote_id = conn.remote_id();
 
     // Phase 1: Wait for auth stream with timeout
+    let auth_start = tokio::time::Instant::now();
     let auth_result = tokio::time::timeout(AUTH_TIMEOUT, async {
         // Accept the first bi-stream which must be the auth stream
         let (mut send_stream, mut recv_stream) = conn
@@ -275,6 +276,12 @@ async fn handle_multi_source_connection(
         let token_str = request.auth_token.as_str();
         if !is_token_valid(token_str, &auth_tokens) {
             log::warn!("Invalid auth token from {}", remote_id);
+            // Wait out the remaining auth timeout while streams are still alive,
+            // so failures look identical to timeouts to probing clients.
+            let elapsed = auth_start.elapsed();
+            if let Some(remaining) = AUTH_TIMEOUT.checked_sub(elapsed) {
+                tokio::time::sleep(remaining).await;
+            }
             anyhow::bail!("Invalid auth token");
         }
 
