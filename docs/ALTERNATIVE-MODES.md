@@ -76,7 +76,7 @@ tunnel-rs-ice server manual --allowed-udp 127.0.0.0/8
 | `--stun-server` | public | STUN server(s), repeatable |
 | `--no-stun` | false | Disable STUN (no external infrastructure, CLI only) |
 
-Note: Config file options (`-c`, `--default-config`) are at the `server`/`client` command level. See [Configuration Files](../README.md#configuration-files).
+Note: Config file options (`-c`, `--default-config`, `--config-stdin`) are at the `server`/`client` command level. See [Configuration Files](../README.md#configuration-files).
 
 ### Connection Types
 
@@ -530,6 +530,8 @@ max_sessions = 10
 [nostr.allowed_sources]
 tcp = ["127.0.0.0/8", "10.0.0.0/8"]
 ```
+
+Note: Config file options (`-c`, `--default-config`, `--config-stdin`) are at the `server`/`client` command level. See [Configuration Files](../README.md#configuration-files).
 
 ### Default Nostr Relays
 

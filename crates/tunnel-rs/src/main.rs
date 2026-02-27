@@ -9,8 +9,8 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 use tunnel_common::config::{
-    expand_tilde, load_client_config, load_server_config, validate_transport_tuning,
-    ClientConfig, ServerConfig, TransportTuning,
+    expand_tilde, load_client_config, load_server_config, parse_config_from_str,
+    validate_transport_tuning, ClientConfig, ServerConfig, TransportTuning,
 };
 use tunnel_iroh::iroh_mode::endpoint::{
     load_secret, load_secret_from_string, secret_to_endpoint_id,
@@ -37,6 +37,10 @@ enum Command {
         /// Load config from default location (~/.config/tunnel-rs/server.toml)
         #[arg(long)]
         default_config: bool,
+
+        /// Read TOML config from stdin instead of a file
+        #[arg(long)]
+        config_stdin: bool,
 
         /// Allowed TCP source networks in CIDR notation (repeatable)
         /// E.g., --allowed-tcp 127.0.0.0/8 --allowed-tcp 192.168.0.0/16
@@ -102,6 +106,10 @@ enum Command {
         /// Load config from default location (~/.config/tunnel-rs/client.toml)
         #[arg(long)]
         default_config: bool,
+
+        /// Read TOML config from stdin instead of a file
+        #[arg(long)]
+        config_stdin: bool,
 
         /// EndpointId of the server to connect to
         #[arg(short = 'n', long)]
@@ -390,12 +398,20 @@ fn resolve_iroh_secret(secret: Option<String>, secret_file: Option<PathBuf>) -> 
 fn resolve_server_config(
     config: Option<PathBuf>,
     default_config: bool,
+    config_stdin: bool,
 ) -> Result<(ServerConfig, bool)> {
-    if config.is_some() && default_config {
-        anyhow::bail!("Cannot use both -c/--config and --default-config");
+    let source_count = config.is_some() as u8 + default_config as u8 + config_stdin as u8;
+    if source_count > 1 {
+        anyhow::bail!(
+            "Only one of -c/--config, --default-config, or --config-stdin may be used"
+        );
     }
 
-    if let Some(path) = config {
+    if config_stdin {
+        let content = std::io::read_to_string(std::io::stdin())
+            .context("Failed to read config from stdin")?;
+        Ok((parse_config_from_str(&content)?, true))
+    } else if let Some(path) = config {
         Ok((load_server_config(Some(&path))?, true))
     } else if default_config {
         Ok((load_server_config(None)?, true))
@@ -408,12 +424,21 @@ fn resolve_server_config(
 fn resolve_client_config(
     config: Option<PathBuf>,
     default_config: bool,
+    config_stdin: bool,
 ) -> Result<(ClientConfig, bool)> {
-    if config.is_some() && default_config {
-        anyhow::bail!("Cannot use both -c/--config and --default-config");
+    let source_count =
+        config.is_some() as u8 + default_config as u8 + config_stdin as u8;
+    if source_count > 1 {
+        anyhow::bail!(
+            "Only one of -c/--config, --default-config, or --config-stdin may be used"
+        );
     }
 
-    if let Some(path) = config {
+    if config_stdin {
+        let content = std::io::read_to_string(std::io::stdin())
+            .context("Failed to read config from stdin")?;
+        Ok((parse_config_from_str(&content)?, true))
+    } else if let Some(path) = config {
         Ok((load_client_config(Some(&path))?, true))
     } else if default_config {
         Ok((load_client_config(None)?, true))
@@ -435,10 +460,12 @@ async fn main() -> Result<()> {
         Command::Server {
             config,
             default_config,
+            config_stdin,
             relay_only,
             ..
         } => {
-            let (cfg, from_file) = resolve_server_config(config.clone(), *default_config)?;
+            let (cfg, from_file) =
+                resolve_server_config(config.clone(), *default_config, *config_stdin)?;
 
             if from_file {
                 cfg.validate("iroh")?;
@@ -521,10 +548,12 @@ async fn main() -> Result<()> {
         Command::Client {
             config,
             default_config,
+            config_stdin,
             relay_only,
             ..
         } => {
-            let (cfg, from_file) = resolve_client_config(config.clone(), *default_config)?;
+            let (cfg, from_file) =
+                resolve_client_config(config.clone(), *default_config, *config_stdin)?;
 
             if from_file {
                 cfg.validate("iroh")?;
