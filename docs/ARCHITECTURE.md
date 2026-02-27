@@ -520,32 +520,33 @@ sequenceDiagram
     participant CLI as CLI Parser
     participant Main as Main
     participant Config as Config Module
-    participant File as Config File
-    
+    participant Source as Config Source (file or stdin)
+
     CLI->>Main: Parse arguments
-    Main->>Main: Check config flags
-    
+    Main->>Main: Check config flags (only one allowed)
+
     alt --default-config
         Main->>Config: Load from default path
-        Config->>File: Read ~/.config/tunnel-rs/{role}.toml (tunnel-rs) or ~/.config/tunnel-rs/{role}_ice.toml (tunnel-rs-ice)
+        Config->>Source: Read ~/.config/tunnel-rs/{role}.toml or {role}_ice.toml
+        Source-->>Config: TOML content
     else -c <path>
-        Main->>Config: Load from path
-        Config->>File: Read specified file
+        Main->>Config: Load from specified path
+        Config->>Source: Read file
+        Source-->>Config: TOML content
     else --config-stdin
-        Main->>Config: Read TOML from stdin
-        Config->>Config: Parse TOML string
+        Main->>Config: Read from stdin
+        Source-->>Config: TOML content
     else No config flag
         Main->>Main: Use CLI arguments only
     end
-    
+
     alt Config loaded
-        File-->>Config: TOML content
         Config->>Config: Parse TOML
         Config->>Config: Validate role + mode
         Config-->>Main: Validated config
         Main->>Main: Merge with CLI args
     end
-    
+
     Main->>Main: Proceed with merged config
 ```
 

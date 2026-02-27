@@ -448,6 +448,10 @@ async fn main() -> Result<()> {
                 "No mode specified. Either use a subcommand (manual, nostr) or provide a config file with 'mode' field.",
             )?;
 
+            if config_stdin && effective_mode == "manual" {
+                anyhow::bail!("--config-stdin cannot be used with manual mode (stdin is needed for signaling)");
+            }
+
             if from_file {
                 cfg.validate(effective_mode)?;
             }
@@ -653,6 +657,10 @@ async fn main() -> Result<()> {
             let effective_mode = effective_mode.context(
                 "No mode specified. Either use a subcommand (manual, nostr) or provide a config file with 'mode' field.",
             )?;
+
+            if config_stdin && effective_mode == "manual" {
+                anyhow::bail!("--config-stdin cannot be used with manual mode (stdin is needed for signaling)");
+            }
 
             if from_file {
                 cfg.validate(effective_mode)?;
