@@ -435,6 +435,7 @@ graph TB
         I[secret_file]
         I2[auth_tokens - server only]
         I3[auth_token - client only]
+        I4[alpn_token - required on both]
         J[relay_urls]
         L[dns_server]
         M[server_node_id - client only]
@@ -460,6 +461,7 @@ graph TB
     E --> I
     E --> I2
     E --> I3
+    E --> I4
     E --> J
     E --> L
     E --> M
@@ -471,6 +473,44 @@ graph TB
     H --> R
 
     style S fill:#FFF9C4
+```
+
+### iroh Credential Mapping
+
+`iroh` mode uses two distinct credential types:
+
+| Credential | CLI Flags | Config Keys | Expected Usage |
+|------------|-----------|-------------|----------------|
+| **ALPN Token** | Server: `--alpn-token`<br>Client: `--alpn-token` | Server/Client: `[iroh].alpn_token` | Pre-handshake QUIC ALPN filter (`mf/2/<token>`). Typically one shared value for a server and all its clients. |
+| **Auth Token** | Server: `--auth-tokens` and/or `--auth-tokens-file`<br>Client: `--auth-token` or `--auth-token-file` | Server: `[iroh].auth_tokens` or `[iroh].auth_tokens_file`<br>Client: `[iroh].auth_token` or `[iroh].auth_token_file` | Per-client credential checked on the auth stream after handshake. Use separate values per client for revocation/rotation. |
+
+Example CLI usage:
+
+```bash
+# Server
+tunnel-rs server \
+  --alpn-token "$ALPN_TOKEN" \
+  --auth-tokens "$ALICE_AUTH_TOKEN" \
+  --auth-tokens "$BOB_AUTH_TOKEN"
+
+# Alice's client
+tunnel-rs client \
+  --alpn-token "$ALPN_TOKEN" \
+  --auth-token "$ALICE_AUTH_TOKEN"
+```
+
+Example config usage:
+
+```toml
+# server.toml
+[iroh]
+alpn_token = "ALPN_TOKEN_SHARED_BY_ALL_CLIENTS"
+auth_tokens = ["ALICE_AUTH_TOKEN", "BOB_AUTH_TOKEN"]
+
+# client.toml
+[iroh]
+alpn_token = "ALPN_TOKEN_SHARED_BY_ALL_CLIENTS"
+auth_token = "ALICE_AUTH_TOKEN"
 ```
 
 ### Configuration Loading Flow
@@ -602,6 +642,12 @@ graph TB
 ### Token Authentication (iroh Mode)
 
 Iroh mode uses two layers of authentication. First, a pre-shared ALPN token is embedded in the QUIC protocol identifier (`mf/2/<token>`), rejecting unknown clients at the TLS handshake level before any application streams are opened. Second, clients must provide a valid auth token via a dedicated auth stream within a 10-second timeout. **Both layers are mandatory.**
+
+#### ALPN Token vs Auth Token
+
+- **ALPN Token** (`--alpn-token` / `[iroh].alpn_token`): Pre-handshake shared value used for QUIC ALPN filtering.
+- **Auth Token** (server: `--auth-tokens` / `--auth-tokens-file`; client: `--auth-token` / `--auth-token-file`; config: `[iroh].auth_tokens` / `[iroh].auth_token`): Per-client token validated on the auth stream.
+- **Mapping**: These are **distinct tokens**, not the same value. In code, ALPN tokens are 14-char Base64URL values, while auth tokens are 47-char `i...` tokens. Typical setup is one shared ALPN token plus per-client auth tokens for revocation.
 
 1. **ALPN Filtering**: Both server and client specify `--alpn-token`. The token is embedded in the QUIC ALPN identifier (`mf/2/<token>`). Connections from clients without a matching ALPN are rejected at the handshake level — acting as a lightweight "port knock".
 2. **Server Configuration**: Server specifies `--auth-tokens` with one or more pre-shared tokens

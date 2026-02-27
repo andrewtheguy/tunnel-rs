@@ -76,6 +76,17 @@ fn resolve_stun_servers(
     Ok(default_stun_servers())
 }
 
+fn resolve_relays(relays: Vec<String>) -> Vec<String> {
+    if relays.is_empty() {
+        default_nostr_relays()
+            .iter()
+            .map(|&relay| relay.to_string())
+            .collect()
+    } else {
+        relays
+    }
+}
+
 fn resolve_nostr_nsec(nsec: Option<String>, nsec_file: Option<PathBuf>) -> Result<Option<String>> {
     match (nsec, nsec_file) {
         (Some(_), Some(_)) => {
@@ -573,14 +584,7 @@ async fn main() -> Result<()> {
                     let peer_npub = peer_npub.context(
                         "peer-npub is required. Provide via --peer-npub or in config file.",
                     )?;
-                    let relays = if relays.is_empty() {
-                        default_nostr_relays()
-                            .iter()
-                            .map(|&relay| relay.to_string())
-                            .collect()
-                    } else {
-                        relays
-                    };
+                    let relays = resolve_relays(relays);
 
                     nostr::run_nostr_server(nostr::NostrServerConfig {
                         allowed_tcp,
@@ -759,14 +763,7 @@ async fn main() -> Result<()> {
                     let peer_npub = peer_npub.context(
                         "peer-npub is required. Provide via --peer-npub or in config file.",
                     )?;
-                    let relays = if relays.is_empty() {
-                        default_nostr_relays()
-                            .iter()
-                            .map(|&relay| relay.to_string())
-                            .collect()
-                    } else {
-                        relays
-                    };
+                    let relays = resolve_relays(relays);
 
                     let listen = target;
 
