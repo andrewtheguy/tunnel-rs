@@ -71,6 +71,9 @@ tunnel-rs client \
 
 ## Docker
 
+> [!NOTE]
+> The Docker setup below has not been tested yet. Please report any issues.
+
 Expose services via tunnel-rs with token authentication:
 
 ```bash
