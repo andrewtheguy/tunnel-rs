@@ -365,7 +365,7 @@ tunnel-rs client \
 |--------|---------|-------------|
 | `--config`, `-c` | - | Path to TOML config file |
 | `--default-config` | false | Load config from `~/.config/tunnel-rs/server.toml` (`tunnel-rs`) or `~/.config/tunnel-rs/server_ice.toml` (`tunnel-rs-ice`) |
-| `--config-stdin` | false | Read JSON config from stdin for automation/IPC (file configs use TOML) |
+| `--config-stdin` | false | Read JSON config from stdin for automation/IPC (use `-c` for normal usage) |
 
 ### server iroh
 
@@ -390,7 +390,7 @@ tunnel-rs client \
 |--------|---------|-------------|
 | `--config`, `-c` | - | Path to TOML config file |
 | `--default-config` | false | Load config from `~/.config/tunnel-rs/client.toml` (`tunnel-rs`) or `~/.config/tunnel-rs/client_ice.toml` (`tunnel-rs-ice`) |
-| `--config-stdin` | false | Read JSON config from stdin for automation/IPC (file configs use TOML) |
+| `--config-stdin` | false | Read JSON config from stdin for automation/IPC (use `-c` for normal usage) |
 
 ### client iroh
 
@@ -409,7 +409,7 @@ tunnel-rs client \
 
 ## Configuration Files
 
-Use `--default-config` to load from the default location, or `-c <path>` for a custom path (both TOML). For automation and IPC, use `--config-stdin` to pass config as JSON via stdin — JSON is self-delimiting so the caller does not need to close stdin after writing. Only one of these may be used at a time. Each mode has its own configuration section:
+Use `--default-config` to load from the default location, or `-c <path>` for a custom path (both TOML). For normal usage, prefer config files so your settings are saved and reusable. The `--config-stdin` flag is intended for automation and IPC — it accepts JSON (self-delimiting, so the caller does not need to close stdin). Only one of these may be used at a time. Each mode has its own configuration section:
 - **iroh** mode: `[iroh]` section
 - **manual** mode: `[manual]` section
 - **nostr** mode: `[nostr]` section

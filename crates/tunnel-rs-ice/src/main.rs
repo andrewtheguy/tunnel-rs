@@ -147,7 +147,7 @@ enum Command {
         #[arg(long, global = true)]
         default_config: bool,
 
-        /// Read JSON config from stdin for automation/IPC (file configs use TOML)
+        /// Read JSON config from stdin for automation/IPC (use -c for normal usage)
         #[arg(long, global = true)]
         config_stdin: bool,
 
@@ -169,7 +169,7 @@ enum Command {
         #[arg(long, global = true)]
         default_config: bool,
 
-        /// Read JSON config from stdin for automation/IPC (file configs use TOML)
+        /// Read JSON config from stdin for automation/IPC (use -c for normal usage)
         #[arg(long, global = true)]
         config_stdin: bool,
 
