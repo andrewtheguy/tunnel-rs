@@ -177,10 +177,13 @@ fn decode_payload_v<T: for<'de> Deserialize<'de>>(
         return Err(anyhow!("Manual payload missing prefix"));
     }
 
-    let version = header
+    let version_str = header
         .strip_prefix(PREFIX)
         .ok_or_else(|| anyhow!("Manual payload missing version"))?;
-    if version != expected_version.to_string() {
+    let version: u16 = version_str
+        .parse()
+        .map_err(|_| anyhow!("Invalid signaling version: {:?}", version_str))?;
+    if version != expected_version {
         return Err(anyhow!(
             "Signaling version mismatch (expected {}, got {})",
             expected_version,
@@ -220,7 +223,7 @@ fn crc32(bytes: &[u8]) -> u32 {
 /// base64-encoded payloads with ASCII prefix/checksum). This function chunks by
 /// bytes for efficiency, which is safe for ASCII but would split multi-byte UTF-8
 /// codepoints. The function will panic if given non-ASCII input.
-pub fn wrap_lines(s: &str, width: usize) -> String {
+pub(crate) fn wrap_lines(s: &str, width: usize) -> String {
     assert!(
         s.is_ascii(),
         "wrap_lines requires ASCII input; got non-ASCII characters"
