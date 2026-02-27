@@ -438,4 +438,104 @@ mod tests {
         // max_content_len = 3 - 3 = 0, so just suffix
         assert_eq!(result, "...");
     }
+
+    // ========================================================================
+    // Decode error path tests
+    // ========================================================================
+
+    #[test]
+    fn test_decode_source_request_too_short() {
+        assert!(decode_source_request(&[0, 0]).is_err());
+    }
+
+    #[test]
+    fn test_decode_source_request_incomplete() {
+        // Length prefix says 100 bytes but only 4 bytes of body follow
+        let mut buf = vec![0, 0, 0, 100];
+        buf.extend_from_slice(b"abcd");
+        assert!(decode_source_request(&buf).is_err());
+    }
+
+    #[test]
+    fn test_decode_source_request_invalid_json() {
+        // Length prefix matches body length, but body is not valid JSON
+        let body = b"not json";
+        let len = (body.len() as u32).to_be_bytes();
+        let mut buf = Vec::from(len);
+        buf.extend_from_slice(body);
+        assert!(decode_source_request(&buf).is_err());
+    }
+
+    #[test]
+    fn test_decode_source_request_wrong_version() {
+        let bad = SourceRequest {
+            version: IROH_MULTI_VERSION + 1,
+            source: "tcp://127.0.0.1:22".into(),
+        };
+        let json = serde_json::to_vec(&bad).unwrap();
+        let len = (json.len() as u32).to_be_bytes();
+        let mut buf = Vec::from(len);
+        buf.extend_from_slice(&json);
+        let err = decode_source_request(&buf).unwrap_err();
+        assert!(err.to_string().contains("version mismatch"));
+    }
+
+    #[test]
+    fn test_decode_source_request_exceeds_max_size() {
+        // Length prefix claims a size larger than MAX_SOURCE_MESSAGE_SIZE
+        let len = ((MAX_SOURCE_MESSAGE_SIZE + 1) as u32).to_be_bytes();
+        let buf = Vec::from(len);
+        let err = decode_source_request(&buf).unwrap_err();
+        assert!(err.to_string().contains("too large"));
+    }
+
+    #[test]
+    fn test_encode_source_request_exceeds_max_size() {
+        let req = SourceRequest::new("x".repeat(MAX_SOURCE_MESSAGE_SIZE));
+        let err = encode_source_request(&req).unwrap_err();
+        assert!(err.to_string().contains("too large"));
+    }
+
+    // ========================================================================
+    // AuthRequest / AuthResponse roundtrip tests
+    // ========================================================================
+
+    #[test]
+    fn test_auth_request_roundtrip() {
+        let req = AuthRequest::new("my_secret_token");
+        let encoded = encode_auth_request(&req).unwrap();
+        let decoded = decode_auth_request(&encoded).unwrap();
+        assert_eq!(decoded.version, IROH_MULTI_VERSION);
+        assert_eq!(decoded.auth_token.as_str(), "my_secret_token");
+    }
+
+    #[test]
+    fn test_auth_response_accepted_roundtrip() {
+        let resp = AuthResponse::accepted();
+        let encoded = encode_auth_response(&resp).unwrap();
+        let decoded = decode_auth_response(&encoded).unwrap();
+        assert_eq!(decoded.version, IROH_MULTI_VERSION);
+        assert!(decoded.accepted);
+        assert!(decoded.reason.is_none());
+    }
+
+    #[test]
+    fn test_auth_response_rejected_roundtrip() {
+        let resp = AuthResponse::rejected("bad token");
+        let encoded = encode_auth_response(&resp).unwrap();
+        let decoded = decode_auth_response(&encoded).unwrap();
+        assert_eq!(decoded.version, IROH_MULTI_VERSION);
+        assert!(!decoded.accepted);
+        assert_eq!(decoded.reason.as_deref(), Some("bad token"));
+    }
+
+    #[test]
+    fn test_source_response_rejected_roundtrip() {
+        let resp = SourceResponse::rejected("not allowed");
+        let encoded = encode_source_response(&resp).unwrap();
+        let decoded = decode_source_response(&encoded).unwrap();
+        assert_eq!(decoded.version, IROH_MULTI_VERSION);
+        assert!(!decoded.accepted);
+        assert_eq!(decoded.reason.as_deref(), Some("not allowed"));
+    }
 }

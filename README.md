@@ -374,7 +374,7 @@ tunnel-rs client \
 | `--allowed-udp` | - | Allowed UDP networks in CIDR notation (repeatable) |
 | `--auth-tokens` | - | Authentication tokens (repeatable). Required unless provided via `--auth-tokens-file`. |
 | `--auth-tokens-file` | - | Path to file containing authentication tokens (one per line, # comments allowed). Can be combined with `--auth-tokens`. |
-| `--alpn-token` | required | ALPN token for QUIC handshake-level filtering (14-char Base64URL). Generate with `generate-token --alpn`. |
+| `--alpn-token` | required | ALPN token for QUIC handshake-level filtering (14-char Base64URL with CRC16 checksum). Generate with `generate-token --alpn`. |
 | `--max-sessions` | 100 | Maximum concurrent sessions |
 | `--secret` | - | Base64-encoded secret key for persistent server identity (use this or `--secret-file`) |
 | `--secret-file` | - | Path to secret key file for persistent server identity (use this or `--secret`) |
@@ -398,7 +398,7 @@ tunnel-rs client \
 | `--target`, `-t` | required | Local address to listen on |
 | `--auth-token` | - | Authentication token to send to server (required unless provided via `--auth-token-file`) |
 | `--auth-token-file` | - | Path to file containing authentication token (use this or `--auth-token`) |
-| `--alpn-token` | required | ALPN token for QUIC handshake-level filtering (must match server). Generate with `generate-token --alpn`. |
+| `--alpn-token` | required | ALPN token for QUIC handshake-level filtering (14-char Base64URL with CRC16 checksum, must match server). Generate with `generate-token --alpn`. |
 | `--relay-url` | public | Custom relay server URL(s), repeatable |
 | `--relay-only` | false | Force all traffic through relay (CLI-only; not supported in config files) |
 | `--dns-server` | public | Custom DNS server URL, or "none" to disable DNS discovery |

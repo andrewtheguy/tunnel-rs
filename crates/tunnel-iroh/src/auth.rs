@@ -621,6 +621,13 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_alpn_token_non_ascii() {
+        let result = validate_alpn_token("🔐notascii1234");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("ASCII"));
+    }
+
+    #[test]
     fn test_validate_alpn_token_mutated_checksum() {
         let token = generate_alpn_token();
         let mut payload = URL_SAFE_NO_PAD.decode(&token).unwrap();
