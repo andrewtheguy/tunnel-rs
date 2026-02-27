@@ -12,7 +12,9 @@ The `tunnel-rs-ice` binary is published in GitHub releases but is not containeri
 > **No Backward Compatibility (Pre-1.0):** During initial development before version 1.0, no backward compatibility or migration path is provided between minor versions (e.g., 0.1.x to 0.2.x). Expect to regenerate server keys and rebuild client/server configurations when upgrading between minor versions. To avoid unexpected breakage, pin the container image to a specific patch version (e.g., `ghcr.io/andrewtheguy/tunnel-rs:0.2.0`) or minor version (e.g., `ghcr.io/andrewtheguy/tunnel-rs:0.2`).
 
 > [!WARNING]
-> **Breaking Change (v0.2):** The auth token format changed from 18-char Luhn mod N tokens to 47-char Base64URL tokens with CRC16 checksum. Old tokens are **not** accepted. Regenerate all tokens with `tunnel-rs generate-token` and update your `tokens.txt` files and client configurations.
+> **Breaking Changes (v0.2):**
+> - **Auth token format:** Changed from 18-char Luhn mod N tokens to 47-char Base64URL tokens with CRC16 checksum. Old tokens are **not** accepted. Regenerate all tokens with `tunnel-rs generate-token` and update your `tokens.txt` files and client configurations.
+> - **Silent auth failure:** The server no longer sends a rejection message or closes the connection with an error code — it simply waits out the auth timeout and drops the connection. Clients with invalid tokens will see a generic connection timeout instead of a structured rejection. Server-side logs still show the reason for operators.
 
 ## How It Works
 

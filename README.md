@@ -11,7 +11,9 @@ Tunnel-rs enables you to forward TCP and UDP traffic between machines without re
 > **No Backward Compatibility (Pre-1.0):** During initial development before version 1.0, no backward compatibility or migration path is provided between minor versions (e.g., 0.1.x to 0.2.x). Expect to regenerate server keys and rebuild client/server configurations when upgrading in between minor versions.
 
 > [!WARNING]
-> **Breaking Change (v0.2):** The auth token format changed from 18-char Luhn mod N tokens to 47-char Base64URL tokens with CRC16 checksum. Old tokens are **not** accepted. Regenerate all tokens with `tunnel-rs generate-token` and update server/client configurations.
+> **Breaking Changes (v0.2):**
+> - **Auth token format:** Changed from 18-char Luhn mod N tokens to 47-char Base64URL tokens with CRC16 checksum. Old tokens are **not** accepted. Regenerate all tokens with `tunnel-rs generate-token` and update server/client configurations.
+> - **Silent auth failure:** The server no longer sends a rejection message or closes the connection with an error code — it simply waits out the auth timeout and drops the connection. Clients with invalid tokens will see a generic connection timeout instead of a structured rejection. Server-side logs still show the reason for operators.
 
 **Features:**
 - **No account or registration required** — Just download and run
@@ -536,7 +538,7 @@ tunnel-rs show-server-id --secret-file ./server.key
 
 - All traffic is encrypted using QUIC/TLS 1.3
 - The EndpointId is a public key that identifies the server
-- **Token Authentication (iroh mode):** Clients authenticate immediately after QUIC connection via a dedicated auth stream. Invalid tokens are rejected within 10 seconds and the connection is closed. See [Architecture: Token Authentication](docs/ARCHITECTURE.md#token-authentication-iroh-mode).
+- **Token Authentication (iroh mode):** Clients authenticate immediately after QUIC connection via a dedicated auth stream. Invalid tokens are silently dropped — the server waits out the auth timeout and closes the connection without sending a rejection, making failed attempts indistinguishable from timeouts. See [Architecture: Token Authentication](docs/ARCHITECTURE.md#token-authentication-iroh-mode).
 - Secret key files are created with `0600` permissions (Unix) and appropriate permissions on Windows
 - Treat secret key files and auth tokens like passwords
 
@@ -548,8 +550,8 @@ tunnel-rs show-server-id --secret-file ./server.key
 3. Client resolves the server via discovery
 4. QUIC connection established via iroh's NAT traversal
 5. **Authentication phase:** Client opens dedicated auth stream and sends `AuthRequest` with token
-6. **Server validates token immediately** (10s timeout) — invalid tokens close connection
-   - *If authentication fails, the connection is closed and steps 7–9 do not occur*
+6. **Server validates token** (10s timeout) — invalid tokens are silently dropped after timeout (no rejection sent)
+   - *If authentication fails, the connection is silently dropped and steps 7–9 do not occur*
 7. **Source request phase:** Client opens source stream with `SourceRequest`
 8. Server validates source against allowed networks and responds
 9. If accepted, traffic forwarding begins
