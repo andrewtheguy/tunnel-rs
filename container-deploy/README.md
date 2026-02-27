@@ -9,7 +9,13 @@ The `tunnel-rs-ice` binary is published in GitHub releases but is not containeri
 > **Project Goal:** This tool provides a convenient way to connect to different networks for **development or homelab purposes** without the hassle and security risk of opening a port. It is **not** meant for production setups or designed to be performant at scale.
 
 > [!WARNING]
-> **No Backward Compatibility (Pre-1.0):** During initial development before version 1.0, no backward compatibility or migration path is provided between minor versions (e.g., 0.1.x to 0.2.x). Expect to regenerate server keys and rebuild client/server configurations when upgrading between minor versions. To avoid unexpected breakage, pin the container image to a specific patch version (e.g., `ghcr.io/andrewtheguy/tunnel-rs:0.1.81`) or minor version (e.g., `ghcr.io/andrewtheguy/tunnel-rs:0.1`).
+> **No Backward Compatibility (Pre-1.0):** During initial development before version 1.0, no backward compatibility or migration path is provided between minor versions (e.g., 0.1.x to 0.2.x). Expect to regenerate server keys and rebuild client/server configurations when upgrading between minor versions. To avoid unexpected breakage, pin the container image to a specific patch version (e.g., `ghcr.io/andrewtheguy/tunnel-rs:0.2.0`) or minor version (e.g., `ghcr.io/andrewtheguy/tunnel-rs:0.2`).
+
+> [!WARNING]
+> **Breaking Changes (v0.2):**
+> - **Auth token format:** Changed from 18-char Luhn mod N tokens to 47-char Base64URL tokens with CRC16 checksum. Old tokens are **not** accepted. Regenerate all tokens with `tunnel-rs generate-token` and update your `tokens.txt` files and client configurations.
+> - **Silent auth failure:** The server no longer sends a rejection message or closes the connection with an error code — it simply waits out the auth timeout and drops the connection. Clients with invalid tokens will see a generic connection timeout instead of a structured rejection. Server-side logs still show the reason for operators.
+> - **ALPN token required:** A new `--alpn-token` argument is required for both server and client. Generate with `tunnel-rs generate-token --alpn`.
 
 ## How It Works
 
@@ -41,20 +47,26 @@ tunnel-rs generate-server-key --output server.key
 AUTH_TOKEN=$(tunnel-rs generate-token)
 echo $AUTH_TOKEN  # Share this with authorized clients
 
-# 3. Server: allow connections with token authentication
+# 3. Create an ALPN token (shared between server and all clients)
+ALPN_TOKEN=$(tunnel-rs generate-token --alpn)
+echo $ALPN_TOKEN
+
+# 4. Server: allow connections with token authentication
 tunnel-rs server \
   --secret-file ./server.key \
   --allowed-tcp 127.0.0.0/8 \
   --allowed-tcp 192.168.0.0/16 \
-  --auth-tokens "$AUTH_TOKEN"
+  --auth-tokens "$AUTH_TOKEN" \
+  --alpn-token "$ALPN_TOKEN"
 # Output: EndpointId: <SERVER_NODE_ID>
 
-# 4. Client: connect and request a service
+# 5. Client: connect and request a service
 tunnel-rs client \
   --server-node-id <SERVER_NODE_ID> \
   --source tcp://127.0.0.1:22 \
   --target 127.0.0.1:2222 \
-  --auth-token "$AUTH_TOKEN"
+  --auth-token "$AUTH_TOKEN" \
+  --alpn-token "$ALPN_TOKEN"
 ```
 
 ## Docker
@@ -72,26 +84,32 @@ docker run --rm ghcr.io/andrewtheguy/tunnel-rs:latest \
 AUTH_TOKEN=$(docker run --rm ghcr.io/andrewtheguy/tunnel-rs:latest generate-token)
 echo "$AUTH_TOKEN" > tokens.txt
 
-# 3. Start services (update docker-compose.yml to mount tokens.txt)
+# 3. Create an ALPN token (shared between server and all clients)
+docker run --rm ghcr.io/andrewtheguy/tunnel-rs:latest generate-token --alpn > alpn_token.txt
+ALPN_TOKEN=$(cat alpn_token.txt)
+
+# 4. Start services
 docker compose up -d
 
-# 4. Get server EndpointId
+# 5. Get server EndpointId
 docker compose logs tunnel-server | grep EndpointId
 # EndpointId: <SERVER_NODE_ID>
 
-# 5. On remote machine - connect to web service
+# 6. On remote machine - connect to web service
 tunnel-rs client \
   --server-node-id <SERVER_NODE_ID> \
   --source tcp://web:80 \
   --target 127.0.0.1:8080 \
-  --auth-token "$AUTH_TOKEN"
+  --auth-token "$AUTH_TOKEN" \
+  --alpn-token "$ALPN_TOKEN"
 
-# 6. Or connect to database
+# 7. Or connect to database
 tunnel-rs client \
   --server-node-id <SERVER_NODE_ID> \
   --source tcp://db:5432 \
   --target 127.0.0.1:5432 \
-  --auth-token "$AUTH_TOKEN"
+  --auth-token "$AUTH_TOKEN" \
+  --alpn-token "$ALPN_TOKEN"
 
 # Access at http://127.0.0.1:8080 or localhost:5432
 ```
@@ -107,15 +125,20 @@ tunnel-rs generate-server-key --output server.key
 # 2. Create an authentication token
 AUTH_TOKEN=$(tunnel-rs generate-token)
 
-# 3. Create secrets
+# 3. Create an ALPN token (shared between server and all clients)
+tunnel-rs generate-token --alpn > alpn_token.txt
+ALPN_TOKEN=$(cat alpn_token.txt)
+
+# 4. Create secrets
 kubectl create secret generic tunnel-server-secrets \
   --from-file=server.key=./server.key \
-  --from-literal=tokens.txt="$AUTH_TOKEN"
+  --from-literal=tokens.txt="$AUTH_TOKEN" \
+  --from-file=alpn-token=./alpn_token.txt
 
-# 4. Deploy
+# 5. Deploy
 kubectl apply -f kubernetes/tunnel-deployment.yaml
 
-# 5. Get server EndpointId
+# 6. Get server EndpointId
 kubectl logs -l app=tunnel-server | grep EndpointId
 ```
 
@@ -127,21 +150,24 @@ tunnel-rs client \
   --server-node-id <SERVER_NODE_ID> \
   --source tcp://postgres.database.svc:5432 \
   --target 127.0.0.1:5432 \
-  --auth-token "$AUTH_TOKEN"
+  --auth-token "$AUTH_TOKEN" \
+  --alpn-token "$ALPN_TOKEN"
 
 # Tunnel to Redis
 tunnel-rs client \
   --server-node-id <SERVER_NODE_ID> \
   --source tcp://redis.cache.svc:6379 \
   --target 127.0.0.1:6379 \
-  --auth-token "$AUTH_TOKEN"
+  --auth-token "$AUTH_TOKEN" \
+  --alpn-token "$ALPN_TOKEN"
 
 # Tunnel to a web dashboard
 tunnel-rs client \
   --server-node-id <SERVER_NODE_ID> \
   --source tcp://kubernetes-dashboard.kubernetes-dashboard.svc:443 \
   --target 127.0.0.1:8443 \
-  --auth-token "$AUTH_TOKEN"
+  --auth-token "$AUTH_TOKEN" \
+  --alpn-token "$ALPN_TOKEN"
 ```
 
 **Advantages over `kubectl port-forward`:**
@@ -161,7 +187,8 @@ tunnel-rs client \
   --server-node-id <SERVER_NODE_ID> \
   --source udp://kube-dns.kube-system.svc.cluster.local:53 \
   --target 127.0.0.1:5353 \
-  --auth-token "$AUTH_TOKEN"
+  --auth-token "$AUTH_TOKEN" \
+  --alpn-token "$ALPN_TOKEN"
 
 # Query cluster DNS locally
 dig @127.0.0.1 -p 5353 kubernetes.default.svc.cluster.local

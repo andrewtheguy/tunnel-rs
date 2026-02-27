@@ -269,12 +269,15 @@ sequenceDiagram
     C->>RS: Connect to relay
 
     alt Direct Connection Possible
-        C->>S: Direct QUIC connection
-        S-->>C: Accept connection
+        C->>S: Direct QUIC connection (ALPN: mf/2/<token>)
+        S-->>C: Accept connection (ALPN match)
+    else ALPN Mismatch
+        C->>S: QUIC connection (wrong ALPN)
+        S-->>C: Handshake rejected (no matching ALPN)
     else NAT Traversal Failed
         C->>RS: Connect via relay
         RS->>S: Forward connection
-        S-->>RS: Accept via relay
+        S-->>RS: Accept via relay (ALPN match)
         RS-->>C: Relay established
     end
 
@@ -286,8 +289,8 @@ sequenceDiagram
     alt Token Valid
         S-->>C: AuthResponse {accepted}
     else Token Invalid
-        S-->>C: AuthResponse {rejected}
-        S->>C: Close connection
+        S->>S: Wait out remaining auth timeout
+        S->>S: Drop connection silently
     end
 
     Note over C,S: Source Request Phase
@@ -432,6 +435,7 @@ graph TB
         I[secret_file]
         I2[auth_tokens - server only]
         I3[auth_token - client only]
+        I4[alpn_token - required on both]
         J[relay_urls]
         L[dns_server]
         M[server_node_id - client only]
@@ -457,6 +461,7 @@ graph TB
     E --> I
     E --> I2
     E --> I3
+    E --> I4
     E --> J
     E --> L
     E --> M
@@ -468,6 +473,44 @@ graph TB
     H --> R
 
     style S fill:#FFF9C4
+```
+
+### iroh Credential Mapping
+
+`iroh` mode uses two distinct credential types:
+
+| Credential | CLI Flags | Config Keys | Expected Usage |
+|------------|-----------|-------------|----------------|
+| **ALPN Token** | Server: `--alpn-token`<br>Client: `--alpn-token` | Server/Client: `[iroh].alpn_token` | Pre-handshake QUIC ALPN filter (`mf/2/<token>`). Typically one shared value for a server and all its clients. |
+| **Auth Token** | Server: `--auth-tokens` and/or `--auth-tokens-file`<br>Client: `--auth-token` or `--auth-token-file` | Server: `[iroh].auth_tokens` or `[iroh].auth_tokens_file`<br>Client: `[iroh].auth_token` or `[iroh].auth_token_file` | Per-client credential checked on the auth stream after handshake. Use separate values per client for revocation/rotation. |
+
+Example CLI usage:
+
+```bash
+# Server
+tunnel-rs server \
+  --alpn-token "$ALPN_TOKEN" \
+  --auth-tokens "$ALICE_AUTH_TOKEN" \
+  --auth-tokens "$BOB_AUTH_TOKEN"
+
+# Alice's client
+tunnel-rs client \
+  --alpn-token "$ALPN_TOKEN" \
+  --auth-token "$ALICE_AUTH_TOKEN"
+```
+
+Example config usage:
+
+```toml
+# server.toml
+[iroh]
+alpn_token = "ALPN_TOKEN_SHARED_BY_ALL_CLIENTS"
+auth_tokens = ["ALICE_AUTH_TOKEN", "BOB_AUTH_TOKEN"]
+
+# client.toml
+[iroh]
+alpn_token = "ALPN_TOKEN_SHARED_BY_ALL_CLIENTS"
+auth_token = "ALICE_AUTH_TOKEN"
 ```
 
 ### Configuration Loading Flow
@@ -576,10 +619,11 @@ graph TB
         A[Server Secret Key] --> B[Ed25519 Private Key]
         B --> C[EndpointId - Public Key]
         C --> D[Client Connects]
-        D --> E[Token Validation]
+        D --> D2[ALPN Token Validation]
+        D2 --> E[Auth Token Validation]
         E --> F{Valid Token?}
         F -->|Yes| G[Authenticated]
-        F -->|No| H[Rejected]
+        F -->|No| H[Silent Drop]
     end
 
     subgraph "manual Mode"
@@ -597,15 +641,22 @@ graph TB
 
 ### Token Authentication (iroh Mode)
 
-Iroh mode requires authentication using pre-shared tokens. Clients use ephemeral identities but must provide a valid token. **Authentication is mandatory and must complete successfully before any source requests are permitted.** The client must authenticate via a dedicated auth stream with a valid token within a 10-second timeout immediately after QUIC connection establishment.
+Iroh mode uses two layers of authentication. First, a pre-shared ALPN token is embedded in the QUIC protocol identifier (`mf/2/<token>`), rejecting unknown clients at the TLS handshake level before any application streams are opened. Second, clients must provide a valid auth token via a dedicated auth stream within a 10-second timeout. **Both layers are mandatory.**
 
-1. **Server Configuration**: Server specifies `--auth-tokens` with one or more pre-shared tokens
-2. **Client Configuration**: Client specifies `--auth-token` with the token received from the server admin
-3. **Protocol Flow**: Client opens a dedicated auth stream immediately after connection and sends an `AuthRequest`. **No source requests are accepted until authentication succeeds.**
-4. **Validation**: Server validates the token using `is_token_valid()` within a 10-second timeout
-5. **Rejection**: Invalid tokens receive an `AuthResponse::rejected()` and the connection is closed immediately
+#### ALPN Token vs Auth Token
 
-This early validation prevents unauthorized clients from holding open connections or attempting source requests.
+- **ALPN Token** (`--alpn-token` / `[iroh].alpn_token`): Pre-handshake shared value used for QUIC ALPN filtering.
+- **Auth Token** (server: `--auth-tokens` / `--auth-tokens-file`; client: `--auth-token` / `--auth-token-file`; config: `[iroh].auth_tokens` / `[iroh].auth_token`): Per-client token validated on the auth stream.
+- **Mapping**: These are **distinct tokens**, not the same value. In code, ALPN tokens are 14-char Base64URL values, while auth tokens are 47-char `i...` tokens. Typical setup is one shared ALPN token plus per-client auth tokens for revocation.
+
+1. **ALPN Filtering**: Both server and client specify `--alpn-token`. The token is embedded in the QUIC ALPN identifier (`mf/2/<token>`). Connections from clients without a matching ALPN are rejected at the handshake level — acting as a lightweight "port knock".
+2. **Server Configuration**: Server specifies `--auth-tokens` with one or more pre-shared tokens
+3. **Client Configuration**: Client specifies `--auth-token` with the token received from the server admin
+4. **Protocol Flow**: Client opens a dedicated auth stream immediately after connection and sends an `AuthRequest`. **No source requests are accepted until authentication succeeds.**
+5. **Validation**: Server validates the token using `is_token_valid()` within a 10-second timeout
+6. **Rejection**: Invalid tokens cause the server to silently wait out the remaining auth timeout and then drop the connection — no `AuthResponse` is sent, no error code is returned. This makes it harder for attackers to distinguish invalid tokens from network timeouts.
+
+This layered validation prevents unauthorized clients from holding open connections or attempting source requests.
 
 ```mermaid
 sequenceDiagram
@@ -613,8 +664,13 @@ sequenceDiagram
     participant S as Server
     participant A as Auth Module
 
-    C->>S: Connect (QUIC TLS handshake)
-    S->>C: Accept connection
+    C->>S: Connect (QUIC TLS handshake, ALPN: mf/2/<token>)
+    alt ALPN matches
+        S->>C: Accept connection
+    else ALPN mismatch
+        S-->>C: Handshake rejected
+        Note over S,C: Connection rejected at handshake level
+    end
 
     Note over C,S: Auth Phase (10s timeout)
     C->>S: Open auth stream
@@ -626,12 +682,12 @@ sequenceDiagram
         Note over S,C: Connection authenticated
     else Token is invalid
         A-->>S: false
-        S->>C: AuthResponse {accepted: false, reason}
-        S->>S: Close connection (error code 1)
-        Note over S,C: Connection rejected
+        S->>S: Wait out remaining auth timeout
+        S->>S: Drop connection silently
+        Note over S,C: Connection dropped (no response sent)
     else Timeout (no auth within 10s)
-        S->>S: Close connection (error code 2)
-        Note over S,C: Connection rejected
+        S->>S: Drop connection silently
+        Note over S,C: Connection dropped (no response sent)
     end
 
     Note over C,S: Source Request Phase (after successful auth)
@@ -645,10 +701,11 @@ sequenceDiagram
 ### Token Security Notes (iroh Mode)
 
 - Tokens are **bearer credentials**: possession is sufficient for access. Use one token per client to enable revocation.
-- Token strength comes from **randomness, not format**: 16 random characters from a 65‑symbol alphabet (~96 bits of entropy). Treat tokens like high‑entropy secrets.
+- Token strength comes from **randomness, not format**: 32 random bytes (256 bits of entropy). Treat tokens like high‑entropy secrets.
 - Tokens are sent only **after** the QUIC/TLS 1.3 handshake, so the auth stream is encrypted in transit.
-- The checksum is **for typo detection only**, not cryptographic security.
-- Tokens are validated as ASCII and limited to safe characters to avoid shell/TOML parsing issues.
+- The CRC16-CCITT-FALSE checksum is **for typo detection only**, not cryptographic security.
+- Tokens are Base64URL-encoded and validated as ASCII.
+- The **ALPN token** acts as a pre-handshake filter (lightweight "port knock"). It is embedded in the TLS ClientHello and therefore **visible in cleartext** on the wire — it is not a secret, but prevents casual scanners from completing a QUIC handshake.
 - Avoid logging or sharing tokens; the `AuthToken` wrapper redacts values in Debug output, but treat them like passwords.
 - Prefer token files with restricted permissions (e.g., `0600`) and rotate tokens if exposure is suspected.
 

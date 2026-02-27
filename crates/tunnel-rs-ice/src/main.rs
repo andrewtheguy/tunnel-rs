@@ -9,10 +9,10 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use tunnel_common::config::{
-    default_ice_transport_tuning, default_stun_servers, expand_tilde, load_client_config,
-    load_server_config, ClientConfig, ServerConfig,
+    expand_tilde, load_client_config, load_server_config, ClientConfig, ServerConfig,
 };
 use tunnel_common::net::resolve_listen_addr;
+use tunnel_ice::defaults::{default_ice_transport_tuning, default_nostr_relays, default_stun_servers};
 use tunnel_ice::{custom, nostr, secret};
 
 #[derive(Clone, Copy, ValueEnum, Default, Debug, PartialEq)]
@@ -73,7 +73,21 @@ fn resolve_stun_servers(
     if let Some(servers) = config_stun_servers {
         return Ok(servers);
     }
-    Ok(default_stun_servers())
+    Ok(default_stun_servers()
+        .iter()
+        .map(|&server| server.to_string())
+        .collect())
+}
+
+fn resolve_relays(relays: Vec<String>) -> Vec<String> {
+    if relays.is_empty() {
+        default_nostr_relays()
+            .iter()
+            .map(|&relay| relay.to_string())
+            .collect()
+    } else {
+        relays
+    }
 }
 
 fn resolve_nostr_nsec(nsec: Option<String>, nsec_file: Option<PathBuf>) -> Result<Option<String>> {
@@ -573,14 +587,7 @@ async fn main() -> Result<()> {
                     let peer_npub = peer_npub.context(
                         "peer-npub is required. Provide via --peer-npub or in config file.",
                     )?;
-                    let relays = if relays.is_empty() {
-                        tunnel_common::config::default_nostr_relays()
-                            .iter()
-                            .map(|&relay| relay.to_string())
-                            .collect()
-                    } else {
-                        relays
-                    };
+                    let relays = resolve_relays(relays);
 
                     nostr::run_nostr_server(nostr::NostrServerConfig {
                         allowed_tcp,
@@ -759,14 +766,7 @@ async fn main() -> Result<()> {
                     let peer_npub = peer_npub.context(
                         "peer-npub is required. Provide via --peer-npub or in config file.",
                     )?;
-                    let relays = if relays.is_empty() {
-                        tunnel_common::config::default_nostr_relays()
-                            .iter()
-                            .map(|&relay| relay.to_string())
-                            .collect()
-                    } else {
-                        relays
-                    };
+                    let relays = resolve_relays(relays);
 
                     let listen = target;
 

@@ -11,9 +11,8 @@ use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer, ServerName, UnixTime
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use std::time::Duration;
-use tunnel_common::config::{
-    CongestionController, TransportTuning, DEFAULT_ICE_RECEIVE_WINDOW, DEFAULT_ICE_SEND_WINDOW,
-};
+use crate::defaults::{DEFAULT_ICE_RECEIVE_WINDOW, DEFAULT_ICE_SEND_WINDOW};
+use tunnel_common::config::{CongestionController, TransportTuning};
 
 /// Ensure rustls crypto provider is installed.
 /// This must be called before using any rustls functionality.

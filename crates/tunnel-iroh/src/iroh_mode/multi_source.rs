@@ -35,6 +35,8 @@ pub struct MultiSourceServerConfig {
     pub dns_server: Option<String>,
     /// Set of valid authentication tokens. **Sensitive field - redacted in Debug output.**
     pub auth_tokens: HashSet<String>,
+    /// ALPN token for QUIC handshake-level filtering. **Sensitive field - redacted in Debug output.**
+    pub alpn_token: String,
     /// Transport layer tuning (congestion control, buffer sizes).
     pub transport: TransportTuning,
 }
@@ -53,6 +55,7 @@ impl std::fmt::Debug for MultiSourceServerConfig {
                 "auth_tokens",
                 &format!("[{} tokens]", self.auth_tokens.len()),
             )
+            .field("alpn_token", &"[REDACTED]")
             .field("transport", &self.transport)
             .finish()
     }
@@ -75,6 +78,8 @@ pub struct MultiSourceClientConfig {
     pub dns_server: Option<String>,
     /// Authentication token for server access. **Sensitive field - redacted in Debug output.**
     pub auth_token: String,
+    /// ALPN token for QUIC handshake-level filtering. **Sensitive field - redacted in Debug output.**
+    pub alpn_token: String,
     /// Transport layer tuning (congestion control, buffer sizes).
     pub transport: TransportTuning,
 }
@@ -89,6 +94,7 @@ impl std::fmt::Debug for MultiSourceClientConfig {
             .field("relay_only", &self.relay_only)
             .field("dns_server", &self.dns_server)
             .field("auth_token", &"[REDACTED]")
+            .field("alpn_token", &"[REDACTED]")
             .field("transport", &self.transport)
             .finish()
     }
@@ -97,8 +103,8 @@ impl std::fmt::Debug for MultiSourceClientConfig {
 use crate::auth::is_token_valid;
 
 use crate::iroh_mode::endpoint::{
-    connect_to_server, create_client_endpoint, create_server_endpoint, validate_relay_only,
-    watch_connection_paths, MULTI_ALPN,
+    build_multi_alpn, connect_to_server, create_client_endpoint, create_server_endpoint,
+    validate_relay_only, watch_connection_paths,
 };
 use crate::iroh_mode::helpers::{
     bridge_streams, forward_stream_to_udp_client, forward_stream_to_udp_server,
@@ -157,12 +163,13 @@ pub async fn run_multi_source_server(config: MultiSourceServerConfig) -> Result<
     log::info!("==================================");
     log::info!("Creating iroh endpoint...");
 
+    let alpn = build_multi_alpn(&config.alpn_token);
     let endpoint = create_server_endpoint(
         &config.relay_urls,
         relay_only,
         config.secret,
         config.dns_server.as_deref(),
-        MULTI_ALPN,
+        &alpn,
         Some(&config.transport),
     )
     .await?;
@@ -183,10 +190,10 @@ pub async fn run_multi_source_server(config: MultiSourceServerConfig) -> Result<
 
     log::info!("\nOn the client side, run:");
     log::info!(
-        "  tunnel-rs client --auth-token <token> --server-node-id {} --source tcp://target:port --target 127.0.0.1:port\n",
+        "  tunnel-rs client --auth-token <token> --alpn-token <alpn-token> --server-node-id {} --source tcp://target:port --target 127.0.0.1:port\n",
         endpoint_id
     );
-    log::info!("Note: Clients must provide a valid --auth-token for authentication");
+    log::info!("Note: Both --auth-token and --alpn-token (or --alpn-token-file) are required to connect");
     log::info!("Waiting for clients to connect...");
 
     // Session management with semaphore for concurrency limit
@@ -258,6 +265,7 @@ async fn handle_multi_source_connection(
     let remote_id = conn.remote_id();
 
     // Phase 1: Wait for auth stream with timeout
+    let auth_start = tokio::time::Instant::now();
     let auth_result = tokio::time::timeout(AUTH_TIMEOUT, async {
         // Accept the first bi-stream which must be the auth stream
         let (mut send_stream, mut recv_stream) = conn
@@ -275,10 +283,12 @@ async fn handle_multi_source_connection(
         let token_str = request.auth_token.as_str();
         if !is_token_valid(token_str, &auth_tokens) {
             log::warn!("Invalid auth token from {}", remote_id);
-            let response = AuthResponse::rejected("Invalid authentication token");
-            let encoded = encode_auth_response(&response)?;
-            send_stream.write_all(&encoded).await?;
-            send_stream.finish()?;
+            // Wait out the remaining auth timeout while streams are still alive,
+            // so failures look identical to timeouts to probing clients.
+            let elapsed = auth_start.elapsed();
+            if let Some(remaining) = AUTH_TIMEOUT.checked_sub(elapsed) {
+                tokio::time::sleep(remaining).await;
+            }
             anyhow::bail!("Invalid auth token");
         }
 
@@ -299,12 +309,10 @@ async fn handle_multi_source_connection(
         }
         Ok(Err(e)) => {
             log::warn!("Authentication failed for {}: {}", remote_id, e);
-            conn.close(1u32.into(), b"auth_failed");
             return Err(anyhow::anyhow!("auth_failed: {}", e));
         }
         Err(_) => {
             log::warn!("Authentication timeout for {}", remote_id);
-            conn.close(2u32.into(), b"auth_timeout");
             return Err(anyhow::anyhow!("auth_timeout"));
         }
     }
@@ -557,12 +565,13 @@ pub async fn run_multi_source_client(config: MultiSourceClientConfig) -> Result<
     )
     .await?;
 
+    let alpn = build_multi_alpn(&config.alpn_token);
     let conn = connect_to_server(
         &endpoint,
         server_id,
         &config.relay_urls,
         relay_only,
-        MULTI_ALPN,
+        &alpn,
     )
     .await?;
 

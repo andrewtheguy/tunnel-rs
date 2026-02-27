@@ -60,6 +60,11 @@ pub struct IrohConfig {
     /// Local address to listen on (client only).
     /// Format: host:port
     pub target: Option<String>,
+    /// ALPN token for QUIC handshake-level filtering.
+    /// Both server and client must use the same token.
+    pub alpn_token: Option<String>,
+    /// Path to file containing the ALPN token.
+    pub alpn_token_file: Option<PathBuf>,
     /// Transport layer tuning (congestion control, buffer sizes).
     #[serde(default)]
     pub transport: TransportTuning,
@@ -84,7 +89,7 @@ pub struct CustomManualConfig {
     /// Format: host:port (no protocol prefix)
     pub target: Option<String>,
     /// Transport layer tuning (congestion control, buffer sizes).
-    #[serde(default = "default_ice_transport_tuning")]
+    #[serde(default)]
     pub transport: TransportTuning,
 }
 
@@ -132,7 +137,7 @@ pub struct NostrConfig {
     /// Format: host:port (no protocol prefix)
     pub target: Option<String>,
     /// Transport layer tuning (congestion control, buffer sizes).
-    #[serde(default = "default_ice_transport_tuning")]
+    #[serde(default)]
     pub transport: TransportTuning,
 }
 
@@ -188,12 +193,6 @@ pub const DEFAULT_RECEIVE_WINDOW: u32 = 8 * 1024 * 1024;
 /// Default QUIC send window size (8 MB).
 pub const DEFAULT_SEND_WINDOW: u32 = 8 * 1024 * 1024;
 
-/// Default QUIC receive window size for ICE modes (8 MB).
-pub const DEFAULT_ICE_RECEIVE_WINDOW: u32 = 8 * 1024 * 1024;
-
-/// Default QUIC send window size for ICE modes (8 MB).
-pub const DEFAULT_ICE_SEND_WINDOW: u32 = 8 * 1024 * 1024;
-
 /// Transport tuning configuration for QUIC connections.
 ///
 /// These settings affect performance and memory usage of the QUIC transport layer.
@@ -213,15 +212,6 @@ pub struct TransportTuning {
     /// Controls how much data can be sent before acknowledgment.
     /// Valid range: 1024 to 16777216 (16MB).
     pub send_window: Option<u32>,
-}
-
-/// Default transport tuning for ICE modes (manual/nostr).
-pub fn default_ice_transport_tuning() -> TransportTuning {
-    TransportTuning {
-        congestion_controller: CongestionController::Cubic,
-        receive_window: Some(DEFAULT_ICE_RECEIVE_WINDOW),
-        send_window: Some(DEFAULT_ICE_SEND_WINDOW),
-    }
 }
 
 fn parse_expected_mode(expected_mode: &str) -> Result<Mode> {
@@ -732,29 +722,3 @@ pub fn load_client_config(path: Option<&Path>) -> Result<ClientConfig> {
     load_config(&config_path)
 }
 
-// ============================================================================
-// Defaults
-// ============================================================================
-
-/// Default public STUN servers for ICE mode.
-pub fn default_stun_servers() -> Vec<String> {
-    vec![
-        "stun.l.google.com:19302".to_string(),
-        "stun1.l.google.com:19302".to_string(),
-    ]
-}
-
-/// Default public Nostr relays for signaling.
-pub const DEFAULT_NOSTR_RELAYS: &[&str] = &[
-    "wss://nos.lol",
-    //"wss://relay.damus.io", // acceptable for index queries; not recommended for high-volume operations due to rate limiting
-    //"wss://relay.nostr.band",
-    "wss://relay.nostr.net",
-    "wss://relay.primal.net",
-    "wss://relay.snort.social",
-];
-
-/// Default public Nostr relays for signaling.
-pub fn default_nostr_relays() -> &'static [&'static str] {
-    DEFAULT_NOSTR_RELAYS
-}

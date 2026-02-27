@@ -488,12 +488,14 @@ tunnel-rs-ice client nostr \
 |--------|---------|-------------|
 | `--allowed-tcp` | - | Allowed TCP networks in CIDR (repeatable, e.g., `127.0.0.0/8`) |
 | `--allowed-udp` | - | Allowed UDP networks in CIDR (repeatable, e.g., `10.0.0.0/8`) |
-| `--nsec` | - | Your Nostr private key (nsec or hex format) |
-| `--nsec-file` | - | Path to file containing your Nostr private key |
+| `--nsec` | - | Your Nostr private key (nsec or hex format). Use this or `--nsec-file` (one required). |
+| `--nsec-file` | - | Path to file containing your Nostr private key. Use this or `--nsec` (one required). |
 | `--peer-npub` | required | Peer's Nostr public key (npub or hex format) |
 | `--relay` | public relays | Nostr relay URL(s), repeatable |
 | `--stun-server` | public | STUN server(s), repeatable |
 | `--no-stun` | false | Disable STUN |
+| `--republish-interval` | 10 | Seconds between re-publishing offer while waiting for answer |
+| `--max-wait` | 120 | Maximum seconds to wait for answer before giving up |
 | `--max-sessions` | 10 | Maximum concurrent sessions (0 = unlimited) |
 
 #### client nostr
@@ -501,13 +503,15 @@ tunnel-rs-ice client nostr \
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--source`, `-s` | required | Source address to request from server |
-| `--target`, `-t` | required | Local address to listen on |
-| `--nsec` | - | Your Nostr private key (nsec or hex format) |
-| `--nsec-file` | - | Path to file containing your Nostr private key |
+| `--target`, `-t` | required | Local address to listen on (`host:port`, or `tcp://` / `udp://` prefixed) |
+| `--nsec` | - | Your Nostr private key (nsec or hex format). Use this or `--nsec-file` (one required). |
+| `--nsec-file` | - | Path to file containing your Nostr private key. Use this or `--nsec` (one required). |
 | `--peer-npub` | required | Peer's Nostr public key (npub or hex format) |
 | `--relay` | public relays | Nostr relay URL(s), repeatable |
 | `--stun-server` | public | STUN server(s), repeatable |
 | `--no-stun` | false | Disable STUN |
+| `--republish-interval` | 5 | Seconds between re-publishing request while waiting for an offer |
+| `--max-wait` | 120 | Maximum seconds to wait for offer/answer before giving up |
 
 ### Configuration File
 

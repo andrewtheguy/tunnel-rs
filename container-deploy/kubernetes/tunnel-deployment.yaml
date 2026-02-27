@@ -21,31 +21,37 @@
 #      tunnel-rs generate-token > tokens.txt
 #      # Share this token with authorized clients
 #
-#   3. Create secrets:
+#   3. Generate ALPN token (shared between server and all clients):
+#      tunnel-rs generate-token --alpn > alpn_token.txt
+#
+#   4. Create secrets:
 #      kubectl create secret generic tunnel-server-secrets \
 #        --from-file=server.key=./server.key \
-#        --from-file=tokens.txt=./tokens.txt
+#        --from-file=tokens.txt=./tokens.txt \
+#        --from-file=alpn-token=./alpn_token.txt
 #
-#   4. Apply:
+#   5. Apply:
 #      kubectl apply -f tunnel-deployment.yaml
 #
-#   5. Get server EndpointId:
+#   6. Get server EndpointId:
 #      kubectl logs -l app=tunnel-server | grep EndpointId
 #
-#   6. On remote machine, connect to any service in allowed networks:
+#   7. On remote machine, connect to any service in allowed networks:
 #      # Access postgres
 #      tunnel-rs client \
 #        --server-node-id <SERVER_NODE_ID> \
 #        --source tcp://postgres.default.svc.cluster.local:5432 \
 #        --target 127.0.0.1:5432 \
-#        --auth-token <AUTH_TOKEN>
+#        --auth-token <AUTH_TOKEN> \
+#        --alpn-token <ALPN_TOKEN>
 #
 #      # Access cluster DNS (UDP!)
 #      tunnel-rs client \
 #        --server-node-id <SERVER_NODE_ID> \
 #        --source udp://kube-dns.kube-system.svc.cluster.local:53 \
 #        --target 127.0.0.1:5353 \
-#        --auth-token <AUTH_TOKEN>
+#        --auth-token <AUTH_TOKEN> \
+#        --alpn-token <ALPN_TOKEN>
 
 apiVersion: apps/v1
 kind: Deployment
@@ -78,6 +84,8 @@ spec:
             - /secrets/server.key
             - --auth-tokens-file
             - /secrets/tokens.txt
+            - --alpn-token-file
+            - /secrets/alpn-token
             - --max-sessions
             - "20"
           volumeMounts:

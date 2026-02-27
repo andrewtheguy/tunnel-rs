@@ -4637,11 +4637,9 @@ dependencies = [
 
 [[package]]
 name = "tunnel-common"
-version = "0.1.82"
+version = "0.2.0"
 dependencies = [
  "anyhow",
- "base64",
- "crc32fast",
  "dirs 6.0.0",
  "ipnet",
  "log",
@@ -4654,10 +4652,11 @@ dependencies = [
 
 [[package]]
 name = "tunnel-ice"
-version = "0.1.82"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "base64",
+ "crc32fast",
  "get_if_addrs",
  "hex",
  "ipnet",
@@ -4679,7 +4678,7 @@ dependencies = [
 
 [[package]]
 name = "tunnel-iroh"
-version = "0.1.82"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "base64",
@@ -4695,7 +4694,7 @@ dependencies = [
 
 [[package]]
 name = "tunnel-rs"
-version = "0.1.82"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -4709,7 +4708,7 @@ dependencies = [
 
 [[package]]
 name = "tunnel-rs-ice"
-version = "0.1.82"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "clap",

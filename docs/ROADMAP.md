@@ -63,13 +63,48 @@ target = "127.0.0.1:5353"
 
 ---
 
-#### Auth Rate Limiting
+#### External Auth Token Source
 
 **Status:** Idea
 
-Rate limiting for token authentication to prevent brute-force attacks. Hybrid approach with per-client limits (for typo handling) and global limits (for distributed attack detection).
+Allow the server to fetch valid auth tokens from an external HTTP REST service at runtime, instead of only loading them from static files or CLI arguments at startup. This enables centralized token management where tokens can be added or revoked without restarting the server.
 
-Design to be documented in a dedicated proposal file.
+**Proposed Features:**
+- **Remote token endpoint**: Server periodically queries a configurable HTTP endpoint (e.g., `--auth-tokens-url https://auth.example.com/tokens`) to retrieve the current set of valid tokens
+- **Polling interval**: Configurable refresh interval (e.g., `--auth-tokens-poll-interval 60s`, default: 60s)
+- **Caching with fallback**: Cache the last successful response so the server continues operating if the external service is temporarily unavailable
+- **Startup behavior**: Fetch tokens on startup; fail fast if the endpoint is unreachable and no fallback tokens are configured
+
+**Example:**
+```bash
+tunnel-rs server \
+  --secret-file ./server.key \
+  --allowed-tcp 127.0.0.0/8 \
+  --auth-tokens-url https://auth.example.com/api/tokens \
+  --alpn-token "$ALPN_TOKEN"
+```
+
+**Expected response format:**
+```json
+{
+  "tokens": [
+    "iXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    "iYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY"
+  ]
+}
+```
+
+**Use Cases:**
+- Centralized token management across multiple tunnel-rs servers
+- Revoking a compromised token without restarting any servers
+- Integration with existing identity providers, admin dashboards, or secret managers
+- Container orchestration systems that manage secrets externally (e.g., Vault, AWS Secrets Manager)
+
+**Complexity:** Medium
+- Requires `Arc<RwLock<HashSet<String>>>` for thread-safe token set updates
+- Background task for periodic polling (tokio interval)
+- HTTP client dependency (reqwest)
+- Decision: whether existing sessions with revoked tokens should be terminated or only future connections denied
 
 ---
 
