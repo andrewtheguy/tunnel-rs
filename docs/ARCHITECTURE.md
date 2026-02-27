@@ -531,6 +531,9 @@ sequenceDiagram
     else -c <path>
         Main->>Config: Load from path
         Config->>File: Read specified file
+    else --config-stdin
+        Main->>Config: Read TOML from stdin
+        Config->>Config: Parse TOML string
     else No config flag
         Main->>Main: Use CLI arguments only
     end
