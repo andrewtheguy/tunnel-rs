@@ -686,7 +686,7 @@ fn load_config<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T> {
 
 /// Parse configuration from a TOML string (e.g. read from stdin).
 pub fn parse_config_from_str<T: for<'de> Deserialize<'de>>(content: &str) -> Result<T> {
-    toml::from_str(content).context("Failed to parse TOML config from stdin")
+    toml::from_str(content).context("Failed to parse TOML config")
 }
 
 /// Resolve the default server config path (~/.config/tunnel-rs/server.toml).

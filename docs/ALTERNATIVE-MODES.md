@@ -531,6 +531,8 @@ max_sessions = 10
 tcp = ["127.0.0.0/8", "10.0.0.0/8"]
 ```
 
+Note: Config file options (`-c`, `--default-config`, `--config-stdin`) are at the `server`/`client` command level. See [Configuration Files](../README.md#configuration-files).
+
 ### Default Nostr Relays
 
 When no relays are specified, these public relays are used:
