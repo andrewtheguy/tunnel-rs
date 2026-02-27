@@ -9,7 +9,8 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use tunnel_common::config::{
-    expand_tilde, load_client_config, load_server_config, ClientConfig, ServerConfig,
+    expand_tilde, load_client_config, load_server_config, parse_config_from_str, ClientConfig,
+    ServerConfig,
 };
 use tunnel_common::net::resolve_listen_addr;
 use tunnel_ice::defaults::{default_ice_transport_tuning, default_nostr_relays, default_stun_servers};
@@ -146,6 +147,10 @@ enum Command {
         #[arg(long, global = true)]
         default_config: bool,
 
+        /// Read TOML config from stdin instead of a file
+        #[arg(long, global = true)]
+        config_stdin: bool,
+
         #[command(subcommand)]
         mode: Option<ServerMode>,
     },
@@ -163,6 +168,10 @@ enum Command {
         /// Load config from default location (~/.config/tunnel-rs/client_ice.toml)
         #[arg(long, global = true)]
         default_config: bool,
+
+        /// Read TOML config from stdin instead of a file
+        #[arg(long, global = true)]
+        config_stdin: bool,
 
         #[command(subcommand)]
         mode: Option<ClientMode>,
@@ -337,12 +346,20 @@ enum ClientMode {
 fn resolve_server_config(
     config: Option<PathBuf>,
     default_config: bool,
+    config_stdin: bool,
 ) -> Result<(ServerConfig, bool)> {
-    if config.is_some() && default_config {
-        anyhow::bail!("Cannot use both -c/--config and --default-config");
+    let source_count = config.is_some() as u8 + default_config as u8 + config_stdin as u8;
+    if source_count > 1 {
+        anyhow::bail!(
+            "Only one of -c/--config, --default-config, or --config-stdin may be used"
+        );
     }
 
-    if let Some(path) = config {
+    if config_stdin {
+        let content = std::io::read_to_string(std::io::stdin())
+            .context("Failed to read config from stdin")?;
+        Ok((parse_config_from_str(&content)?, true))
+    } else if let Some(path) = config {
         Ok((load_server_config(Some(&path))?, true))
     } else if default_config {
         let path = dirs::home_dir()
@@ -366,12 +383,20 @@ fn resolve_server_config(
 fn resolve_client_config(
     config: Option<PathBuf>,
     default_config: bool,
+    config_stdin: bool,
 ) -> Result<(ClientConfig, bool)> {
-    if config.is_some() && default_config {
-        anyhow::bail!("Cannot use both -c/--config and --default-config");
+    let source_count = config.is_some() as u8 + default_config as u8 + config_stdin as u8;
+    if source_count > 1 {
+        anyhow::bail!(
+            "Only one of -c/--config, --default-config, or --config-stdin may be used"
+        );
     }
 
-    if let Some(path) = config {
+    if config_stdin {
+        let content = std::io::read_to_string(std::io::stdin())
+            .context("Failed to read config from stdin")?;
+        Ok((parse_config_from_str(&content)?, true))
+    } else if let Some(path) = config {
         Ok((load_client_config(Some(&path))?, true))
     } else if default_config {
         let path = dirs::home_dir()
@@ -403,9 +428,11 @@ async fn main() -> Result<()> {
         Command::Server {
             config,
             default_config,
+            config_stdin,
             mode,
         } => {
-            let (cfg, from_file) = resolve_server_config(config.clone(), default_config)?;
+            let (cfg, from_file) =
+                resolve_server_config(config.clone(), default_config, config_stdin)?;
 
             // Determine effective mode: CLI mode takes precedence, else read from config
             let effective_mode = match (&mode, &cfg.mode) {
@@ -609,9 +636,10 @@ async fn main() -> Result<()> {
         Command::Client {
             config,
             default_config,
+            config_stdin,
             mode,
         } => {
-            let (cfg, from_file) = resolve_client_config(config, default_config)?;
+            let (cfg, from_file) = resolve_client_config(config, default_config, config_stdin)?;
 
             let effective_mode = match (&mode, &cfg.mode) {
                 (Some(_), _) => mode.as_ref().map(|m| match m {
