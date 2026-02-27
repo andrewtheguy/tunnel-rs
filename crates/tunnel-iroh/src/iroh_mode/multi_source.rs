@@ -190,10 +190,10 @@ pub async fn run_multi_source_server(config: MultiSourceServerConfig) -> Result<
 
     log::info!("\nOn the client side, run:");
     log::info!(
-        "  tunnel-rs client --auth-token <token> --server-node-id {} --source tcp://target:port --target 127.0.0.1:port\n",
+        "  tunnel-rs client --auth-token <token> --alpn-token <alpn-token> --server-node-id {} --source tcp://target:port --target 127.0.0.1:port\n",
         endpoint_id
     );
-    log::info!("Note: Clients must provide a valid --auth-token for authentication");
+    log::info!("Note: Both --auth-token and --alpn-token (or --alpn-token-file) are required to connect");
     log::info!("Waiting for clients to connect...");
 
     // Session management with semaphore for concurrency limit
