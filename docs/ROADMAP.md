@@ -181,6 +181,73 @@ manual and nostr modes use full ICE but have no relay fallback for symmetric NAT
 
 ---
 
+#### External Address Hint for Kubernetes / NAT Environments
+
+**Status:** Idea
+
+When tunnel-rs runs inside Kubernetes (or behind any symmetric NAT), iroh's STUN-based hole-punching fails because the overlay network's conntrack-based NAT assigns different external ports per destination. All connections fall back to relay. The `hostNetwork: true` workaround bypasses K8s networking entirely but has tradeoffs (port conflicts, no network policies).
+
+This feature adds an `--external-address` flag so the server can advertise a known externally-reachable socket address in its published `EndpointAddr`, enabling direct connections without `hostNetwork`.
+
+**Proposed Features:**
+- **CLI flag**: `--external-address <IP:PORT>` (repeatable for multiple addresses)
+- **Config file support**: `external_addresses = ["203.0.113.5:30000"]`
+- **iroh integration**: Inject addresses as `TransportAddr::Ip(SocketAddr)` into the server's published `EndpointAddr` via Pkarr/DNS
+- Clients automatically discover and use these addresses alongside relay
+
+**Example with Kubernetes NodePort:**
+```bash
+# Create a NodePort service for QUIC (UDP)
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: Service
+metadata:
+  name: tunnel-rs-nodeport
+spec:
+  type: NodePort
+  ports:
+    - port: 12345
+      targetPort: 12345
+      nodePort: 30000
+      protocol: UDP
+  selector:
+    app: tunnel-server
+EOF
+
+# Server advertises the NodePort address
+tunnel-rs server \
+  --secret-file ./server.key \
+  --allowed-tcp 10.0.0.0/8 \
+  --auth-tokens "$AUTH_TOKEN" \
+  --alpn-token "$ALPN_TOKEN" \
+  --external-address 203.0.113.5:30000
+```
+
+**Example with Cloud LoadBalancer:**
+```bash
+# AWS NLB or GCP LoadBalancer with static IP
+tunnel-rs server \
+  --external-address <LOAD_BALANCER_IP>:12345
+```
+
+**Example config:**
+```toml
+[iroh]
+external_addresses = ["203.0.113.5:30000"]
+```
+
+**Complexity:** Medium
+- Add CLI/config parsing for external addresses
+- Modify `create_server_endpoint()` in `endpoint.rs` to include external addresses in the published `EndpointAddr`
+- iroh's `EndpointAddr` already supports `TransportAddr::Ip(SocketAddr)` — need to ensure these get published via Pkarr/DNS alongside auto-discovered addresses
+
+**Use Cases:**
+- K8s pods behind overlay NAT with NodePort or LoadBalancer services
+- VMs behind cloud NAT with static port mappings
+- Any environment where the server's externally-reachable address differs from what STUN discovers
+
+---
+
 #### Automatic Reconnection
 
 **Status:** Partial
