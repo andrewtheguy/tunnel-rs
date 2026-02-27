@@ -269,12 +269,15 @@ sequenceDiagram
     C->>RS: Connect to relay
 
     alt Direct Connection Possible
-        C->>S: Direct QUIC connection
-        S-->>C: Accept connection
+        C->>S: Direct QUIC connection (ALPN: mf/2/<token>)
+        S-->>C: Accept connection (ALPN match)
+    else ALPN Mismatch
+        C->>S: QUIC connection (wrong ALPN)
+        S-->>C: Handshake rejected (no matching ALPN)
     else NAT Traversal Failed
         C->>RS: Connect via relay
         RS->>S: Forward connection
-        S-->>RS: Accept via relay
+        S-->>RS: Accept via relay (ALPN match)
         RS-->>C: Relay established
     end
 
@@ -286,8 +289,8 @@ sequenceDiagram
     alt Token Valid
         S-->>C: AuthResponse {accepted}
     else Token Invalid
-        S-->>C: AuthResponse {rejected}
-        S->>C: Close connection
+        S->>S: Wait out remaining auth timeout
+        S->>S: Drop connection silently
     end
 
     Note over C,S: Source Request Phase
@@ -576,10 +579,11 @@ graph TB
         A[Server Secret Key] --> B[Ed25519 Private Key]
         B --> C[EndpointId - Public Key]
         C --> D[Client Connects]
-        D --> E[Token Validation]
+        D --> D2[ALPN Token Validation]
+        D2 --> E[Auth Token Validation]
         E --> F{Valid Token?}
         F -->|Yes| G[Authenticated]
-        F -->|No| H[Rejected]
+        F -->|No| H[Silent Drop]
     end
 
     subgraph "manual Mode"
@@ -597,15 +601,16 @@ graph TB
 
 ### Token Authentication (iroh Mode)
 
-Iroh mode requires authentication using pre-shared tokens. Clients use ephemeral identities but must provide a valid token. **Authentication is mandatory and must complete successfully before any source requests are permitted.** The client must authenticate via a dedicated auth stream with a valid token within a 10-second timeout immediately after QUIC connection establishment.
+Iroh mode uses two layers of authentication. First, a pre-shared ALPN token is embedded in the QUIC protocol identifier (`mf/2/<token>`), rejecting unknown clients at the TLS handshake level before any application streams are opened. Second, clients must provide a valid auth token via a dedicated auth stream within a 10-second timeout. **Both layers are mandatory.**
 
-1. **Server Configuration**: Server specifies `--auth-tokens` with one or more pre-shared tokens
-2. **Client Configuration**: Client specifies `--auth-token` with the token received from the server admin
-3. **Protocol Flow**: Client opens a dedicated auth stream immediately after connection and sends an `AuthRequest`. **No source requests are accepted until authentication succeeds.**
-4. **Validation**: Server validates the token using `is_token_valid()` within a 10-second timeout
-5. **Rejection**: Invalid tokens receive an `AuthResponse::rejected()` and the connection is closed immediately
+1. **ALPN Filtering**: Both server and client specify `--alpn-token`. The token is embedded in the QUIC ALPN identifier (`mf/2/<token>`). Connections from clients without a matching ALPN are rejected at the handshake level — acting as a lightweight "port knock".
+2. **Server Configuration**: Server specifies `--auth-tokens` with one or more pre-shared tokens
+3. **Client Configuration**: Client specifies `--auth-token` with the token received from the server admin
+4. **Protocol Flow**: Client opens a dedicated auth stream immediately after connection and sends an `AuthRequest`. **No source requests are accepted until authentication succeeds.**
+5. **Validation**: Server validates the token using `is_token_valid()` within a 10-second timeout
+6. **Rejection**: Invalid tokens cause the server to silently wait out the remaining auth timeout and then drop the connection — no `AuthResponse` is sent, no error code is returned. This makes it harder for attackers to distinguish invalid tokens from network timeouts.
 
-This early validation prevents unauthorized clients from holding open connections or attempting source requests.
+This layered validation prevents unauthorized clients from holding open connections or attempting source requests.
 
 ```mermaid
 sequenceDiagram
@@ -613,8 +618,13 @@ sequenceDiagram
     participant S as Server
     participant A as Auth Module
 
-    C->>S: Connect (QUIC TLS handshake)
-    S->>C: Accept connection
+    C->>S: Connect (QUIC TLS handshake, ALPN: mf/2/<token>)
+    alt ALPN matches
+        S->>C: Accept connection
+    else ALPN mismatch
+        S-->>C: Handshake rejected
+        Note over S,C: Connection rejected at handshake level
+    end
 
     Note over C,S: Auth Phase (10s timeout)
     C->>S: Open auth stream
@@ -626,12 +636,12 @@ sequenceDiagram
         Note over S,C: Connection authenticated
     else Token is invalid
         A-->>S: false
-        S->>C: AuthResponse {accepted: false, reason}
-        S->>S: Close connection (error code 1)
-        Note over S,C: Connection rejected
+        S->>S: Wait out remaining auth timeout
+        S->>S: Drop connection silently
+        Note over S,C: Connection dropped (no response sent)
     else Timeout (no auth within 10s)
-        S->>S: Close connection (error code 2)
-        Note over S,C: Connection rejected
+        S->>S: Drop connection silently
+        Note over S,C: Connection dropped (no response sent)
     end
 
     Note over C,S: Source Request Phase (after successful auth)
@@ -649,6 +659,7 @@ sequenceDiagram
 - Tokens are sent only **after** the QUIC/TLS 1.3 handshake, so the auth stream is encrypted in transit.
 - The CRC16-CCITT-FALSE checksum is **for typo detection only**, not cryptographic security.
 - Tokens are Base64URL-encoded and validated as ASCII.
+- The **ALPN token** acts as a pre-handshake filter (lightweight "port knock"). It is embedded in the TLS ClientHello and therefore **visible in cleartext** on the wire — it is not a secret, but prevents casual scanners from completing a QUIC handshake.
 - Avoid logging or sharing tokens; the `AuthToken` wrapper redacts values in Debug output, but treat them like passwords.
 - Prefer token files with restricted permissions (e.g., `0600`) and rotate tokens if exposure is suspected.
 

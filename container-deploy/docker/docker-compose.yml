@@ -16,28 +16,34 @@
 #        generate-token > tokens.txt
 #      # Share this token with authorized clients
 #
-#   3. Start the services:
+#   3. Generate ALPN token (shared between server and all clients):
+#      ALPN_TOKEN=$(docker run --rm ghcr.io/andrewtheguy/tunnel-rs:latest \
+#        generate-token --alpn)
+#
+#   4. Start the services:
 #      docker compose up -d
 #
-#   4. Get the server EndpointId from logs:
+#   5. Get the server EndpointId from logs:
 #      docker compose logs tunnel-server | grep EndpointId
 #
-#   5. On the remote machine, connect to any service:
+#   6. On the remote machine, connect to any service:
 #      # Connect to web service
 #      tunnel-rs client \
 #        --server-node-id <SERVER_NODE_ID> \
 #        --source tcp://web:80 \
 #        --target 127.0.0.1:8080 \
-#        --auth-token <AUTH_TOKEN>
+#        --auth-token <AUTH_TOKEN> \
+#        --alpn-token <ALPN_TOKEN>
 #
 #      # Connect to database
 #      tunnel-rs client \
 #        --server-node-id <SERVER_NODE_ID> \
 #        --source tcp://db:5432 \
 #        --target 127.0.0.1:5432 \
-#        --auth-token <AUTH_TOKEN>
+#        --auth-token <AUTH_TOKEN> \
+#        --alpn-token <ALPN_TOKEN>
 #
-#   6. Access services at localhost
+#   7. Access services at localhost
 
 services:
   # Example web service
@@ -65,6 +71,8 @@ services:
       - /secrets/server.key
       - --auth-tokens-file
       - /secrets/tokens.txt
+      - --alpn-token
+      - "${ALPN_TOKEN}"
     volumes:
       - ./server.key:/secrets/server.key:ro
       - ./tokens.txt:/secrets/tokens.txt:ro

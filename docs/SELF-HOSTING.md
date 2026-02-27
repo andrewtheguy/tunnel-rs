@@ -12,11 +12,11 @@ Use a custom relay server instead of the public iroh relay infrastructure.
 
 ```bash
 # Both sides must use the same relay
-tunnel-rs server --relay-url https://relay.example.com --allowed-tcp 127.0.0.0/8 --auth-tokens "$AUTH_TOKEN"
-tunnel-rs client --relay-url https://relay.example.com --server-node-id <ID> --source tcp://127.0.0.1:22 --target 127.0.0.1:2222 --auth-token "$AUTH_TOKEN"
+tunnel-rs server --relay-url https://relay.example.com --allowed-tcp 127.0.0.0/8 --auth-tokens "$AUTH_TOKEN" --alpn-token "$ALPN_TOKEN"
+tunnel-rs client --relay-url https://relay.example.com --server-node-id <ID> --source tcp://127.0.0.1:22 --target 127.0.0.1:2222 --auth-token "$AUTH_TOKEN" --alpn-token "$ALPN_TOKEN"
 
 # Force relay-only (no direct P2P) - CLI-only flag (not supported in config files)
-tunnel-rs server --relay-url https://relay.example.com --relay-only --allowed-tcp 127.0.0.0/8 --auth-tokens "$AUTH_TOKEN"
+tunnel-rs server --relay-url https://relay.example.com --relay-only --allowed-tcp 127.0.0.0/8 --auth-tokens "$AUTH_TOKEN" --alpn-token "$ALPN_TOKEN"
 ```
 
 ### Running iroh-relay (Quick Start)
@@ -37,8 +37,8 @@ For fully independent operation without public infrastructure. Note that `--dns-
 
 ```bash
 # Both sides use custom DNS server
-tunnel-rs server --dns-server https://dns.example.com/pkarr --secret-file ./server.key --allowed-tcp 127.0.0.0/8 --auth-tokens "$AUTH_TOKEN"
-tunnel-rs client --dns-server https://dns.example.com/pkarr --server-node-id <ID> --source tcp://127.0.0.1:22 --target 127.0.0.1:2222 --auth-token "$AUTH_TOKEN"
+tunnel-rs server --dns-server https://dns.example.com/pkarr --secret-file ./server.key --allowed-tcp 127.0.0.0/8 --auth-tokens "$AUTH_TOKEN" --alpn-token "$ALPN_TOKEN"
+tunnel-rs client --dns-server https://dns.example.com/pkarr --server-node-id <ID> --source tcp://127.0.0.1:22 --target 127.0.0.1:2222 --auth-token "$AUTH_TOKEN" --alpn-token "$ALPN_TOKEN"
 ```
 
 ## Disabling DNS Discovery
@@ -49,8 +49,8 @@ You can disable DNS-based peer discovery entirely by setting `--dns-server none`
 
 ```bash
 # Both sides disable DNS discovery
-tunnel-rs server --dns-server none --relay-url https://relay.example.com --allowed-tcp 127.0.0.0/8 --auth-tokens "$AUTH_TOKEN"
-tunnel-rs client --dns-server none --relay-url https://relay.example.com --server-node-id <ID> --source tcp://127.0.0.1:22 --target 127.0.0.1:2222 --auth-token "$AUTH_TOKEN"
+tunnel-rs server --dns-server none --relay-url https://relay.example.com --allowed-tcp 127.0.0.0/8 --auth-tokens "$AUTH_TOKEN" --alpn-token "$ALPN_TOKEN"
+tunnel-rs client --dns-server none --relay-url https://relay.example.com --server-node-id <ID> --source tcp://127.0.0.1:22 --target 127.0.0.1:2222 --auth-token "$AUTH_TOKEN" --alpn-token "$ALPN_TOKEN"
 ```
 
 When DNS discovery is disabled, clients and server must connect using one of these methods:
@@ -138,7 +138,8 @@ tunnel-rs server \
   --dns-server https://dns.example.com/pkarr \
   --secret-file ./server.key \
   --allowed-tcp 127.0.0.0/8 \
-  --auth-tokens "$AUTH_TOKEN"
+  --auth-tokens "$AUTH_TOKEN" \
+  --alpn-token "$ALPN_TOKEN"
 
 # Client
 tunnel-rs client \
@@ -147,7 +148,8 @@ tunnel-rs client \
   --server-node-id <ID> \
   --source tcp://127.0.0.1:22 \
   --target 127.0.0.1:2222 \
-  --auth-token "$AUTH_TOKEN"
+  --auth-token "$AUTH_TOKEN" \
+  --alpn-token "$ALPN_TOKEN"
 ```
 
 ## Relay Behavior
