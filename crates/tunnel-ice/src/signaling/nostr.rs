@@ -13,7 +13,7 @@ use std::time::Duration;
 use tokio::sync::broadcast::error::{RecvError, TryRecvError};
 use tokio::sync::Mutex;
 
-use tunnel_common::signaling::{ManualAnswer, ManualOffer, ManualReject, ManualRequest};
+use super::{ManualAnswer, ManualOffer, ManualReject, ManualRequest};
 
 /// Custom event kind for tunnel-rs signaling (ephemeral range)
 fn tunnel_signaling_kind() -> Kind {
@@ -135,7 +135,7 @@ impl NostrSignaling {
         let transfer_id = derive_transfer_id(&keys.public_key(), &peer_pubkey);
 
         let relay_urls = relays.unwrap_or_else(|| {
-            tunnel_common::config::default_nostr_relays()
+            crate::defaults::default_nostr_relays()
                 .iter()
                 .map(|&relay| relay.to_string())
                 .collect()

@@ -9,10 +9,10 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use tunnel_common::config::{
-    default_ice_transport_tuning, default_stun_servers, expand_tilde, load_client_config,
-    load_server_config, ClientConfig, ServerConfig,
+    expand_tilde, load_client_config, load_server_config, ClientConfig, ServerConfig,
 };
 use tunnel_common::net::resolve_listen_addr;
+use tunnel_ice::defaults::{default_ice_transport_tuning, default_nostr_relays, default_stun_servers};
 use tunnel_ice::{custom, nostr, secret};
 
 #[derive(Clone, Copy, ValueEnum, Default, Debug, PartialEq)]
@@ -574,7 +574,7 @@ async fn main() -> Result<()> {
                         "peer-npub is required. Provide via --peer-npub or in config file.",
                     )?;
                     let relays = if relays.is_empty() {
-                        tunnel_common::config::default_nostr_relays()
+                        default_nostr_relays()
                             .iter()
                             .map(|&relay| relay.to_string())
                             .collect()
@@ -760,7 +760,7 @@ async fn main() -> Result<()> {
                         "peer-npub is required. Provide via --peer-npub or in config file.",
                     )?;
                     let relays = if relays.is_empty() {
-                        tunnel_common::config::default_nostr_relays()
+                        default_nostr_relays()
                             .iter()
                             .map(|&relay| relay.to_string())
                             .collect()
