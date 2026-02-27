@@ -22,13 +22,13 @@
 #      # Share this token with authorized clients
 #
 #   3. Generate ALPN token (shared between server and all clients):
-#      ALPN_TOKEN=$(tunnel-rs generate-token --alpn)
+#      tunnel-rs generate-token --alpn > alpn_token.txt
 #
 #   4. Create secrets:
 #      kubectl create secret generic tunnel-server-secrets \
 #        --from-file=server.key=./server.key \
 #        --from-file=tokens.txt=./tokens.txt \
-#        --from-literal=alpn-token="$ALPN_TOKEN"
+#        --from-file=alpn-token=./alpn_token.txt
 #
 #   5. Apply:
 #      kubectl apply -f tunnel-deployment.yaml
@@ -84,16 +84,10 @@ spec:
             - /secrets/server.key
             - --auth-tokens-file
             - /secrets/tokens.txt
-            - --alpn-token
-            - "$(ALPN_TOKEN)"
+            - --alpn-token-file
+            - /secrets/alpn-token
             - --max-sessions
             - "20"
-          env:
-            - name: ALPN_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: tunnel-server-secrets
-                  key: alpn-token
           volumeMounts:
             - name: server-secrets
               mountPath: /secrets

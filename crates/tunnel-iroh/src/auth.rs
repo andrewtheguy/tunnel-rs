@@ -244,6 +244,45 @@ pub fn load_auth_token_from_file(path: &Path) -> Result<String> {
     anyhow::bail!("No valid token found in file: {}", path.display())
 }
 
+/// Load a single ALPN token from a file.
+///
+/// # File Format
+/// - First non-empty, non-comment line is the ALPN token (14-char Base64URL, no padding)
+/// - Lines starting with `#` are treated as comments
+/// - Empty lines are ignored
+/// - Inline comments (after token) are supported with `#`
+pub fn load_alpn_token_from_file(path: &Path) -> Result<String> {
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("Failed to read ALPN token file: {}", path.display()))?;
+
+    for (line_num, line) in content.lines().enumerate() {
+        let line_num = line_num + 1; // 1-based line numbers
+        let line = line.trim();
+
+        // Skip empty lines and comment lines
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        // Handle inline comments: take only the part before #
+        let token = line.split('#').next().unwrap_or(line).trim();
+
+        if !token.is_empty() {
+            validate_alpn_token(token).with_context(|| {
+                format!(
+                    "Invalid ALPN token at {}:{}: '{}'",
+                    path.display(),
+                    line_num,
+                    token
+                )
+            })?;
+            return Ok(token.to_string());
+        }
+    }
+
+    anyhow::bail!("No valid ALPN token found in file: {}", path.display())
+}
+
 /// Check if a token is in the valid tokens set.
 ///
 /// Returns true if the token is valid, false otherwise.
@@ -625,6 +664,42 @@ mod tests {
         let result = validate_alpn_token("🔐notascii1234");
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("ASCII"));
+    }
+
+    #[test]
+    fn test_load_alpn_token_from_file() {
+        let token = generate_alpn_token();
+
+        let mut file = NamedTempFile::new().unwrap();
+        writeln!(file, "# ALPN token").unwrap();
+        writeln!(file).unwrap();
+        writeln!(file, "{}  # comment", token).unwrap();
+
+        let result = load_alpn_token_from_file(file.path()).unwrap();
+        assert_eq!(result, token);
+    }
+
+    #[test]
+    fn test_load_alpn_token_from_file_invalid() {
+        let mut file = NamedTempFile::new().unwrap();
+        writeln!(file, "bad").unwrap();
+
+        let result = load_alpn_token_from_file(file.path());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_load_alpn_token_from_file_empty() {
+        let mut file = NamedTempFile::new().unwrap();
+        writeln!(file, "# only comments").unwrap();
+        writeln!(file).unwrap();
+
+        let result = load_alpn_token_from_file(file.path());
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("No valid ALPN token found"));
     }
 
     #[test]

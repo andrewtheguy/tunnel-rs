@@ -85,10 +85,10 @@ AUTH_TOKEN=$(docker run --rm ghcr.io/andrewtheguy/tunnel-rs:latest generate-toke
 echo "$AUTH_TOKEN" > tokens.txt
 
 # 3. Create an ALPN token (shared between server and all clients)
-ALPN_TOKEN=$(docker run --rm ghcr.io/andrewtheguy/tunnel-rs:latest generate-token --alpn)
-echo "$ALPN_TOKEN"
+docker run --rm ghcr.io/andrewtheguy/tunnel-rs:latest generate-token --alpn > alpn_token.txt
+ALPN_TOKEN=$(cat alpn_token.txt)
 
-# 4. Start services (update docker-compose.yml to mount tokens.txt and set ALPN token)
+# 4. Start services
 docker compose up -d
 
 # 5. Get server EndpointId
@@ -126,13 +126,14 @@ tunnel-rs generate-server-key --output server.key
 AUTH_TOKEN=$(tunnel-rs generate-token)
 
 # 3. Create an ALPN token (shared between server and all clients)
-ALPN_TOKEN=$(tunnel-rs generate-token --alpn)
+tunnel-rs generate-token --alpn > alpn_token.txt
+ALPN_TOKEN=$(cat alpn_token.txt)
 
 # 4. Create secrets
 kubectl create secret generic tunnel-server-secrets \
   --from-file=server.key=./server.key \
   --from-literal=tokens.txt="$AUTH_TOKEN" \
-  --from-literal=alpn-token="$ALPN_TOKEN"
+  --from-file=alpn-token=./alpn_token.txt
 
 # 5. Deploy
 kubectl apply -f kubernetes/tunnel-deployment.yaml

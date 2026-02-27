@@ -17,8 +17,8 @@
 #      # Share this token with authorized clients
 #
 #   3. Generate ALPN token (shared between server and all clients):
-#      ALPN_TOKEN=$(docker run --rm ghcr.io/andrewtheguy/tunnel-rs:latest \
-#        generate-token --alpn)
+#      docker run --rm ghcr.io/andrewtheguy/tunnel-rs:latest \
+#        generate-token --alpn > alpn_token.txt
 #
 #   4. Start the services:
 #      docker compose up -d
@@ -71,11 +71,12 @@ services:
       - /secrets/server.key
       - --auth-tokens-file
       - /secrets/tokens.txt
-      - --alpn-token
-      - "${ALPN_TOKEN}"
+      - --alpn-token-file
+      - /secrets/alpn_token.txt
     volumes:
       - ./server.key:/secrets/server.key:ro
       - ./tokens.txt:/secrets/tokens.txt:ro
+      - ./alpn_token.txt:/secrets/alpn_token.txt:ro
     depends_on:
       - web
       - db

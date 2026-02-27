@@ -63,6 +63,8 @@ pub struct IrohConfig {
     /// ALPN token for QUIC handshake-level filtering.
     /// Both server and client must use the same token.
     pub alpn_token: Option<String>,
+    /// Path to file containing the ALPN token.
+    pub alpn_token_file: Option<PathBuf>,
     /// Transport layer tuning (congestion control, buffer sizes).
     #[serde(default)]
     pub transport: TransportTuning,

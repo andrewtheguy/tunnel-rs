@@ -41,6 +41,10 @@ auth_token = "iXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"  # Replace with r
 # Generate with: tunnel-rs generate-token --alpn
 alpn_token = "XXXXXXXXXXXXXX"  # Replace with real token from generate-token --alpn
 
+# Or use a file containing the ALPN token
+# NOTE: Use either alpn_token OR alpn_token_file, not both.
+# alpn_token_file = "~/.config/tunnel-rs/alpn_token.txt"
+
 # Source address to request from server (required if not specified via CLI --source)
 # Must be in server's allowed_sources list (--allowed-tcp or --allowed-udp)
 # request_source = "tcp://127.0.0.1:22"

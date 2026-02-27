@@ -72,6 +72,10 @@ auth_tokens = [
 # Generate with: tunnel-rs generate-token --alpn
 alpn_token = "XXXXXXXXXXXXXX"  # Replace with real token from generate-token --alpn
 
+# Or use a file containing the ALPN token
+# NOTE: Use either alpn_token OR alpn_token_file, not both.
+# alpn_token_file = "/etc/tunnel-rs/alpn_token.txt"
+
 # ============================================================================
 # Allowed source networks that clients can request (CIDR notation)
 # Clients MUST specify --source which must match one of these networks

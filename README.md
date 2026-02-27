@@ -375,6 +375,7 @@ tunnel-rs client \
 | `--auth-tokens` | - | Authentication tokens (repeatable). Required unless provided via `--auth-tokens-file`. |
 | `--auth-tokens-file` | - | Path to file containing authentication tokens (one per line, # comments allowed). Can be combined with `--auth-tokens`. |
 | `--alpn-token` | required | ALPN token for QUIC handshake-level filtering (14-char Base64URL with CRC16 checksum). Generate with `generate-token --alpn`. |
+| `--alpn-token-file` | - | Path to file containing ALPN token (use this or `--alpn-token`, not both) |
 | `--max-sessions` | 100 | Maximum concurrent sessions |
 | `--secret` | - | Base64-encoded secret key for persistent server identity (use this or `--secret-file`) |
 | `--secret-file` | - | Path to secret key file for persistent server identity (use this or `--secret`) |
@@ -399,6 +400,7 @@ tunnel-rs client \
 | `--auth-token` | - | Authentication token to send to server (required unless provided via `--auth-token-file`) |
 | `--auth-token-file` | - | Path to file containing authentication token (use this or `--auth-token`) |
 | `--alpn-token` | required | ALPN token for QUIC handshake-level filtering (14-char Base64URL with CRC16 checksum, must match server). Generate with `generate-token --alpn`. |
+| `--alpn-token-file` | - | Path to file containing ALPN token (use this or `--alpn-token`, not both) |
 | `--relay-url` | public | Custom relay server URL(s), repeatable |
 | `--relay-only` | false | Force all traffic through relay (CLI-only; not supported in config files) |
 | `--dns-server` | public | Custom DNS server URL, or "none" to disable DNS discovery |
@@ -465,6 +467,7 @@ auth_tokens = [
 # ALPN token for QUIC handshake-level filtering (14-char Base64URL)
 # Generate with: tunnel-rs generate-token --alpn
 alpn_token = "XXXXXXXXXXXXXX"
+# Or use: alpn_token_file = "/etc/tunnel-rs/alpn_token.txt"
 
 [iroh.allowed_sources]
 tcp = ["127.0.0.0/8", "192.168.0.0/16"]
@@ -504,6 +507,7 @@ auth_token = "iXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
 
 # ALPN token (must match server, 14-char Base64URL)
 alpn_token = "XXXXXXXXXXXXXX"
+# Or use: alpn_token_file = "~/.config/tunnel-rs/alpn_token.txt"
 ```
 
 > [!NOTE]
