@@ -9,7 +9,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use tunnel_common::config::{
-    expand_tilde, load_client_config, load_server_config, parse_config_from_str, ClientConfig,
+    expand_tilde, load_client_config, load_server_config, parse_config_from_reader, ClientConfig,
     ServerConfig,
 };
 use tunnel_common::net::resolve_listen_addr;
@@ -147,7 +147,7 @@ enum Command {
         #[arg(long, global = true)]
         default_config: bool,
 
-        /// Read TOML config from stdin instead of a file
+        /// Read JSON config from stdin instead of a file
         #[arg(long, global = true)]
         config_stdin: bool,
 
@@ -169,7 +169,7 @@ enum Command {
         #[arg(long, global = true)]
         default_config: bool,
 
-        /// Read TOML config from stdin instead of a file
+        /// Read JSON config from stdin instead of a file
         #[arg(long, global = true)]
         config_stdin: bool,
 
@@ -356,9 +356,7 @@ fn resolve_server_config(
     }
 
     if config_stdin {
-        let content = std::io::read_to_string(std::io::stdin())
-            .context("Failed to read config from stdin")?;
-        Ok((parse_config_from_str(&content)?, true))
+        Ok((parse_config_from_reader(std::io::stdin())?, true))
     } else if let Some(path) = config {
         Ok((load_server_config(Some(&path))?, true))
     } else if default_config {
@@ -393,9 +391,7 @@ fn resolve_client_config(
     }
 
     if config_stdin {
-        let content = std::io::read_to_string(std::io::stdin())
-            .context("Failed to read config from stdin")?;
-        Ok((parse_config_from_str(&content)?, true))
+        Ok((parse_config_from_reader(std::io::stdin())?, true))
     } else if let Some(path) = config {
         Ok((load_client_config(Some(&path))?, true))
     } else if default_config {
@@ -447,10 +443,6 @@ async fn main() -> Result<()> {
             let effective_mode = effective_mode.context(
                 "No mode specified. Either use a subcommand (manual, nostr) or provide a config file with 'mode' field.",
             )?;
-
-            if config_stdin && effective_mode == "manual" {
-                anyhow::bail!("--config-stdin cannot be used with manual mode (stdin is needed for signaling)");
-            }
 
             if from_file {
                 cfg.validate(effective_mode)?;
@@ -657,10 +649,6 @@ async fn main() -> Result<()> {
             let effective_mode = effective_mode.context(
                 "No mode specified. Either use a subcommand (manual, nostr) or provide a config file with 'mode' field.",
             )?;
-
-            if config_stdin && effective_mode == "manual" {
-                anyhow::bail!("--config-stdin cannot be used with manual mode (stdin is needed for signaling)");
-            }
 
             if from_file {
                 cfg.validate(effective_mode)?;

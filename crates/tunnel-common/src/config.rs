@@ -684,9 +684,12 @@ fn load_config<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T> {
         .with_context(|| format!("Failed to parse config file: {}", path.display()))
 }
 
-/// Parse configuration from a TOML string (e.g. read from stdin).
-pub fn parse_config_from_str<T: for<'de> Deserialize<'de>>(content: &str) -> Result<T> {
-    toml::from_str(content).context("Failed to parse TOML config")
+/// Parse configuration as JSON from a reader (e.g. stdin).
+///
+/// Uses `serde_json::from_reader` which reads exactly one JSON value
+/// and stops, leaving the rest of the stream unconsumed.
+pub fn parse_config_from_reader<T: for<'de> Deserialize<'de>, R: std::io::Read>(reader: R) -> Result<T> {
+    serde_json::from_reader(reader).context("Failed to parse JSON config from stdin")
 }
 
 /// Resolve the default server config path (~/.config/tunnel-rs/server.toml).
