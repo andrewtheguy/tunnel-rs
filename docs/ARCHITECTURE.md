@@ -515,6 +515,8 @@ auth_token = "ALICE_AUTH_TOKEN"
 
 ### Configuration Loading Flow
 
+For normal usage, prefer file-based configs (`-c`, `--default-config`) which use TOML — settings are saved and reusable. The `--config-stdin` flag is intended for automation and IPC only; it uses JSON because JSON is self-delimiting — `serde_json::from_reader` parses exactly one JSON object and returns without waiting for EOF, allowing the caller to keep stdin open (e.g., for manual mode signaling). Config passed via stdin is not persisted.
+
 ```mermaid
 sequenceDiagram
     participant CLI as CLI Parser
@@ -535,13 +537,13 @@ sequenceDiagram
         Source-->>Config: TOML content
     else --config-stdin
         Main->>Config: Read from stdin
-        Source-->>Config: TOML content
+        Source-->>Config: JSON content
     else No config flag
         Main->>Main: Use CLI arguments only
     end
 
     alt Config loaded
-        Config->>Config: Parse TOML
+        Config->>Config: Parse (TOML from file, JSON from stdin)
         Config->>Config: Validate role + mode
         Config-->>Main: Validated config
         Main->>Main: Merge with CLI args

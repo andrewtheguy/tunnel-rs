@@ -365,7 +365,7 @@ tunnel-rs client \
 |--------|---------|-------------|
 | `--config`, `-c` | - | Path to TOML config file |
 | `--default-config` | false | Load config from `~/.config/tunnel-rs/server.toml` (`tunnel-rs`) or `~/.config/tunnel-rs/server_ice.toml` (`tunnel-rs-ice`) |
-| `--config-stdin` | false | Read TOML config from stdin instead of a file |
+| `--config-stdin` | false | Read JSON config from stdin for automation/IPC (use `-c` for normal usage) |
 
 ### server iroh
 
@@ -390,7 +390,7 @@ tunnel-rs client \
 |--------|---------|-------------|
 | `--config`, `-c` | - | Path to TOML config file |
 | `--default-config` | false | Load config from `~/.config/tunnel-rs/client.toml` (`tunnel-rs`) or `~/.config/tunnel-rs/client_ice.toml` (`tunnel-rs-ice`) |
-| `--config-stdin` | false | Read TOML config from stdin instead of a file |
+| `--config-stdin` | false | Read JSON config from stdin for automation/IPC (use `-c` for normal usage) |
 
 ### client iroh
 
@@ -409,7 +409,7 @@ tunnel-rs client \
 
 ## Configuration Files
 
-Use `--default-config` to load from the default location, `-c <path>` for a custom path, or `--config-stdin` to pipe TOML config via stdin. Only one of these may be used at a time. Each mode has its own configuration section:
+Use `--default-config` to load from the default location, or `-c <path>` for a custom path (both TOML). For normal usage, prefer config files so your settings are saved and reusable. The `--config-stdin` flag is intended for automation and IPC — it accepts JSON (self-delimiting, so the caller does not need to close stdin). Only one of these may be used at a time. Each mode has its own configuration section:
 - **iroh** mode: `[iroh]` section
 - **manual** mode: `[manual]` section
 - **nostr** mode: `[nostr]` section
@@ -486,8 +486,6 @@ tunnel-rs server --default-config
 # Load from custom path
 tunnel-rs server -c ./my-server.toml
 
-# Load from stdin (useful for companion apps)
-cat ./my-server.toml | tunnel-rs server --config-stdin
 ```
 
 ### Client Config Example
@@ -525,8 +523,47 @@ tunnel-rs client --default-config
 # Load from custom path
 tunnel-rs client -c ./my-client.toml
 
-# Load from stdin (useful for companion apps)
-cat ./my-client.toml | tunnel-rs client --config-stdin
+# Automation/IPC: pass JSON config via stdin (no need to close stdin)
+# JSON is self-delimiting, so the parent process can keep stdin open.
+```
+
+Example: spawning a client with `--config-stdin` from Python:
+
+```python
+import json, socket, subprocess, time
+
+config = {
+    "role": "client",
+    "mode": "iroh",
+    "iroh": {
+        "server_node_id": "<SERVER_NODE_ID>",
+        "auth_token": "<AUTH_TOKEN>",
+        "alpn_token": "<ALPN_TOKEN>",
+        "request_source": "tcp://127.0.0.1:22",
+        "target": "127.0.0.1:2222",
+    }
+}
+
+proc = subprocess.Popen(
+    ["tunnel-rs", "client", "--config-stdin"],
+    stdin=subprocess.PIPE,
+)
+proc.stdin.write(json.dumps(config).encode())
+proc.stdin.flush()  # config is parsed immediately, no need to close stdin
+
+# wait for the forwarded port to be ready
+for attempt in range(10):
+    try:
+        with socket.create_connection(("127.0.0.1", 2222), timeout=2):
+            print("tunnel is up")
+            break
+    except OSError:
+        time.sleep(1)
+else:
+    raise RuntimeError("tunnel failed to start")
+
+input("press enter to quit..")
+proc.terminate()
 ```
 
 ---

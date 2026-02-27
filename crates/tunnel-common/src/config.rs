@@ -684,9 +684,23 @@ fn load_config<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T> {
         .with_context(|| format!("Failed to parse config file: {}", path.display()))
 }
 
-/// Parse configuration from a TOML string (e.g. read from stdin).
-pub fn parse_config_from_str<T: for<'de> Deserialize<'de>>(content: &str) -> Result<T> {
-    toml::from_str(content).context("Failed to parse TOML config")
+/// Parse configuration as JSON from a reader (e.g. stdin).
+///
+/// Uses `serde_json::Deserializer::from_reader` to parse exactly one JSON value
+/// without calling `end()`, so it returns immediately after the closing `}`
+/// without waiting for EOF. This leaves the rest of the stream unconsumed.
+/// Times out after 30 seconds since this is intended for automation/IPC.
+pub async fn parse_config_from_reader<T: for<'de> Deserialize<'de> + Send + 'static, R: std::io::Read + Send + 'static>(reader: R) -> Result<T> {
+    tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        tokio::task::spawn_blocking(move || {
+            let mut de = serde_json::Deserializer::from_reader(reader);
+            T::deserialize(&mut de).context("Failed to parse JSON config from stdin")
+        }),
+    )
+    .await
+    .context("Timed out waiting for JSON config from stdin (30s)")? // timeout
+    .context("Failed to read config from stdin")? // join error
 }
 
 /// Resolve the default server config path (~/.config/tunnel-rs/server.toml).
