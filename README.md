@@ -365,7 +365,7 @@ tunnel-rs client \
 |--------|---------|-------------|
 | `--config`, `-c` | - | Path to TOML config file |
 | `--default-config` | false | Load config from `~/.config/tunnel-rs/server.toml` (`tunnel-rs`) or `~/.config/tunnel-rs/server_ice.toml` (`tunnel-rs-ice`) |
-| `--config-stdin` | false | Read JSON config from stdin instead of a file |
+| `--config-stdin` | false | Read JSON config from stdin for automation/IPC (file configs use TOML) |
 
 ### server iroh
 
@@ -390,7 +390,7 @@ tunnel-rs client \
 |--------|---------|-------------|
 | `--config`, `-c` | - | Path to TOML config file |
 | `--default-config` | false | Load config from `~/.config/tunnel-rs/client.toml` (`tunnel-rs`) or `~/.config/tunnel-rs/client_ice.toml` (`tunnel-rs-ice`) |
-| `--config-stdin` | false | Read JSON config from stdin instead of a file |
+| `--config-stdin` | false | Read JSON config from stdin for automation/IPC (file configs use TOML) |
 
 ### client iroh
 
@@ -486,7 +486,7 @@ tunnel-rs server --default-config
 # Load from custom path
 tunnel-rs server -c ./my-server.toml
 
-# Load JSON from stdin (useful for companion apps, does not require EOF)
+# Load JSON from stdin (stdin does not need to be closed after sending config)
 echo '{"iroh":{"allowed_sources":{"tcp":["127.0.0.0/8"]}}}' | tunnel-rs server --config-stdin
 ```
 
@@ -525,7 +525,7 @@ tunnel-rs client --default-config
 # Load from custom path
 tunnel-rs client -c ./my-client.toml
 
-# Load JSON from stdin (useful for companion apps, does not require EOF)
+# Load JSON from stdin (stdin does not need to be closed after sending config)
 echo '{"iroh":{"server_node_id":"..."}}' | tunnel-rs client --config-stdin
 ```
 

@@ -535,13 +535,13 @@ sequenceDiagram
         Source-->>Config: TOML content
     else --config-stdin
         Main->>Config: Read from stdin
-        Source-->>Config: TOML content
+        Source-->>Config: JSON content
     else No config flag
         Main->>Main: Use CLI arguments only
     end
 
     alt Config loaded
-        Config->>Config: Parse TOML
+        Config->>Config: Parse (TOML from file, JSON from stdin)
         Config->>Config: Validate role + mode
         Config-->>Main: Validated config
         Main->>Main: Merge with CLI args
