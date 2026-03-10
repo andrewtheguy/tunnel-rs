@@ -10,7 +10,7 @@ members = [
 
 
 [workspace.package]
-version = "0.2.2"
+version = "0.2.3"
 
 [workspace.dependencies]
 iroh = { version = "0.96.1", features = ["address-lookup-mdns"] }

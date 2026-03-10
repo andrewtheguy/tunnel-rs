@@ -14,7 +14,6 @@ The `tunnel-rs-ice` binary is published in GitHub releases but is not containeri
 > [!WARNING]
 > **Breaking Changes (v0.2):**
 > - **Auth token format:** Changed from 18-char Luhn mod N tokens to 47-char Base64URL tokens with CRC16 checksum. Old tokens are **not** accepted. Regenerate all tokens with `tunnel-rs generate-token` and update your `tokens.txt` files and client configurations.
-> - **Silent auth failure:** The server no longer sends a rejection message or closes the connection with an error code — it simply waits out the auth timeout and drops the connection. Clients with invalid tokens will see a generic connection timeout instead of a structured rejection. Server-side logs still show the reason for operators.
 > - **ALPN token required:** A new `--alpn-token` argument is required for both server and client. Generate with `tunnel-rs generate-token --alpn`.
 
 ## How It Works

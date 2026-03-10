@@ -629,7 +629,7 @@ graph TB
         D2 --> E[Auth Token Validation]
         E --> F{Valid Token?}
         F -->|Yes| G[Authenticated]
-        F -->|No| H[Silent Drop]
+        F -->|No| H[Rejected]
     end
 
     subgraph "manual Mode"
@@ -660,7 +660,7 @@ Iroh mode uses two layers of authentication. First, a pre-shared ALPN token is e
 3. **Client Configuration**: Client specifies `--auth-token` with the token received from the server admin
 4. **Protocol Flow**: Client opens a dedicated auth stream immediately after connection and sends an `AuthRequest`. **No source requests are accepted until authentication succeeds.**
 5. **Validation**: Server validates the token using `is_token_valid()` within a 10-second timeout
-6. **Rejection**: Invalid tokens cause the server to silently wait out the remaining auth timeout and then drop the connection — no `AuthResponse` is sent, no error code is returned. This makes it harder for attackers to distinguish invalid tokens from network timeouts.
+6. **Rejection**: Invalid tokens are rejected with an `AuthResponse` containing the rejection reason, and the connection is closed with an error code.
 
 This layered validation prevents unauthorized clients from holding open connections or attempting source requests.
 
@@ -688,12 +688,12 @@ sequenceDiagram
         Note over S,C: Connection authenticated
     else Token is invalid
         A-->>S: false
-        S->>S: Wait out remaining auth timeout
-        S->>S: Drop connection silently
-        Note over S,C: Connection dropped (no response sent)
+        S->>C: AuthResponse {accepted: false, reason}
+        S->>S: Close connection (error code 1)
+        Note over S,C: Connection closed with rejection
     else Timeout (no auth within 10s)
-        S->>S: Drop connection silently
-        Note over S,C: Connection dropped (no response sent)
+        S->>S: Close connection (error code 2)
+        Note over S,C: Connection closed (auth timeout)
     end
 
     Note over C,S: Source Request Phase (after successful auth)

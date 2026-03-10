@@ -13,7 +13,6 @@ Tunnel-rs enables you to forward TCP and UDP traffic between machines without re
 > [!WARNING]
 > **Breaking Changes (v0.2):**
 > - **Auth token format:** Changed from 18-char Luhn mod N tokens to 47-char Base64URL tokens with CRC16 checksum. Old tokens are **not** accepted. Regenerate all tokens with `tunnel-rs generate-token` and update server/client configurations.
-> - **Silent auth failure:** The server no longer sends a rejection message or closes the connection with an error code — it simply waits out the auth timeout and drops the connection. Clients with invalid tokens will see a generic connection timeout instead of a structured rejection. Server-side logs still show the reason for operators.
 > - **ALPN token required:** A new `--alpn-token` argument is required for both server and client. This embeds a pre-shared token into the QUIC ALPN protocol identifier, rejecting unknown clients at the handshake level before any application streams are opened. Generate with `tunnel-rs generate-token --alpn`.
 
 **Features:**
@@ -611,7 +610,7 @@ tunnel-rs show-server-id --secret-file ./server.key
 - All traffic is encrypted using QUIC/TLS 1.3
 - The EndpointId is a public key that identifies the server
 - **ALPN-level filtering:** A pre-shared ALPN token is embedded in the QUIC protocol identifier (`mf/2/<token>`). Connections from clients without the correct token are rejected at the QUIC handshake level — before any application streams are opened — acting as a lightweight "port knock".
-- **Token Authentication (iroh mode):** Clients authenticate immediately after QUIC connection via a dedicated auth stream. Invalid tokens are silently dropped — the server waits out the auth timeout and closes the connection without sending a rejection, making failed attempts indistinguishable from timeouts. See [Architecture: Token Authentication](docs/ARCHITECTURE.md#token-authentication-iroh-mode).
+- **Token Authentication (iroh mode):** Clients authenticate immediately after QUIC connection via a dedicated auth stream. Invalid tokens are rejected with an `AuthResponse` and the connection is closed with an error code. See [Architecture: Token Authentication](docs/ARCHITECTURE.md#token-authentication-iroh-mode).
 - Secret key files are created with `0600` permissions (Unix) and appropriate permissions on Windows
 - Treat secret key files, auth tokens, and ALPN tokens like passwords
 
@@ -623,8 +622,8 @@ tunnel-rs show-server-id --secret-file ./server.key
 3. Client resolves the server via discovery
 4. **ALPN handshake:** QUIC connection requires matching ALPN token (`mf/2/<token>`) — clients without the token are rejected at the handshake level
 5. **Authentication phase:** Client opens dedicated auth stream and sends `AuthRequest` with token
-6. **Server validates token** (10s timeout) — invalid tokens are silently dropped after timeout (no rejection sent)
-   - *If authentication fails, the connection is silently dropped and steps 7–9 do not occur*
+6. **Server validates token** (10s timeout) — invalid tokens are rejected with an error response
+   - *If authentication fails, the connection is closed and steps 7–9 do not occur*
 7. **Source request phase:** Client opens source stream with `SourceRequest`
 8. Server validates source against allowed networks and responds
 9. If accepted, traffic forwarding begins
