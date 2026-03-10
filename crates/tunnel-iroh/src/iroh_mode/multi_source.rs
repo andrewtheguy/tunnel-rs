@@ -126,6 +126,12 @@ const DEFAULT_MAX_SESSIONS: usize = 100;
 /// Timeout for receiving authentication request after connection.
 const AUTH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
+/// Connection close code for authentication failure (invalid token).
+const AUTH_FAILED_CODE: u32 = 1;
+
+/// Connection close code for authentication timeout (no auth within deadline).
+const AUTH_TIMEOUT_CODE: u32 = 2;
+
 // ============================================================================
 // Server
 // ============================================================================
@@ -306,12 +312,12 @@ async fn handle_multi_source_connection(
         }
         Ok(Err(e)) => {
             log::warn!("Authentication failed for {}: {}", remote_id, e);
-            conn.close(1u32.into(), b"auth_failed");
+            conn.close(AUTH_FAILED_CODE.into(), b"auth_failed");
             return Err(anyhow::anyhow!("auth_failed: {}", e));
         }
         Err(_) => {
             log::warn!("Authentication timeout for {}", remote_id);
-            conn.close(2u32.into(), b"auth_timeout");
+            conn.close(AUTH_TIMEOUT_CODE.into(), b"auth_timeout");
             return Err(anyhow::anyhow!("auth_timeout"));
         }
     }
