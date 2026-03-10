@@ -126,6 +126,12 @@ const DEFAULT_MAX_SESSIONS: usize = 100;
 /// Timeout for receiving authentication request after connection.
 const AUTH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
+/// Connection close code for authentication failure (invalid token).
+const AUTH_FAILED_CODE: u32 = 1;
+
+/// Connection close code for authentication timeout (no auth within deadline).
+const AUTH_TIMEOUT_CODE: u32 = 2;
+
 // ============================================================================
 // Server
 // ============================================================================
@@ -265,7 +271,6 @@ async fn handle_multi_source_connection(
     let remote_id = conn.remote_id();
 
     // Phase 1: Wait for auth stream with timeout
-    let auth_start = tokio::time::Instant::now();
     let auth_result = tokio::time::timeout(AUTH_TIMEOUT, async {
         // Accept the first bi-stream which must be the auth stream
         let (mut send_stream, mut recv_stream) = conn
@@ -283,12 +288,10 @@ async fn handle_multi_source_connection(
         let token_str = request.auth_token.as_str();
         if !is_token_valid(token_str, &auth_tokens) {
             log::warn!("Invalid auth token from {}", remote_id);
-            // Wait out the remaining auth timeout while streams are still alive,
-            // so failures look identical to timeouts to probing clients.
-            let elapsed = auth_start.elapsed();
-            if let Some(remaining) = AUTH_TIMEOUT.checked_sub(elapsed) {
-                tokio::time::sleep(remaining).await;
-            }
+            let response = AuthResponse::rejected("Invalid authentication token");
+            let encoded = encode_auth_response(&response)?;
+            send_stream.write_all(&encoded).await?;
+            send_stream.finish()?;
             anyhow::bail!("Invalid auth token");
         }
 
@@ -309,10 +312,12 @@ async fn handle_multi_source_connection(
         }
         Ok(Err(e)) => {
             log::warn!("Authentication failed for {}: {}", remote_id, e);
+            conn.close(AUTH_FAILED_CODE.into(), b"auth_failed");
             return Err(anyhow::anyhow!("auth_failed: {}", e));
         }
         Err(_) => {
             log::warn!("Authentication timeout for {}", remote_id);
+            conn.close(AUTH_TIMEOUT_CODE.into(), b"auth_timeout");
             return Err(anyhow::anyhow!("auth_timeout"));
         }
     }
