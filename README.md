@@ -616,7 +616,9 @@ tunnel-rs show-server-id --secret-file ./server.key
 
 ## Exit Codes (Client Mode)
 
-The client process uses categorized exit codes so wrapper scripts can distinguish transient failures (retry) from permanent errors (stop):
+The client process uses categorized exit codes so wrapper scripts can distinguish transient failures (retry) from permanent errors (stop).
+
+> **Note:** Auto-retry wrapper scripts are suitable for **iroh mode** (`tunnel-rs`) and **nostr mode** (`tunnel-rs-ice client nostr`), which use automatic signaling. **Manual mode** (`tunnel-rs-ice client manual`) requires interactive copy-paste SDP exchange each run, so auto-retry is not feasible.
 
 | Exit Code | Meaning | Retry? |
 |-----------|---------|--------|
