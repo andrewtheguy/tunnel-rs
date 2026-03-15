@@ -49,7 +49,7 @@ impl fmt::Display for TunnelError {
 
 impl std::error::Error for TunnelError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        self.source.source()
+        Some(&*self.source)
     }
 }
 
