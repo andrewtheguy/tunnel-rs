@@ -1015,7 +1015,7 @@ Retry guidance:
 
 - **Code 1** — Ambiguous. Retry a limited number of times with backoff; escalate if the error persists.
 - **Codes 2, 3** — Do not retry. These require human intervention (fix config or credentials).
-- **Code 10** — Connection establishment failed. Retry only if the tunnel has previously connected successfully (a prior exit 11 implies prior success).
+- **Code 10** — Connection establishment failed. Retry only if the tunnel has previously connected successfully.
 - **Code 11** — Connection lost after the tunnel was working. Always safe to retry.
 
 **Mode compatibility:** Auto-retry wrapper scripts work with **iroh mode** and **nostr mode**
