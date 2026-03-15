@@ -7,6 +7,7 @@ use ::iroh::SecretKey;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
+use tunnel_common::error::{ErrorCategory, TunnelError};
 
 use tunnel_common::config::{
     expand_tilde, load_client_config, load_server_config, parse_config_from_reader,
@@ -444,7 +445,29 @@ async fn resolve_client_config(
 }
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() {
+    std::process::exit(run().await);
+}
+
+async fn run() -> i32 {
+    match run_inner().await {
+        Ok(()) => 0,
+        Err(err) => {
+            let code = err
+                .downcast_ref::<TunnelError>()
+                .map(|e| match e.category {
+                    ErrorCategory::Config => 2,
+                    ErrorCategory::Auth => 3,
+                    ErrorCategory::Connection => 10,
+                })
+                .unwrap_or(1);
+            eprintln!("Error: {:#}", err);
+            code
+        }
+    }
+}
+
+async fn run_inner() -> Result<()> {
     let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn"))
         .filter_module("tunnel_rs", log::LevelFilter::Info)
         .filter_module("tunnel_iroh", log::LevelFilter::Info)
@@ -571,65 +594,68 @@ async fn main() -> Result<()> {
 
             let relay_only = *relay_only;
 
-            let server_node_id = server_node_id.context(
-                "server_node_id is required. Provide via --server-node-id or in config file.",
-            )?;
-            let source = source.context(
-                "--source is required for iroh client mode. Specify the source to request from server (e.g., --source tcp://127.0.0.1:22)",
-            )?;
-            let target = target.context(
-                "--target is required. Provide the local address to listen on (e.g., --target 127.0.0.1:2222)",
-            )?;
+            let server_node_id = server_node_id.ok_or_else(|| TunnelError::config(
+                anyhow::anyhow!("server_node_id is required. Provide via --server-node-id or in config file."),
+            ))?;
+            let source = source.ok_or_else(|| TunnelError::config(
+                anyhow::anyhow!("--source is required for iroh client mode. Specify the source to request from server (e.g., --source tcp://127.0.0.1:22)"),
+            ))?;
+            let target = target.ok_or_else(|| TunnelError::config(
+                anyhow::anyhow!("--target is required. Provide the local address to listen on (e.g., --target 127.0.0.1:2222)"),
+            ))?;
 
             // Resolve auth token from CLI or file
             let auth_token = match (auth_token, auth_token_file) {
                 (Some(_), Some(_)) => {
-                    anyhow::bail!(
+                    return Err(TunnelError::config(anyhow::anyhow!(
                         "Cannot combine --auth-token with --auth-token-file (or auth_token and auth_token_file in config)."
-                    );
+                    )).into());
                 }
                 (Some(token), None) => token,
                 (None, Some(file)) => {
                     let expanded = expand_tilde(&file);
-                    auth::load_auth_token_from_file(&expanded)?
+                    auth::load_auth_token_from_file(&expanded)
+                        .map_err(TunnelError::config)?
                 }
                 (None, None) => {
-                    anyhow::bail!(
+                    return Err(TunnelError::config(anyhow::anyhow!(
                         "--auth-token is required. Provide an authentication token to connect to the server."
-                    );
+                    )).into());
                 }
             };
 
             // Validate token format before connecting (fail fast)
-            auth::validate_token(&auth_token).context(
-                "Invalid auth token format. Generate a valid token with: tunnel-rs generate-token",
-            )?;
+            auth::validate_token(&auth_token)
+                .context("Invalid auth token format. Generate a valid token with: tunnel-rs generate-token")
+                .map_err(TunnelError::config)?;
 
             // Resolve ALPN token from inline or file
             let alpn_token = match (alpn_token, alpn_token_file) {
                 (Some(_), Some(_)) => {
-                    anyhow::bail!(
+                    return Err(TunnelError::config(anyhow::anyhow!(
                         "Cannot combine --alpn-token with --alpn-token-file (or alpn_token and alpn_token_file in config)."
-                    );
+                    )).into());
                 }
                 (Some(token), None) => token,
                 (None, Some(file)) => {
                     let expanded = expand_tilde(&file);
-                    auth::load_alpn_token_from_file(&expanded)?
+                    auth::load_alpn_token_from_file(&expanded)
+                        .map_err(TunnelError::config)?
                 }
                 (None, None) => {
-                    anyhow::bail!(
+                    return Err(TunnelError::config(anyhow::anyhow!(
                         "--alpn-token is required. Provide the ALPN token shared by the server.\n\
                         Generate one with: tunnel-rs generate-token --alpn"
-                    );
+                    )).into());
                 }
             };
-            auth::validate_alpn_token(&alpn_token).context(
-                "Invalid ALPN token format. Generate a valid token with: tunnel-rs generate-token --alpn",
-            )?;
+            auth::validate_alpn_token(&alpn_token)
+                .context("Invalid ALPN token format. Generate a valid token with: tunnel-rs generate-token --alpn")
+                .map_err(TunnelError::config)?;
 
             // Validate transport tuning window sizes
-            validate_transport_tuning(&transport, "iroh.transport")?;
+            validate_transport_tuning(&transport, "iroh.transport")
+                .map_err(TunnelError::config)?;
 
             iroh_mode::run_multi_source_client(iroh_mode::MultiSourceClientConfig {
                 node_id: server_node_id,

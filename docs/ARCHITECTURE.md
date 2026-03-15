@@ -997,6 +997,22 @@ graph TB
     style G fill:#FFCCBC
 ```
 
+### Exit Codes (Client Mode)
+
+The client process uses categorized exit codes so wrapper scripts can distinguish
+transient failures (retry) from permanent errors (stop):
+
+| Code | Category | Examples |
+|------|----------|---------|
+| 0 | Success | Normal termination |
+| 1 | General error | Unexpected/uncategorized failures |
+| 2 | Configuration | Missing `--source`, invalid token format, bad ALPN |
+| 3 | Authentication | Token rejected by server, auth response timeout |
+| 10 | Connection | Relay timeout, endpoint offline, server unreachable |
+
+Scripts should avoid retrying on codes 2 and 3 (which require human intervention)
+and may safely retry on code 10 (transient network issues).
+
 ### Stream Errors
 
 - **TCP**: Connection reset, timeout → close QUIC stream

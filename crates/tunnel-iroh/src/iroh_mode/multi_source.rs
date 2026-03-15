@@ -10,6 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use tunnel_common::error::TunnelError;
 use iroh::{EndpointId, SecretKey};
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::sync::Mutex;
@@ -512,13 +513,13 @@ async fn authenticate_connection(
     // Read AuthResponse with timeout
     let response_bytes = tokio::time::timeout(AUTH_TIMEOUT, read_length_prefixed(&mut recv_stream))
         .await
-        .map_err(|_| anyhow::anyhow!("Auth response timed out"))?
+        .map_err(|_| TunnelError::auth(anyhow::anyhow!("Auth response timed out")))?
         .context("Failed to read auth response")?;
     let response = decode_auth_response(&response_bytes).context("Invalid auth response")?;
 
     if !response.accepted {
         let reason = response.reason.unwrap_or_else(|| "Unknown".to_string());
-        anyhow::bail!("Authentication rejected: {}", reason);
+        return Err(TunnelError::auth(anyhow::anyhow!("Authentication rejected: {}", reason)).into());
     }
 
     log::info!("Authenticated with server successfully");
