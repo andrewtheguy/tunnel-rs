@@ -248,25 +248,6 @@ external_addresses = ["203.0.113.5:30000"]
 
 ---
 
-#### Automatic Reconnection
-
-**Status:** Partial
-
-| Feature | Status |
-|---------|--------|
-| QUIC keepalive (15s interval) | **Implemented** |
-| Stream retry with backoff | **Implemented** |
-| Connection-level auto-reconnect | Idea |
-
-**iroh mode (Moderate complexity):**
-- Add client-side connection retry loop with exponential backoff
-- Iroh's discovery automatically re-resolves server's new IP/relay address
-
-**nostr mode (Higher complexity):**
-- Re-signal via Nostr relays and re-establish ICE/QUIC
-
----
-
 #### Connection Migration (Resilience to IP Changes)
 
 **Status:** Idea
