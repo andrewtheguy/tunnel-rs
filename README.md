@@ -630,14 +630,22 @@ Example retry wrapper script:
 
 ```bash
 #!/bin/bash
+MAX_RETRIES=5
+retries=0
 while true; do
     tunnel-rs client --default-config
     code=$?
     case $code in
         0)   echo "Clean exit"; break ;;
         2|3) echo "Unrecoverable error (exit $code), not retrying"; exit $code ;;
-        10)  echo "Connection error, retrying in 5s..."; sleep 5 ;;
-        *)   echo "Unexpected error (exit $code), retrying in 10s..."; sleep 10 ;;
+        10)  echo "Connection error, retrying in 5s..."; sleep 5; retries=0 ;;
+        *)   retries=$((retries + 1))
+             if [ "$retries" -ge "$MAX_RETRIES" ]; then
+                 echo "Unexpected error (exit $code) persisted after $MAX_RETRIES retries, giving up"
+                 exit $code
+             fi
+             echo "Unexpected error (exit $code), retry $retries/$MAX_RETRIES in 10s..."
+             sleep 10 ;;
     esac
 done
 ```
