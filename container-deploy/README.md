@@ -11,11 +11,6 @@ The `tunnel-rs-ice` binary is published in GitHub releases but is not containeri
 > [!WARNING]
 > **No Backward Compatibility (Pre-1.0):** During initial development before version 1.0, no backward compatibility or migration path is provided between minor versions (e.g., 0.1.x to 0.2.x). Expect to regenerate server keys and rebuild client/server configurations when upgrading between minor versions. To avoid unexpected breakage, pin the container image to a specific patch version (e.g., `ghcr.io/andrewtheguy/tunnel-rs:0.2.0`) or minor version (e.g., `ghcr.io/andrewtheguy/tunnel-rs:0.2`).
 
-> [!WARNING]
-> **Breaking Changes (v0.2):**
-> - **Auth token format:** Changed from 18-char Luhn mod N tokens to 47-char Base64URL tokens with CRC16 checksum. Old tokens are **not** accepted. Regenerate all tokens with `tunnel-rs generate-token` and update your `tokens.txt` files and client configurations.
-> - **ALPN token required:** A new `--alpn-token` argument is required for both server and client. Generate with `tunnel-rs generate-token --alpn`.
-
 ## How It Works
 
 tunnel-rs uses a **client-initiated** model similar to SSH `-L` tunneling:

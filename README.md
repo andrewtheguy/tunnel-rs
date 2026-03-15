@@ -10,11 +10,6 @@ Tunnel-rs enables you to forward TCP and UDP traffic between machines without re
 > [!WARNING]
 > **No Backward Compatibility (Pre-1.0):** During initial development before version 1.0, no backward compatibility or migration path is provided between minor versions (e.g., 0.1.x to 0.2.x). Expect to regenerate server keys and rebuild client/server configurations when upgrading in between minor versions.
 
-> [!WARNING]
-> **Breaking Changes (v0.2):**
-> - **Auth token format:** Changed from 18-char Luhn mod N tokens to 47-char Base64URL tokens with CRC16 checksum. Old tokens are **not** accepted. Regenerate all tokens with `tunnel-rs generate-token` and update server/client configurations.
-> - **ALPN token required:** A new `--alpn-token` argument is required for both server and client. This embeds a pre-shared token into the QUIC ALPN protocol identifier, rejecting unknown clients at the handshake level before any application streams are opened. Generate with `tunnel-rs generate-token --alpn`.
-
 **Features:**
 - **No account or registration required** — Just download and run
 - **No publicly accessible IPs or port forwarding required** — Automatic NAT hole punching
