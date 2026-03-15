@@ -624,28 +624,33 @@ The client process uses categorized exit codes so wrapper scripts can distinguis
 | 1 | General/unexpected error | Use judgment |
 | 2 | Configuration error (invalid arguments, bad token format, missing fields) | No — fix configuration |
 | 3 | Authentication failure (token rejected, auth timeout) | No — fix credentials |
-| 10 | Connection/network error (timeout, relay failure) | Yes — transient |
+| 10 | Connection establishment failed (timeout, relay failure, server unreachable) | Only if it worked before |
+| 11 | Connection lost after tunnel was established | Yes — always retry |
 
 Example retry wrapper script:
 
 ```bash
 #!/bin/bash
-MAX_RETRIES=5
-retries=0
+succeeded_before=false
 while true; do
     tunnel-rs client --default-config
     code=$?
     case $code in
         0)   echo "Clean exit"; break ;;
         2|3) echo "Unrecoverable error (exit $code), not retrying"; exit $code ;;
-        10)  echo "Connection error, retrying in 5s..."; sleep 5; retries=0 ;;
-        *)   retries=$((retries + 1))
-             if [ "$retries" -ge "$MAX_RETRIES" ]; then
-                 echo "Unexpected error (exit $code) persisted after $MAX_RETRIES retries, giving up"
-                 exit $code
-             fi
-             echo "Unexpected error (exit $code), retry $retries/$MAX_RETRIES in 10s..."
-             sleep 10 ;;
+        10)
+            if $succeeded_before; then
+                echo "Connection failed (previously connected), retrying in 5s..."
+                sleep 5
+            else
+                echo "Never connected successfully (exit 10), not retrying"
+                exit $code
+            fi
+            ;;
+        11)  succeeded_before=true
+             echo "Connection lost, retrying in 5s..."
+             sleep 5 ;;
+        *)   echo "Unexpected error (exit $code), retrying in 10s..."; sleep 10 ;;
     esac
 done
 ```

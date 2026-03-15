@@ -459,6 +459,7 @@ async fn run() -> i32 {
                     ErrorCategory::Config => 2,
                     ErrorCategory::Auth => 3,
                     ErrorCategory::Connection => 10,
+                    ErrorCategory::ConnectionLost => 11,
                 })
                 .unwrap_or(1);
             eprintln!("Error: {:#}", err);

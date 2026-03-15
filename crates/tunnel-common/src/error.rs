@@ -7,8 +7,10 @@ pub enum ErrorCategory {
     Config,
     /// Authentication failure — do not retry (wrong credentials).
     Auth,
-    /// Network/connection error — safe to retry.
+    /// Connection establishment failed — retry only if it worked before.
     Connection,
+    /// Connection lost after tunnel was established — always retry.
+    ConnectionLost,
 }
 
 /// An error wrapper that carries both an `anyhow::Error` and an error category.
@@ -36,6 +38,13 @@ impl TunnelError {
     pub fn connection(err: impl Into<anyhow::Error>) -> Self {
         Self {
             category: ErrorCategory::Connection,
+            source: err.into(),
+        }
+    }
+
+    pub fn connection_lost(err: impl Into<anyhow::Error>) -> Self {
+        Self {
+            category: ErrorCategory::ConnectionLost,
             source: err.into(),
         }
     }
@@ -70,6 +79,10 @@ mod tests {
         assert_eq!(
             TunnelError::connection(anyhow::anyhow!("test")).category,
             ErrorCategory::Connection
+        );
+        assert_eq!(
+            TunnelError::connection_lost(anyhow::anyhow!("test")).category,
+            ErrorCategory::ConnectionLost
         );
     }
 

@@ -698,8 +698,12 @@ async fn run_multi_source_tcp_client(
                 });
             }
             error = conn.closed() => {
-                log::info!("QUIC connection closed: {}", error);
-                break;
+                log::warn!("QUIC connection closed: {}", error);
+                accept_tasks.shutdown().await;
+                connection_tasks.shutdown().await;
+                return Err(TunnelError::connection_lost(
+                    anyhow::anyhow!("QUIC connection closed: {}", error)
+                ).into());
             }
         }
 
@@ -812,6 +816,9 @@ async fn run_multi_source_udp_client(
         }
         error = conn.closed() => {
             log::warn!("QUIC connection closed: {}", error);
+            return Err(TunnelError::connection_lost(
+                anyhow::anyhow!("QUIC connection closed: {}", error)
+            ).into());
         }
     }
 

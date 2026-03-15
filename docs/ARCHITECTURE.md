@@ -1008,13 +1008,15 @@ transient failures (retry) from permanent errors (stop):
 | 1 | General error | Unexpected/uncategorized failures |
 | 2 | Configuration | Missing `--source`, invalid token format, bad ALPN |
 | 3 | Authentication | Token rejected by server, auth response timeout |
-| 10 | Connection | Relay timeout, endpoint offline, server unreachable |
+| 10 | Connection failed | Relay timeout, endpoint offline, server unreachable |
+| 11 | Connection lost | QUIC connection closed after tunnel was established |
 
 Retry guidance:
 
 - **Code 1** — Ambiguous. Retry a limited number of times with backoff; escalate if the error persists.
 - **Codes 2, 3** — Do not retry. These require human intervention (fix config or credentials).
-- **Code 10** — Safe to retry. Transient network issue.
+- **Code 10** — Connection establishment failed. Retry only if the tunnel has previously connected successfully (a prior exit 11 implies prior success).
+- **Code 11** — Connection lost after the tunnel was working. Always safe to retry.
 
 ### Stream Errors
 
