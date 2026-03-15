@@ -1010,8 +1010,11 @@ transient failures (retry) from permanent errors (stop):
 | 3 | Authentication | Token rejected by server, auth response timeout |
 | 10 | Connection | Relay timeout, endpoint offline, server unreachable |
 
-Scripts should avoid retrying on codes 2 and 3 (which require human intervention)
-and may safely retry on code 10 (transient network issues).
+Retry guidance:
+
+- **Code 1** — Ambiguous. Retry a limited number of times with backoff; escalate if the error persists.
+- **Codes 2, 3** — Do not retry. These require human intervention (fix config or credentials).
+- **Code 10** — Safe to retry. Transient network issue.
 
 ### Stream Errors
 
