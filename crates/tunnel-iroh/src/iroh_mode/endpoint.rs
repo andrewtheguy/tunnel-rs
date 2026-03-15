@@ -1,6 +1,7 @@
 //! Common endpoint helpers for iroh tunnel connections.
 
 use anyhow::{Context, Result};
+use tunnel_common::error::TunnelError;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use iroh::{
     address_lookup::{DnsAddressLookup, MdnsAddressLookup, PkarrPublisher, PkarrResolver},
@@ -277,10 +278,10 @@ pub async fn create_server_endpoint(
     );
     match tokio::time::timeout(RELAY_CONNECT_TIMEOUT, endpoint.online()).await {
         Ok(()) => {}
-        Err(_) => anyhow::bail!(
+        Err(_) => return Err(TunnelError::connection(anyhow::anyhow!(
             "Endpoint failed to come online after {}s - check relay server connectivity",
             RELAY_CONNECT_TIMEOUT.as_secs()
-        ),
+        )).into()),
     }
 
     Ok(endpoint)
@@ -318,10 +319,10 @@ pub async fn create_client_endpoint(
     );
     match tokio::time::timeout(RELAY_CONNECT_TIMEOUT, endpoint.online()).await {
         Ok(()) => {}
-        Err(_) => anyhow::bail!(
+        Err(_) => return Err(TunnelError::connection(anyhow::anyhow!(
             "Endpoint failed to come online after {}s - check relay server connectivity",
             RELAY_CONNECT_TIMEOUT.as_secs()
-        ),
+        )).into()),
     }
 
     Ok(endpoint)
@@ -366,10 +367,10 @@ pub async fn connect_to_server(
                 }
             }
         }
-        anyhow::bail!(
+        Err(TunnelError::connection(anyhow::anyhow!(
             "Failed to connect via any relay: {}",
             last_error.unwrap_or_else(|| "No relay URLs provided".to_string())
-        )
+        )).into())
     } else {
         // Include relay URLs in EndpointAddr if available, allowing iroh to use
         // the relay for initial connection when DNS discovery is disabled.
@@ -397,11 +398,13 @@ pub async fn connect_to_server(
             .await
         {
             Ok(Ok(conn)) => Ok(conn),
-            Ok(Err(e)) => Err(e).context("Failed to connect to server"),
-            Err(_) => anyhow::bail!(
+            Ok(Err(e)) => Err(TunnelError::connection(
+                anyhow::Error::from(e).context("Failed to connect to server"),
+            ).into()),
+            Err(_) => Err(TunnelError::connection(anyhow::anyhow!(
                 "Connection timed out after {}s",
                 RELAY_CONNECT_TIMEOUT.as_secs()
-            ),
+            )).into()),
         }
     }
 }
