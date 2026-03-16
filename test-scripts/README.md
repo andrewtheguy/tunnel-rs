@@ -61,7 +61,7 @@ source test-scripts/keys.sh && generate_keys
 
 # Use keys in custom commands
 source test-scripts/keys.sh
-echo $SERVER_KEY_FILE $SERVER_NODE_ID $AUTH_TOKEN $ALPN_TOKEN
+echo $SERVER_KEY_FILE $SERVER_NODE_ID $TUNNEL_RS_AUTH_TOKEN $TUNNEL_RS_ALPN_TOKEN
 ```
 
 ## Test Modes

@@ -72,11 +72,11 @@ Allow the server to fetch valid auth tokens from an external HTTP REST service a
 
 **Example:**
 ```bash
+export TUNNEL_RS_ALPN_TOKEN="$ALPN_TOKEN"
 tunnel-rs server \
   --secret-file ./server.key \
   --allowed-tcp 127.0.0.0/8 \
-  --auth-tokens-url https://auth.example.com/api/tokens \
-  --alpn-token "$ALPN_TOKEN"
+  --auth-tokens-url https://auth.example.com/api/tokens
 ```
 
 **Expected response format:**
@@ -190,11 +190,11 @@ spec:
 EOF
 
 # Server advertises the NodePort address
+export TUNNEL_RS_AUTH_TOKENS="$AUTH_TOKEN"
+export TUNNEL_RS_ALPN_TOKEN="$ALPN_TOKEN"
 tunnel-rs server \
   --secret-file ./server.key \
   --allowed-tcp 10.0.0.0/8 \
-  --auth-tokens "$AUTH_TOKEN" \
-  --alpn-token "$ALPN_TOKEN" \
   --external-address 203.0.113.5:30000
 ```
 

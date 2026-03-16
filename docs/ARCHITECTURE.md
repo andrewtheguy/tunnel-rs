@@ -369,24 +369,23 @@ graph TB
 
 `iroh` mode uses two distinct credential types:
 
-| Credential | CLI Flags | Config Keys (TOML files must use `_file` variants) | Expected Usage |
+| Credential | Env Vars / CLI Flags | Config Keys (TOML files must use `_file` variants) | Expected Usage |
 |------------|-----------|-------------|----------------|
-| **ALPN Token** | Server: `--alpn-token`<br>Client: `--alpn-token` | Server/Client: `[iroh].alpn_token_file` | Pre-handshake QUIC ALPN filter (`mf/2/<token>`). Typically one shared value for a server and all its clients. |
-| **Auth Token** | Server: `--auth-tokens` and/or `--auth-tokens-file`<br>Client: `--auth-token` or `--auth-token-file` | Server: `[iroh].auth_tokens_file`<br>Client: `[iroh].auth_token_file` | Per-client credential checked on the auth stream after handshake. Use separate values per client for revocation/rotation. |
+| **ALPN Token** | `TUNNEL_RS_ALPN_TOKEN` or `--alpn-token-file` | Server/Client: `[iroh].alpn_token_file` | Pre-handshake QUIC ALPN filter (`mf/2/<token>`). Typically one shared value for a server and all its clients. |
+| **Auth Token** | Server: `TUNNEL_RS_AUTH_TOKENS` or `--auth-tokens-file`<br>Client: `TUNNEL_RS_AUTH_TOKEN` or `--auth-token-file` | Server: `[iroh].auth_tokens_file`<br>Client: `[iroh].auth_token_file` | Per-client credential checked on the auth stream after handshake. Use separate values per client for revocation/rotation. |
 
-Example CLI usage:
+Example usage with environment variables:
 
 ```bash
 # Server
-tunnel-rs server \
-  --alpn-token "$ALPN_TOKEN" \
-  --auth-tokens "$ALICE_AUTH_TOKEN" \
-  --auth-tokens "$BOB_AUTH_TOKEN"
+export TUNNEL_RS_ALPN_TOKEN="$ALPN_TOKEN"
+export TUNNEL_RS_AUTH_TOKENS="$ALICE_AUTH_TOKEN,$BOB_AUTH_TOKEN"
+tunnel-rs server ...
 
 # Alice's client
-tunnel-rs client \
-  --alpn-token "$ALPN_TOKEN" \
-  --auth-token "$ALICE_AUTH_TOKEN"
+export TUNNEL_RS_ALPN_TOKEN="$ALPN_TOKEN"
+export TUNNEL_RS_AUTH_TOKEN="$ALICE_AUTH_TOKEN"
+tunnel-rs client ...
 ```
 
 Example config usage (plaintext tokens are not allowed in TOML config files — use `_file` variants):
@@ -529,13 +528,13 @@ Iroh mode uses two layers of authentication. First, a pre-shared ALPN token is e
 
 #### ALPN Token vs Auth Token
 
-- **ALPN Token** (`--alpn-token` / `[iroh].alpn_token_file`): Pre-handshake shared value used for QUIC ALPN filtering.
-- **Auth Token** (server: `--auth-tokens` / `--auth-tokens-file`; client: `--auth-token` / `--auth-token-file`; config: `[iroh].auth_tokens_file` / `[iroh].auth_token_file`): Per-client token validated on the auth stream.
+- **ALPN Token** (`TUNNEL_RS_ALPN_TOKEN` env var / `--alpn-token-file` / `[iroh].alpn_token_file`): Pre-handshake shared value used for QUIC ALPN filtering.
+- **Auth Token** (server: `TUNNEL_RS_AUTH_TOKENS` env var / `--auth-tokens-file` / `[iroh].auth_tokens_file`; client: `TUNNEL_RS_AUTH_TOKEN` env var / `--auth-token-file` / `[iroh].auth_token_file`): Per-client token validated on the auth stream.
 - **Mapping**: These are **distinct tokens**, not the same value. In code, ALPN tokens are 14-char Base64URL values, while auth tokens are 47-char `i...` tokens. Typical setup is one shared ALPN token plus per-client auth tokens for revocation.
 
-1. **ALPN Filtering**: Both server and client specify `--alpn-token`. The token is embedded in the QUIC ALPN identifier (`mf/2/<token>`). Connections from clients without a matching ALPN are rejected at the handshake level — acting as a lightweight "port knock".
-2. **Server Configuration**: Server specifies `--auth-tokens` with one or more pre-shared tokens
-3. **Client Configuration**: Client specifies `--auth-token` with the token received from the server admin
+1. **ALPN Filtering**: Both server and client set `TUNNEL_RS_ALPN_TOKEN`. The token is embedded in the QUIC ALPN identifier (`mf/2/<token>`). Connections from clients without a matching ALPN are rejected at the handshake level — acting as a lightweight "port knock".
+2. **Server Configuration**: Server sets `TUNNEL_RS_AUTH_TOKENS` with one or more pre-shared tokens (comma-separated)
+3. **Client Configuration**: Client sets `TUNNEL_RS_AUTH_TOKEN` with the token received from the server admin
 4. **Protocol Flow**: Client opens a dedicated auth stream immediately after connection and sends an `AuthRequest`. **No source requests are accepted until authentication succeeds.**
 5. **Validation**: Server validates the token using `is_token_valid()` within a 10-second timeout
 6. **Rejection**: Invalid tokens are rejected with an `AuthResponse` containing the rejection reason, and the connection is closed with an error code.

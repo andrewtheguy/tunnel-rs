@@ -25,6 +25,4 @@ echo ""
 exec "$TUNNEL_BIN" server \
     --allowed-tcp 127.0.0.0/8 \
     --secret-file "$SERVER_KEY_FILE" \
-    --auth-tokens "$AUTH_TOKEN" \
-    --alpn-token "$ALPN_TOKEN" \
     --max-sessions "$MAX_SESSIONS"

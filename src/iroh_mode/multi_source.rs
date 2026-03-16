@@ -159,7 +159,7 @@ pub async fn run_multi_source_server(config: MultiSourceServerConfig) -> Result<
     if config.auth_tokens.is_empty() {
         anyhow::bail!(
             "At least one authentication token must be configured.\n\
-            Use --auth-tokens <TOKEN> or --auth-tokens-file <FILE>.\n\
+            Set TUNNEL_RS_AUTH_TOKENS environment variable or use --auth-tokens-file <FILE>.\n\
             Generate tokens with: tunnel-rs generate-token"
         );
     }
@@ -197,10 +197,10 @@ pub async fn run_multi_source_server(config: MultiSourceServerConfig) -> Result<
 
     log::info!("\nOn the client side, run:");
     log::info!(
-        "  tunnel-rs client --auth-token <token> --alpn-token <alpn-token> --server-node-id {} --source tcp://target:port --target 127.0.0.1:port\n",
+        "  TUNNEL_RS_AUTH_TOKEN=<token> TUNNEL_RS_ALPN_TOKEN=<alpn-token> tunnel-rs client --server-node-id {} --source tcp://target:port --target 127.0.0.1:port\n",
         endpoint_id
     );
-    log::info!("Note: Both --auth-token and --alpn-token (or --alpn-token-file) are required to connect");
+    log::info!("Note: Both TUNNEL_RS_AUTH_TOKEN and TUNNEL_RS_ALPN_TOKEN (or --alpn-token-file) are required to connect");
     log::info!("Waiting for clients to connect...");
 
     // Session management with semaphore for concurrency limit

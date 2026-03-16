@@ -83,13 +83,13 @@ impl IrohConfig {
                 if self.auth_token.is_some() {
                     anyhow::bail!(
                         "[iroh] Plaintext 'auth_token' is not allowed in config files. \
-                         Use 'auth_token_file' instead, or pass --auth-token on the command line."
+                         Use 'auth_token_file' instead, or set TUNNEL_RS_AUTH_TOKEN environment variable."
                     );
                 }
                 if self.alpn_token.is_some() {
                     anyhow::bail!(
                         "[iroh] Plaintext 'alpn_token' is not allowed in config files. \
-                         Use 'alpn_token_file' instead, or pass --alpn-token on the command line."
+                         Use 'alpn_token_file' instead, or set TUNNEL_RS_ALPN_TOKEN environment variable."
                     );
                 }
             }
@@ -97,19 +97,19 @@ impl IrohConfig {
                 if self.auth_tokens.is_some() {
                     anyhow::bail!(
                         "[iroh] Plaintext 'auth_tokens' is not allowed in config files. \
-                         Use 'auth_tokens_file' instead, or pass --auth-tokens on the command line."
+                         Use 'auth_tokens_file' instead, or set TUNNEL_RS_AUTH_TOKENS environment variable."
                     );
                 }
                 if self.alpn_token.is_some() {
                     anyhow::bail!(
                         "[iroh] Plaintext 'alpn_token' is not allowed in config files. \
-                         Use 'alpn_token_file' instead, or pass --alpn-token on the command line."
+                         Use 'alpn_token_file' instead, or set TUNNEL_RS_ALPN_TOKEN environment variable."
                     );
                 }
                 if self.secret.is_some() {
                     anyhow::bail!(
                         "[iroh] Plaintext 'secret' is not allowed in config files. \
-                         Use 'secret_file' instead, or pass --secret on the command line."
+                         Use 'secret_file' instead, or set TUNNEL_RS_SECRET environment variable."
                     );
                 }
             }

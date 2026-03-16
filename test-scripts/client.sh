@@ -34,9 +34,7 @@ for i in $(seq 1 $NUM_SESSIONS); do
     "$TUNNEL_BIN" client \
         --source "tcp://localhost:$SOURCE_PORT" \
         --target "127.0.0.1:$PORT" \
-        --server-node-id "$SERVER_NODE_ID" \
-        --auth-token "$AUTH_TOKEN" \
-        --alpn-token "$ALPN_TOKEN" &
+        --server-node-id "$SERVER_NODE_ID" &
     PIDS+=($!)
     [ $NUM_SESSIONS -gt 1 ] && sleep 2  # Stagger for rate limits
 done
