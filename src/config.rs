@@ -325,6 +325,9 @@ impl ServerConfig {
             if iroh.auth_tokens.is_some() && iroh.auth_tokens_file.is_some() {
                 anyhow::bail!("[iroh] Use only one of 'auth_tokens' or 'auth_tokens_file'.");
             }
+            if iroh.alpn_token.is_some() && iroh.alpn_token_file.is_some() {
+                anyhow::bail!("[iroh] Use only one of 'alpn_token' or 'alpn_token_file'.");
+            }
             if iroh.auth_token.is_some() || iroh.auth_token_file.is_some() {
                 anyhow::bail!(
                     "[iroh] 'auth_token' and 'auth_token_file' are client-only fields."
@@ -342,6 +345,7 @@ impl ServerConfig {
             if let Some(ref allowed) = iroh.allowed_sources {
                 validate_allowed_sources(allowed)?;
             }
+            validate_transport_tuning(&iroh.transport, "iroh")?;
         }
         if self.source.is_some() {
             anyhow::bail!(
@@ -377,6 +381,9 @@ impl ClientConfig {
             if iroh.auth_token.is_some() && iroh.auth_token_file.is_some() {
                 anyhow::bail!("[iroh] Use only one of 'auth_token' or 'auth_token_file'.");
             }
+            if iroh.alpn_token.is_some() && iroh.alpn_token_file.is_some() {
+                anyhow::bail!("[iroh] Use only one of 'alpn_token' or 'alpn_token_file'.");
+            }
             if iroh.allowed_sources.is_some() {
                 anyhow::bail!(
                     "[iroh] 'allowed_sources' is a server-only field. \
@@ -403,6 +410,7 @@ impl ClientConfig {
             if let Some(ref target) = iroh.target {
                 validate_host_port(target, "target")?;
             }
+            validate_transport_tuning(&iroh.transport, "iroh")?;
         }
 
         Ok(())
