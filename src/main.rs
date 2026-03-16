@@ -493,7 +493,7 @@ async fn run_inner() -> Result<()> {
                 resolve_server_config(config.clone(), *default_config, *config_stdin).await?;
 
             if from_file {
-                cfg.validate("iroh")?;
+                cfg.validate()?;
             }
 
             let iroh_cfg = cfg.iroh();
@@ -581,7 +581,7 @@ async fn run_inner() -> Result<()> {
                 resolve_client_config(config.clone(), *default_config, *config_stdin).await?;
 
             if from_file {
-                cfg.validate("iroh")?;
+                cfg.validate()?;
             }
 
             let iroh_cfg = cfg.iroh();

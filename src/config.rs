@@ -1,9 +1,8 @@
 //! Configuration file support for tunnel-rs.
 //!
 //! Configuration structure:
-//! - `role` and `mode` fields for validation
+//! - `role` and `mode` fields for validation (mode only accepts "iroh")
 //! - Mode-specific section: [iroh]
-//! - All modes use client-initiated source requests
 //!
 //! Role-based field semantics are enforced by `validate()` at parse time:
 //! - Server-only fields are rejected when role=client
@@ -89,6 +88,13 @@ pub enum Role {
     Client,
 }
 
+/// Connection mode. Only iroh is supported.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Mode {
+    Iroh,
+}
+
 /// Congestion controller algorithm selection.
 ///
 /// Controls how the QUIC connection manages congestion and adjusts sending rates.
@@ -140,7 +146,7 @@ pub struct TransportTuning {
 pub struct ServerConfig {
     // Validation fields
     pub role: Option<Role>,
-    pub mode: Option<String>,
+    pub mode: Option<Mode>,
 
     // Shared options
     pub source: Option<String>,
@@ -154,7 +160,7 @@ pub struct ServerConfig {
 pub struct ClientConfig {
     // Validation fields
     pub role: Option<Role>,
-    pub mode: Option<String>,
+    pub mode: Option<Mode>,
 
     // Mode-specific section
     pub iroh: Option<IrohConfig>,
@@ -300,7 +306,7 @@ impl ServerConfig {
     }
 
     /// Validate that config matches expected role and mode.
-    pub fn validate(&self, expected_mode: &str) -> Result<()> {
+    pub fn validate(&self) -> Result<()> {
         let role = self
             .role
             .context("Config file missing required 'role' field. Add: role = \"server\"")?;
@@ -308,16 +314,9 @@ impl ServerConfig {
             anyhow::bail!("Config file has role = \"client\", but running as server");
         }
 
-        let mode = self.mode.as_deref().context(
+        self.mode.context(
             "Config file missing required 'mode' field. Add: mode = \"iroh\"",
         )?;
-        if mode != expected_mode {
-            anyhow::bail!(
-                "Config file has mode = \"{}\", but running with {}",
-                mode,
-                expected_mode
-            );
-        }
 
         if let Some(ref iroh) = self.iroh {
             if iroh.secret.is_some() && iroh.secret_file.is_some() {
@@ -362,7 +361,7 @@ impl ClientConfig {
     }
 
     /// Validate that config matches expected role and mode.
-    pub fn validate(&self, expected_mode: &str) -> Result<()> {
+    pub fn validate(&self) -> Result<()> {
         let role = self
             .role
             .context("Config file missing required 'role' field. Add: role = \"client\"")?;
@@ -370,16 +369,9 @@ impl ClientConfig {
             anyhow::bail!("Config file has role = \"server\", but running as client");
         }
 
-        let mode = self.mode.as_deref().context(
+        self.mode.context(
             "Config file missing required 'mode' field. Add: mode = \"iroh\"",
         )?;
-        if mode != expected_mode {
-            anyhow::bail!(
-                "Config file has mode = \"{}\", but running with {}",
-                mode,
-                expected_mode
-            );
-        }
 
         if let Some(ref iroh) = self.iroh {
             if iroh.auth_token.is_some() && iroh.auth_token_file.is_some() {
