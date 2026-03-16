@@ -15,7 +15,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,id=cargo-registry-${TARG
 FROM scratch AS export
 COPY --from=builder /tunnel-rs /tunnel-rs
 
-FROM debian:bookworm-slim AS runtime
+FROM debian:bookworm-slim AS runtime-base
 LABEL org.opencontainers.image.source=https://github.com/andrewtheguy/tunnel-rs
 
 RUN apt-get update && apt-get install -y \
@@ -23,16 +23,10 @@ RUN apt-get update && apt-get install -y \
     tini \
     && rm -rf /var/lib/apt/lists/*
 
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/tunnel-rs"]
+
+FROM runtime-base AS runtime
 COPY --from=builder /tunnel-rs /usr/local/bin/tunnel-rs
-ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/tunnel-rs"]
 
-FROM debian:bookworm-slim AS runtime-prebuilt
-LABEL org.opencontainers.image.source=https://github.com/andrewtheguy/tunnel-rs
-
-RUN apt-get update && apt-get install -y \
-    ca-certificates \
-    tini \
-    && rm -rf /var/lib/apt/lists/*
-
+FROM runtime-base AS runtime-prebuilt
 COPY tunnel-rs /usr/local/bin/tunnel-rs
-ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/tunnel-rs"]
