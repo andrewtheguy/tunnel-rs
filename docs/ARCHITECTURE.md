@@ -862,8 +862,6 @@ Retry guidance:
 - **Code 10** — Connection establishment failed. Retry only if the tunnel has previously connected successfully.
 - **Code 11** — Connection lost after the tunnel was working. Always safe to retry.
 
-**Mode compatibility:** Auto-retry wrapper scripts work with iroh mode, which uses automatic signaling.
-
 ### Stream Errors
 
 - **TCP**: Connection reset, timeout → close QUIC stream
