@@ -88,6 +88,10 @@ pub fn generate_keypair() -> (String, String) {
 
 /// Write an age identity file with restricted permissions.
 ///
+/// If the file already exists and `force` is false, the new keypair is
+/// appended (separated by a blank line), supporting key rotation.
+/// With `force`, the file is overwritten from scratch.
+///
 /// The file format matches the standard `age-keygen` output:
 /// ```text
 /// # public key: age1...

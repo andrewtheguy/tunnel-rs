@@ -433,7 +433,7 @@ Instead of separate `_file` variants, you can embed age-encrypted secrets direct
 **Setup:**
 
 ```bash
-# 1. Generate an age keypair (one-time)
+# 1. Generate an age keypair (run again to add keys for rotation)
 tunnel-rs config-encryption generate-key --output ~/.config/tunnel-rs/age.key
 # Output: age1ql3z7hjy...  (this is your public key / recipient)
 
@@ -620,6 +620,8 @@ Generate an age keypair for encrypting config file secrets:
 tunnel-rs config-encryption generate-key --output ~/.config/tunnel-rs/age.key
 # Prints the public key (recipient) to stdout
 ```
+
+Running again with the same `--output` appends a new keypair to the file, enabling key rotation. Use `--force` to overwrite the file and start fresh.
 
 ### encrypt-value
 
