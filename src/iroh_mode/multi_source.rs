@@ -739,8 +739,9 @@ async fn handle_multi_source_tcp_client_connection(
     send_stream.write_all(&encoded).await?;
 
     // Read response
-    let response_bytes = read_length_prefixed(&mut recv_stream)
+    let response_bytes = tokio::time::timeout(AUTH_TIMEOUT, read_length_prefixed(&mut recv_stream))
         .await
+        .context("Timed out waiting for source response")?
         .context("Failed to read source response")?;
     let response = decode_source_response(&response_bytes).context("Invalid source response")?;
 
@@ -776,8 +777,9 @@ async fn run_multi_source_udp_client(
     send_stream.write_all(&encoded).await?;
 
     // Read response
-    let response_bytes = read_length_prefixed(&mut recv_stream)
+    let response_bytes = tokio::time::timeout(AUTH_TIMEOUT, read_length_prefixed(&mut recv_stream))
         .await
+        .context("Timed out waiting for source response")?
         .context("Failed to read source response")?;
     let response = decode_source_response(&response_bytes).context("Invalid source response")?;
 
