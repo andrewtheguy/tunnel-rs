@@ -723,6 +723,30 @@ async fn run_multi_source_tcp_client(
     Ok(())
 }
 
+/// Send a source request and wait for the server's response.
+async fn send_source_request(
+    send_stream: &mut iroh::endpoint::SendStream,
+    recv_stream: &mut iroh::endpoint::RecvStream,
+    source: &str,
+) -> Result<()> {
+    let request = SourceRequest::new(source.to_string());
+    let encoded = encode_source_request(&request)?;
+    send_stream.write_all(&encoded).await?;
+
+    let response_bytes = tokio::time::timeout(AUTH_TIMEOUT, read_length_prefixed(recv_stream))
+        .await
+        .context("Timed out waiting for source response")?
+        .context("Failed to read source response")?;
+    let response = decode_source_response(&response_bytes).context("Invalid source response")?;
+
+    if !response.accepted {
+        let reason = response.reason.unwrap_or_else(|| "Unknown".to_string());
+        anyhow::bail!("Source request rejected: {}", reason);
+    }
+
+    Ok(())
+}
+
 /// Handle a single TCP connection in multi-source client mode.
 async fn handle_multi_source_tcp_client_connection(
     conn: Arc<iroh::endpoint::Connection>,
@@ -733,22 +757,7 @@ async fn handle_multi_source_tcp_client_connection(
 ) -> Result<()> {
     let (mut send_stream, mut recv_stream) = open_bi_with_retry(&conn).await?;
 
-    // Send source request (auth already validated at connection level)
-    let request = SourceRequest::new(source.clone());
-    let encoded = encode_source_request(&request)?;
-    send_stream.write_all(&encoded).await?;
-
-    // Read response
-    let response_bytes = tokio::time::timeout(AUTH_TIMEOUT, read_length_prefixed(&mut recv_stream))
-        .await
-        .context("Timed out waiting for source response")?
-        .context("Failed to read source response")?;
-    let response = decode_source_response(&response_bytes).context("Invalid source response")?;
-
-    if !response.accepted {
-        let reason = response.reason.unwrap_or_else(|| "Unknown".to_string());
-        anyhow::bail!("Source request rejected: {}", reason);
-    }
+    send_source_request(&mut send_stream, &mut recv_stream, &source).await?;
 
     // Print success message only on first successful stream
     if !tunnel_established.swap(true, Ordering::Relaxed) {
@@ -771,22 +780,7 @@ async fn run_multi_source_udp_client(
 ) -> Result<()> {
     let (mut send_stream, mut recv_stream) = open_bi_with_retry(&conn).await?;
 
-    // Send source request (auth already validated at connection level)
-    let request = SourceRequest::new(source.clone());
-    let encoded = encode_source_request(&request)?;
-    send_stream.write_all(&encoded).await?;
-
-    // Read response
-    let response_bytes = tokio::time::timeout(AUTH_TIMEOUT, read_length_prefixed(&mut recv_stream))
-        .await
-        .context("Timed out waiting for source response")?
-        .context("Failed to read source response")?;
-    let response = decode_source_response(&response_bytes).context("Invalid source response")?;
-
-    if !response.accepted {
-        let reason = response.reason.unwrap_or_else(|| "Unknown".to_string());
-        anyhow::bail!("Source request rejected: {}", reason);
-    }
+    send_source_request(&mut send_stream, &mut recv_stream, &source).await?;
 
     log::info!("Tunnel established! Source: {}", source);
 

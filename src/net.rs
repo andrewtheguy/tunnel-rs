@@ -215,6 +215,7 @@ pub async fn try_connect_tcp(addrs: &[SocketAddr]) -> Result<TcpStream> {
     drop(tx);
 
     // Return the first successful connection
+    let mut errors: Vec<String> = Vec::new();
     while let Some((addr, result)) = rx.recv().await {
         match result {
             Ok(stream) => {
@@ -226,11 +227,15 @@ pub async fn try_connect_tcp(addrs: &[SocketAddr]) -> Result<TcpStream> {
             }
             Err(e) => {
                 log::debug!("Connection attempt to {} failed: {}", addr, e);
+                errors.push(format!("{}: {}", addr, e));
             }
         }
     }
 
-    anyhow::bail!("Failed to connect to any address");
+    anyhow::bail!(
+        "Failed to connect to any address:\n  {}",
+        errors.join("\n  ")
+    );
 }
 
 // ============================================================================
