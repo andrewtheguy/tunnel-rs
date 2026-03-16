@@ -35,7 +35,7 @@ fn write_secret_to_output(
     #[cfg(unix)]
     {
         use std::io::Write;
-        use std::os::unix::fs::OpenOptionsExt;
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
         let mut file = std::fs::OpenOptions::new()
             .create(true)
@@ -46,6 +46,9 @@ fn write_secret_to_output(
             .context("Failed to open secret key file")?;
         file.write_all(secret_content.as_bytes())
             .context("Failed to write secret key file")?;
+        // mode() only applies on creation; explicitly set perms for existing files
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))
+            .context("Failed to set secret key file permissions")?;
     }
 
     #[cfg(not(unix))]

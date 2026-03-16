@@ -379,7 +379,7 @@ Example usage with files (recommended):
 ```bash
 # Server — save tokens to files with restricted permissions
 echo "$ALPN_TOKEN" > alpn_token.txt && chmod 600 alpn_token.txt
-# auth_tokens.txt: one token per line (Alice and Bob)
+printf '%s\n' "$ALICE_AUTH_TOKEN" "$BOB_AUTH_TOKEN" > auth_tokens.txt && chmod 600 auth_tokens.txt
 tunnel-rs server --alpn-token-file ./alpn_token.txt --auth-tokens-file ./auth_tokens.txt ...
 
 # Alice's client

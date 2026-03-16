@@ -803,7 +803,7 @@ async fn run_inner() -> Result<()> {
                 let mut plaintext = String::new();
                 std::io::Read::read_to_string(&mut std::io::stdin(), &mut plaintext)
                     .context("Failed to read plaintext from stdin")?;
-                let plaintext = plaintext.trim_end_matches('\n');
+                let plaintext = plaintext.trim_end();
                 if plaintext.is_empty() {
                     anyhow::bail!("No input provided on stdin");
                 }

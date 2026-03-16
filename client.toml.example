@@ -76,7 +76,10 @@ alpn_token_file = "~/.config/tunnel-rs/alpn_token.txt"
 #
 # 1. Generate a key: tunnel-rs config-encryption generate-key --output ~/.config/tunnel-rs/age.key
 # 2. Encrypt a value: echo -n "token" | tunnel-rs config-encryption encrypt-value --recipient age1...
-# 3. Paste the age-encrypted output as a multi-line TOML string.
+# 3. Paste the ageenc:... output as a TOML string value.
+#
+# encryption_key_file is required at runtime to decrypt ageenc: values.
+# encryption_recipient is only used by `encrypt-value` to know which public key to encrypt for.
 #
 # encryption_key_file = "~/.config/tunnel-rs/age.key"
 # encryption_recipient = "age1..."

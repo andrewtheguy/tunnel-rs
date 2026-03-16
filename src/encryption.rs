@@ -115,7 +115,7 @@ pub fn write_identity_file(
     #[cfg(unix)]
     {
         use std::io::Write;
-        use std::os::unix::fs::OpenOptionsExt;
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
         let mut file = std::fs::OpenOptions::new()
             .create(true)
@@ -126,6 +126,9 @@ pub fn write_identity_file(
             .context("Failed to open encryption key file")?;
         file.write_all(content.as_bytes())
             .context("Failed to write encryption key file")?;
+        // mode() only applies on creation; explicitly set perms for existing files
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))
+            .context("Failed to set encryption key file permissions")?;
     }
 
     #[cfg(not(unix))]

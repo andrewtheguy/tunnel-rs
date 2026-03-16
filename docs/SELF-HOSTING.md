@@ -35,7 +35,7 @@ tunnel-rs server \
   --alpn-token-file ./alpn_token.txt
 ```
 
-> **Tip:** For container deployments, use environment variables (`TUNNEL_RS_AUTH_TOKENS`, `TUNNEL_RS_ALPN_TOKEN`, etc.) instead of files.
+> **Tip:** For container deployments, use environment variables instead of files: `TUNNEL_RS_AUTH_TOKENS`, `TUNNEL_RS_ALPN_TOKEN`, `TUNNEL_RS_SECRET` (server); `TUNNEL_RS_AUTH_TOKEN`, `TUNNEL_RS_ALPN_TOKEN` (client).
 
 ### Running iroh-relay (Quick Start)
 
