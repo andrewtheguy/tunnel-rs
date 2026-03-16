@@ -5,32 +5,34 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KEYS_DIR="$SCRIPT_DIR/.keys"
 KEYS_FILE="$SCRIPT_DIR/.tunnel_keys"
-TUNNEL_BIN="$SCRIPT_DIR/../target/release/tunnel-rs-ice"
+TUNNEL_BIN="$SCRIPT_DIR/../target/release/tunnel-rs"
 
 generate_keys() {
     echo "Generating new key pairs..."
     mkdir -p "$KEYS_DIR"
 
-    # Generate server keys (nsec saved to file, npub printed to stdout)
-    SERVER_NPUB=$("$TUNNEL_BIN" generate-nostr-key --output "$KEYS_DIR/server.nsec" --force 2>/dev/null | grep "^npub:" | awk '{print $2}')
-    SERVER_NSEC_FILE="$KEYS_DIR/server.nsec"
+    # Generate server key
+    "$TUNNEL_BIN" generate-server-key --output "$KEYS_DIR/server.key" --force 2>/dev/null
+    SERVER_KEY_FILE="$KEYS_DIR/server.key"
+    SERVER_NODE_ID=$("$TUNNEL_BIN" show-server-id --secret-file "$SERVER_KEY_FILE")
 
-    # Generate client keys
-    CLIENT_NPUB=$("$TUNNEL_BIN" generate-nostr-key --output "$KEYS_DIR/client.nsec" --force 2>/dev/null | grep "^npub:" | awk '{print $2}')
-    CLIENT_NSEC_FILE="$KEYS_DIR/client.nsec"
+    # Generate auth token
+    AUTH_TOKEN=$("$TUNNEL_BIN" generate-token)
 
-    # Save paths and npubs to config file
+    # Generate ALPN token
+    ALPN_TOKEN=$("$TUNNEL_BIN" generate-token --alpn)
+
+    # Save to config file
     cat > "$KEYS_FILE" << EOF
 # Tunnel test keys - generated $(date)
-SERVER_NSEC_FILE=$SERVER_NSEC_FILE
-SERVER_NPUB=$SERVER_NPUB
-CLIENT_NSEC_FILE=$CLIENT_NSEC_FILE
-CLIENT_NPUB=$CLIENT_NPUB
+SERVER_KEY_FILE=$SERVER_KEY_FILE
+SERVER_NODE_ID=$SERVER_NODE_ID
+AUTH_TOKEN=$AUTH_TOKEN
+ALPN_TOKEN=$ALPN_TOKEN
 EOF
 
     echo "Keys saved to $KEYS_DIR/"
-    echo "  Server: $SERVER_NPUB"
-    echo "  Client: $CLIENT_NPUB"
+    echo "  Server: $SERVER_NODE_ID"
 }
 
 load_keys() {
@@ -39,16 +41,16 @@ load_keys() {
         generate_keys
     fi
     source "$KEYS_FILE"
-    export SERVER_NSEC_FILE SERVER_NPUB CLIENT_NSEC_FILE CLIENT_NPUB
+    export SERVER_KEY_FILE SERVER_NODE_ID AUTH_TOKEN ALPN_TOKEN
 }
 
 show_keys() {
     load_keys
     echo "=== Tunnel Test Keys ==="
-    echo "Server NSEC:  $SERVER_NSEC_FILE"
-    echo "Server NPUB:  $SERVER_NPUB"
-    echo "Client NSEC:  $CLIENT_NSEC_FILE"
-    echo "Client NPUB:  $CLIENT_NPUB"
+    echo "Server Key:   $SERVER_KEY_FILE"
+    echo "Server ID:    $SERVER_NODE_ID"
+    echo "Auth Token:   $AUTH_TOKEN"
+    echo "ALPN Token:   $ALPN_TOKEN"
 }
 
 # Auto-load keys when sourced

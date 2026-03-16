@@ -1,11 +1,11 @@
 # tunnel-rs Architecture
 
-This document provides a comprehensive overview of the tunnel-rs architecture, including detailed diagrams of all operational modes, component interactions, data flows, and security considerations.
+This document provides a comprehensive overview of the tunnel-rs architecture, including detailed diagrams of component interactions, data flows, and security considerations.
 
 ## Table of Contents
 
 - [System Overview](#system-overview)
-- [Mode Comparison](#mode-comparison)
+- [Features](#features)
 - [iroh Mode Architecture](#iroh-mode-architecture)
 - [Configuration System](#configuration-system)
 - [Security Model](#security-model)
@@ -13,63 +13,38 @@ This document provides a comprehensive overview of the tunnel-rs architecture, i
 - [Component Details](#component-details)
 - [Performance Considerations](#performance-considerations)
 - [Error Handling](#error-handling)
-- [Mode Capabilities](#mode-capabilities)
-- [Current Limitations](#current-limitations)
+- [Capabilities](#capabilities)
 - [References](#references)
 
 ---
 
 ## System Overview
 
-tunnel-rs is a P2P TCP/UDP port forwarding tool that supports multiple distinct operational modes, each optimized for different use cases and network environments.
+tunnel-rs is a P2P TCP/UDP port forwarding tool using iroh for peer discovery, relay fallback, and encrypted QUIC transport.
 
-Binary layout:
-- `tunnel-rs`: iroh mode (port forwarding)
-- `tunnel-rs-ice`: manual and nostr modes (port forwarding)
+Binary: `tunnel-rs`
 
 > **Design Goal:** The project's primary goal is to provide a convenient way to connect to different networks for development or homelab purposes without the hassle and security risk of opening a port. It is **not** meant for production setups or designed to be performant at scale.
 
 ```mermaid
 graph TB
-    subgraph "tunnel-rs Modes"
+    subgraph "tunnel-rs"
         A[iroh]
-        C[manual]
-        D2[nostr]
     end
 
     subgraph "Use Cases"
         D[Best NAT Traversal<br/>Relay Fallback]
-        F[Manual Signaling<br/>Full ICE]
-        F2[Automated Signaling<br/>Static Keys]
     end
 
     subgraph "Infrastructure"
         G[Pkarr/DNS<br/>Relay Servers]
-        I[STUN Only]
-        I2[STUN + Nostr Relays]
     end
 
     A --> D
-    C --> F
-    D2 --> F2
-
     A --> G
-    C --> I
-    D2 --> I2
 
     style A fill:#4CAF50
-    style C fill:#FF9800
-    style D2 fill:#9C27B0
 ```
-
-### Binaries & Crates
-
-The project is split into separate binaries to isolate dependencies:
-
-| Binary | Modes | Key Modules |
-|--------|-------|-------------|
-| `tunnel-rs` | `iroh` | `iroh_mode`, `auth` |
-| `tunnel-rs-ice` | `manual`, `nostr` | `custom`, `nostr`, `transport` |
 
 Relay-only is a CLI-only flag that forces connections through relay servers instead of attempting direct connections. It is intended for testing or special scenarios and is not supported in config files to avoid accidental activation. See `tunnel-rs --help` for usage.
 
@@ -86,47 +61,22 @@ graph LR
         E2[auth.rs<br/>Token Authentication]
     end
 
-    subgraph "Manual/Custom Mode"
-        F[transport/ice.rs<br/>ICE with str0m]
-        G[transport/quic.rs<br/>QUIC with quinn]
-        H[signaling/manual.rs<br/>Offer/Answer]
-        I[transport/mux.rs<br/>Stream Multiplexing]
-    end
-
-    subgraph "Nostr Mode"
-        J[signaling/nostr.rs<br/>Nostr Relay Signaling]
-    end
-
     A --> B
     A --> C
     A --> D
     A --> E
     A --> E2
-    A --> F
-    A --> G
-    A --> H
-    A --> J
-
-    F --> G
-    H --> F
-    J --> H
-    G --> I
 
     style A fill:#E3F2FD
     style C fill:#E8F5E9
     style E2 fill:#FFCCBC
-    style F fill:#FFF3E0
-    style G fill:#FFF3E0
-    style J fill:#E1BEE7
 ```
 
 ---
 
-## Mode Comparison
+## Features
 
-> **Tip for Containerized Environments:** Use `iroh` mode for Docker, Kubernetes, and cloud VM deployments. It includes relay fallback which ensures connectivity even when both peers are behind restrictive NATs (common in cloud environments). The `nostr` and `manual` modes use STUN-only NAT traversal which may fail in these environments.
-
-### Feature Matrix
+### Feature Summary
 
 ```mermaid
 graph TD
@@ -137,22 +87,10 @@ graph TD
         A4[Infrastructure: Required]
     end
 
-    subgraph "manual"
-        C1[Discovery: Copy-Paste]
-        C2[NAT: Full ICE]
-        C3[Setup: Manual Exchange]
-        C4[Infrastructure: STUN Only]
-    end
-
     style A1 fill:#C8E6C9
     style A2 fill:#C8E6C9
     style A3 fill:#C8E6C9
     style A4 fill:#FFCCBC
-
-    style C1 fill:#FFE0B2
-    style C2 fill:#C8E6C9
-    style C3 fill:#FFE0B2
-    style C4 fill:#C8E6C9
 ```
 
 ### NAT Traversal Capabilities
@@ -173,39 +111,20 @@ graph LR
         E4[✓ Relay]
     end
 
-    subgraph "manual"
-        G1[✓ Direct]
-        G2[✓ Direct]
-        G3[✓ Direct]
-        G4[~ Best-effort<br/>may fail without relay]
-    end
-
     A --> E1
     B --> E2
     C --> E3
     D --> E4
 
-    A --> G1
-    B --> G2
-    C --> G3
-    D --> G4
-
     style E1 fill:#C8E6C9
     style E2 fill:#C8E6C9
     style E3 fill:#C8E6C9
     style E4 fill:#C8E6C9
-
-    style G1 fill:#C8E6C9
-    style G2 fill:#C8E6C9
-    style G3 fill:#C8E6C9
-    style G4 fill:#FFF9C4
 ```
 
 ---
 
 ## iroh Mode Architecture
-
-> For manual and nostr mode architecture, see [docs/ALTERNATIVE-MODES.md](ALTERNATIVE-MODES.md).
 
 ### Architecture Overview
 
@@ -421,14 +340,7 @@ graph TB
 graph TB
     subgraph "Config File"
         A[role: server/client]
-        B[mode: iroh/manual/nostr]
         C[source/target: tcp://host:port or udp://host:port]
-    end
-
-    subgraph "Mode Sections"
-        E[iroh]
-        G[manual]
-        H[nostr]
     end
 
     subgraph "iroh Options"
@@ -441,36 +353,14 @@ graph TB
         M[server_node_id - client only]
     end
 
-    subgraph "manual Options"
-        N[stun_servers]
-    end
-
-    subgraph "nostr Options"
-        O[nsec/nsec_file]
-        P[peer_npub]
-        Q[relays]
-        R[stun_servers]
-    end
-
     A --> S[Validation]
-    B --> S
-    S --> E
-    S --> G
-    S --> H
-
-    E --> I
-    E --> I2
-    E --> I3
-    E --> I4
-    E --> J
-    E --> L
-    E --> M
-
-    G --> N
-    H --> O
-    H --> P
-    H --> Q
-    H --> R
+    S --> I
+    S --> I2
+    S --> I3
+    S --> I4
+    S --> J
+    S --> L
+    S --> M
 
     style S fill:#FFF9C4
 ```
@@ -515,7 +405,7 @@ auth_token = "ALICE_AUTH_TOKEN"
 
 ### Configuration Loading Flow
 
-For normal usage, prefer file-based configs (`-c`, `--default-config`) which use TOML — settings are saved and reusable. The `--config-stdin` flag is intended for automation and IPC only; it uses JSON because JSON is self-delimiting — `serde_json::from_reader` parses exactly one JSON object and returns without waiting for EOF, allowing the caller to keep stdin open (e.g., for manual mode signaling). Config passed via stdin is not persisted.
+For normal usage, prefer file-based configs (`-c`, `--default-config`) which use TOML — settings are saved and reusable. The `--config-stdin` flag is intended for automation and IPC only; it uses JSON because JSON is self-delimiting — `serde_json::from_reader` parses exactly one JSON object and returns without waiting for EOF, allowing the caller to keep stdin open. Config passed via stdin is not persisted.
 
 ```mermaid
 sequenceDiagram
@@ -529,7 +419,7 @@ sequenceDiagram
 
     alt --default-config
         Main->>Config: Load from default path
-        Config->>Source: Read ~/.config/tunnel-rs/{role}.toml or {role}_ice.toml
+        Config->>Source: Read ~/.config/tunnel-rs/{role}.toml
         Source-->>Config: TOML content
     else -c <path>
         Main->>Config: Load from specified path
@@ -552,27 +442,22 @@ sequenceDiagram
     Main->>Main: Proceed with merged config
 ```
 
-Note: For `tunnel-rs-ice`, the mode is inferred from the config file, so `server -c <file>` / `client -c <file>` can be used without a subcommand.
-
 ### Config Validation
 
 ```mermaid
 graph TB
     A[Load Config] --> B{Role matches?}
     B -->|No| C[Error: Role mismatch]
-    B -->|Yes| D{Mode matches?}
-    D -->|No| E[Error: Mode mismatch]
-    D -->|Yes| F{Check sections}
-    
+    B -->|Yes| F{Check sections}
+
     F --> G{Extra sections?}
     G -->|Yes| H[Ignored by parser]
     G -->|No| I{Required fields?}
-    
+
     I -->|Missing| J[Error: Missing field]
     I -->|Present| K[Validation Success]
-    
+
     style C fill:#FFCCBC
-    style E fill:#FFCCBC
     style H fill:#FFF9C4
     style J fill:#FFCCBC
     style K fill:#C8E6C9
@@ -632,17 +517,10 @@ graph TB
         F -->|No| H[Rejected]
     end
 
-    subgraph "manual Mode"
-        I[ICE Credentials] --> J[ufrag + pwd]
-        J --> K[STUN Auth]
-        K --> L[QUIC TLS]
-    end
-
     style B fill:#FFE0B2
     style C fill:#C8E6C9
     style G fill:#C8E6C9
     style H fill:#FFCCBC
-    style L fill:#C8E6C9
 ```
 
 ### Token Authentication (iroh Mode)
@@ -728,7 +606,6 @@ graph TB
     end
 
     subgraph "User Responsibility"
-        E[Signaling Channel Security<br/>Manual modes]
         F[Secret Key Protection<br/>iroh server]
         G[EndpointId Verification<br/>Trust on first use]
         H[Auth Token Security<br/>Treat tokens like passwords]
@@ -740,7 +617,6 @@ graph TB
     style D fill:#C8E6C9
     style E2 fill:#C8E6C9
 
-    style E fill:#FFF9C4
     style F fill:#FFF9C4
     style G fill:#FFF9C4
     style H fill:#FFF9C4
@@ -908,24 +784,6 @@ graph LR
 
 ## Component Details
 
-### IceAgent (str0m)
-
-The `IceAgent` from str0m handles ICE connectivity establishment:
-
-- **Candidate Gathering**: Discovers local and server-reflexive addresses
-- **Connectivity Checks**: Performs STUN binding checks to all candidate pairs
-- **Nomination**: Selects the best working candidate pair
-- **Socket Management**: Provides the UDP socket for QUIC transport
-
-### QUIC Endpoint (quinn)
-
-The `quinn` QUIC implementation provides:
-
-- **TLS 1.3**: Encrypted transport with certificate-based auth
-- **Stream Multiplexing**: Multiple concurrent streams over one connection
-- **Congestion Control**: Built-in congestion control and flow control
-- **0-RTT**: Not currently enabled (future optimization)
-
 ### Endpoint (iroh)
 
 The `iroh::Endpoint` provides:
@@ -951,16 +809,7 @@ graph LR
         C[Total: 1.5-5s]
     end
 
-    subgraph "manual"
-        H[ICE Gather: 1-2s]
-        I[Manual: User dependent]
-        J[ICE Checks: 1-3s]
-        K[QUIC: 0.5s]
-        L[Total: 2.5-5.5s + manual]
-    end
-
     style C fill:#FFF9C4
-    style L fill:#FFF9C4
 ```
 
 ### Throughput Characteristics
@@ -980,18 +829,13 @@ graph LR
 graph TB
     A[Connection Attempt] --> B{Success?}
     B -->|Yes| C[Established]
-    B -->|No| D{Mode?}
-    
-    D -->|iroh| E{Relay available?}
+    B -->|No| E{Relay available?}
+
     E -->|Yes| F[Fallback to relay]
     E -->|No| G[Connection failed]
 
-    D -->|manual| I[ICE checks failed]
-    
     F --> C
-    H --> G
-    I --> G
-    
+
     style C fill:#C8E6C9
     style F fill:#FFF9C4
     style G fill:#FFCCBC
@@ -1018,9 +862,7 @@ Retry guidance:
 - **Code 10** — Connection establishment failed. Retry only if the tunnel has previously connected successfully.
 - **Code 11** — Connection lost after the tunnel was working. Always safe to retry.
 
-**Mode compatibility:** Auto-retry wrapper scripts work with **iroh mode** and **nostr mode**
-(both use automatic signaling). **Manual mode** requires interactive copy-paste SDP exchange
-each run, so auto-retry is not feasible.
+**Mode compatibility:** Auto-retry wrapper scripts work with iroh mode, which uses automatic signaling.
 
 ### Stream Errors
 
@@ -1030,61 +872,18 @@ each run, so auto-retry is not feasible.
 
 ---
 
-## Mode Capabilities
+## Capabilities
 
-| Mode | Multi-Session | Dynamic Source | Encryption | Platform |
-|------|---------------|----------------|------------|----------|
-| `iroh` | **Yes** | **Yes** | QUIC/TLS 1.3 | Linux, macOS, Windows |
-| `nostr` | **Yes** | **Yes** | QUIC/TLS 1.3 | Linux, macOS, Windows |
-| `manual` | No | **Yes** | QUIC/TLS 1.3 | Linux, macOS, Windows |
-
-**Multi-Session** = Multiple concurrent connections to the same server
-**Dynamic Source** = Client specifies which service to tunnel (via `--source`)
-
----
-
-## Current Limitations
-
-### Single Session (Manual Signaling Mode)
-
-The `manual` mode currently supports only one tunnel session at a time per server instance. Each signaling exchange establishes exactly one tunnel.
-
-```mermaid
-graph TB
-    subgraph "manual Behavior"
-        A[Server starts] --> B[Wait for client offer]
-        B --> C[Validate source request]
-        C --> D[Establish single tunnel]
-        D --> E[Handle streams over this tunnel]
-        E --> F[Additional clients timeout]
-    end
-
-    subgraph "Workarounds"
-        G[Run multiple server instances]
-        I[Use iroh mode]
-    end
-
-    style F fill:#FFCCBC
-    style I fill:#C8E6C9
-```
-
-**Why this limitation exists:**
-- Manual signaling mode performs a single offer/answer exchange
-- The server enters a connection handling loop after establishing the tunnel
-- No mechanism to accept additional signaling while serving existing tunnel
-
-**Workarounds:**
-- Use `iroh` mode for multi-client support
-- Run separate server instances for each tunnel
-
-Use `iroh` or `nostr` mode for multi-session support.
+| Feature | Support |
+|---------|---------|
+| Multi-Session | **Yes** - Multiple concurrent connections to the same server |
+| Dynamic Source | **Yes** - Client specifies which service to tunnel (via `--source`) |
+| Encryption | QUIC/TLS 1.3 |
+| Platform | Linux, macOS, Windows |
 
 ---
 
 ## References
 
 - [iroh Documentation](https://iroh.computer/)
-- [str0m ICE Implementation](https://github.com/algesten/str0m)
-- [quinn QUIC Implementation](https://github.com/quinn-rs/quinn)
-- [RFC 8445 - ICE](https://datatracker.ietf.org/doc/html/rfc8445)
 - [RFC 9000 - QUIC](https://datatracker.ietf.org/doc/html/rfc9000)

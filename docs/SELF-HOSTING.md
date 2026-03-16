@@ -163,5 +163,3 @@ iroh mode uses the relay for both **signaling/coordination** and as a **data tra
 
 > [!NOTE]
 > **Bandwidth Concern:** If you want signaling-only coordination **without** relay fallback (to avoid forwarding any tunnel traffic), iroh mode currently doesn't support this. The relay always acts as fallback when direct connection fails.
->
-> **Alternative for signaling-only:** Use [nostr mode](ALTERNATIVE-MODES.md#nostr-mode) with self-hosted Nostr relays. Nostr relays only handle signaling (small encrypted messages), never tunnel traffic. If hole punching fails, the connection fails — no traffic is ever forwarded through the relay.

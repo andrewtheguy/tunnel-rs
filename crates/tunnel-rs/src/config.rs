@@ -2,7 +2,7 @@
 //!
 //! Configuration structure:
 //! - `role` and `mode` fields for validation
-//! - Mode-specific sections: [iroh], [manual], [nostr]
+//! - Mode-specific section: [iroh]
 //! - All modes use client-initiated source requests
 //!
 //! Role-based field semantics are enforced by `validate()` at parse time:
@@ -70,29 +70,6 @@ pub struct IrohConfig {
     pub transport: TransportTuning,
 }
 
-/// manual mode configuration.
-///
-/// Some fields are role-specific (enforced by validate()):
-/// - Server-only: `allowed_sources`
-/// - Client-only: `request_source`, `target`
-#[derive(Deserialize, Default, Clone)]
-pub struct CustomManualConfig {
-    pub stun_servers: Option<Vec<String>>,
-    /// Allowed source networks in CIDR notation (server only).
-    /// Clients must request sources within these networks.
-    pub allowed_sources: Option<AllowedSources>,
-    /// Source URL to request from server (client only, required).
-    /// Format: tcp://host:port or udp://host:port
-    #[serde(alias = "source")]
-    pub request_source: Option<String>,
-    /// Local address to listen on (client only, required).
-    /// Format: host:port (no protocol prefix)
-    pub target: Option<String>,
-    /// Transport layer tuning (congestion control, buffer sizes).
-    #[serde(default)]
-    pub transport: TransportTuning,
-}
-
 /// Allowed source networks for client-requested source feature.
 /// Separate CIDR lists for TCP and UDP protocols.
 #[derive(Deserialize, Default, Clone)]
@@ -105,65 +82,11 @@ pub struct AllowedSources {
     pub udp: Vec<String>,
 }
 
-/// nostr mode configuration (TOML section: `[nostr]`).
-///
-/// nostr provides full ICE with automated Nostr relay signaling for static peer key exchange.
-///
-/// Some fields are role-specific (enforced by validate()):
-/// - Server-only: `allowed_sources`, `max_sessions`
-/// - Client-only: `request_source`, `target`
-#[derive(Deserialize, Default, Clone)]
-pub struct NostrConfig {
-    /// Nostr relay URLs for signaling
-    pub relays: Option<Vec<String>>,
-    /// Your Nostr private key (nsec or hex)
-    pub nsec: Option<String>,
-    /// Path to file containing your Nostr private key (nsec or hex)
-    pub nsec_file: Option<PathBuf>,
-    /// Peer's Nostr public key (npub or hex)
-    pub peer_npub: Option<String>,
-    /// STUN servers for ICE candidate gathering
-    pub stun_servers: Option<Vec<String>>,
-    /// Maximum concurrent sessions (server only, default: 10)
-    pub max_sessions: Option<usize>,
-    /// Allowed source networks in CIDR notation (server only).
-    /// Clients must request sources within these networks.
-    pub allowed_sources: Option<AllowedSources>,
-    /// Source URL to request from server (client only, required).
-    /// Format: tcp://host:port or udp://host:port
-    #[serde(alias = "source")]
-    pub request_source: Option<String>,
-    /// Local address to listen on (client only, required).
-    /// Format: host:port (no protocol prefix)
-    pub target: Option<String>,
-    /// Transport layer tuning (congestion control, buffer sizes).
-    #[serde(default)]
-    pub transport: TransportTuning,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Role {
     Server,
     Client,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Mode {
-    Iroh,
-    Manual,
-    Nostr,
-}
-
-impl Mode {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Mode::Iroh => "iroh",
-            Mode::Manual => "manual",
-            Mode::Nostr => "nostr",
-        }
-    }
 }
 
 /// Congestion controller algorithm selection.
@@ -190,8 +113,6 @@ pub enum CongestionController {
 /// Default QUIC receive window size (8 MB).
 pub const DEFAULT_RECEIVE_WINDOW: u32 = 8 * 1024 * 1024;
 
-/// Default QUIC send window size (8 MB).
-pub const DEFAULT_SEND_WINDOW: u32 = 8 * 1024 * 1024;
 
 /// Transport tuning configuration for QUIC connections.
 ///
@@ -214,32 +135,18 @@ pub struct TransportTuning {
     pub send_window: Option<u32>,
 }
 
-fn parse_expected_mode(expected_mode: &str) -> Result<Mode> {
-    match expected_mode {
-        "iroh" => Ok(Mode::Iroh),
-        "manual" => Ok(Mode::Manual),
-        "nostr" => Ok(Mode::Nostr),
-        _ => anyhow::bail!(
-            "Unknown mode '{}'. Valid modes: iroh, manual, nostr",
-            expected_mode
-        ),
-    }
-}
-
 /// Unified server configuration.
 #[derive(Deserialize, Default)]
 pub struct ServerConfig {
     // Validation fields
     pub role: Option<Role>,
-    pub mode: Option<Mode>,
+    pub mode: Option<String>,
 
     // Shared options
     pub source: Option<String>,
 
-    // Mode-specific sections
+    // Mode-specific section
     pub iroh: Option<IrohConfig>,
-    pub manual: Option<CustomManualConfig>,
-    pub nostr: Option<NostrConfig>,
 }
 
 /// Unified client configuration.
@@ -247,12 +154,10 @@ pub struct ServerConfig {
 pub struct ClientConfig {
     // Validation fields
     pub role: Option<Role>,
-    pub mode: Option<Mode>,
+    pub mode: Option<String>,
 
-    // Mode-specific sections (each mode has its own target field)
+    // Mode-specific section
     pub iroh: Option<IrohConfig>,
-    pub manual: Option<CustomManualConfig>,
-    pub nostr: Option<NostrConfig>,
 }
 
 // ============================================================================
@@ -389,24 +294,12 @@ pub fn validate_transport_tuning(tuning: &TransportTuning, section: &str) -> Res
 // ============================================================================
 
 impl ServerConfig {
-    /// Get iroh config section (multi-source mode).
+    /// Get iroh config section.
     pub fn iroh(&self) -> Option<&IrohConfig> {
         self.iroh.as_ref()
     }
 
-    /// Get nostr config section.
-    pub fn nostr(&self) -> Option<&NostrConfig> {
-        self.nostr.as_ref()
-    }
-
     /// Validate that config matches expected role and mode.
-    ///
-    /// Enforces:
-    /// - Role must be "server"
-    /// - Mode must match expected_mode
-    /// - Multi-source modes (iroh, nostr): rejects client-only fields (request_source)
-    /// - Multi-source modes: validates CIDR format in allowed_sources
-    /// - Single-target modes: validates source URL format if present
     pub fn validate(&self, expected_mode: &str) -> Result<()> {
         let role = self
             .role
@@ -415,105 +308,47 @@ impl ServerConfig {
             anyhow::bail!("Config file has role = \"client\", but running as server");
         }
 
-        let mode = self.mode.context(
-            "Config file missing required 'mode' field. Add: mode = \"iroh\" (or \"manual\", \"nostr\")",
+        let mode = self.mode.as_deref().context(
+            "Config file missing required 'mode' field. Add: mode = \"iroh\"",
         )?;
-        let expected_mode = parse_expected_mode(expected_mode)?;
         if mode != expected_mode {
             anyhow::bail!(
                 "Config file has mode = \"{}\", but running with {}",
-                mode.as_str(),
-                expected_mode.as_str()
+                mode,
+                expected_mode
             );
         }
 
-        // Mode-specific validation
-        if expected_mode == Mode::Iroh {
-            if let Some(ref iroh) = self.iroh {
-                if iroh.secret.is_some() && iroh.secret_file.is_some() {
-                    anyhow::bail!("[iroh] Use only one of 'secret' or 'secret_file'.");
-                }
-                // Validate auth_tokens mutual exclusion
-                if iroh.auth_tokens.is_some() && iroh.auth_tokens_file.is_some() {
-                    anyhow::bail!("[iroh] Use only one of 'auth_tokens' or 'auth_tokens_file'.");
-                }
-                // Reject client-only fields (auth_token is for clients)
-                if iroh.auth_token.is_some() || iroh.auth_token_file.is_some() {
-                    anyhow::bail!(
-                        "[iroh] 'auth_token' and 'auth_token_file' are client-only fields."
-                    );
-                }
-                // Reject client-only fields
-                if iroh.request_source.is_some() || iroh.target.is_some() {
-                    anyhow::bail!(
-                        "[iroh] 'source' / 'request_source' / 'target' are client-only fields. \
-                        Servers use 'allowed_sources' to restrict what clients can request."
-                    );
-                }
-                if iroh.server_node_id.is_some() {
-                    anyhow::bail!("[iroh] 'server_node_id' is a client-only field.");
-                }
-                // Validate CIDR format
-                if let Some(ref allowed) = iroh.allowed_sources {
-                    validate_allowed_sources(allowed)?;
-                }
+        if let Some(ref iroh) = self.iroh {
+            if iroh.secret.is_some() && iroh.secret_file.is_some() {
+                anyhow::bail!("[iroh] Use only one of 'secret' or 'secret_file'.");
             }
-            // Server iroh mode should not have top-level source
-            if self.source.is_some() {
+            if iroh.auth_tokens.is_some() && iroh.auth_tokens_file.is_some() {
+                anyhow::bail!("[iroh] Use only one of 'auth_tokens' or 'auth_tokens_file'.");
+            }
+            if iroh.auth_token.is_some() || iroh.auth_token_file.is_some() {
                 anyhow::bail!(
-                    "Top-level 'source' is not allowed for iroh server mode. \
-                    Use [iroh.allowed_sources] to restrict what clients can request."
+                    "[iroh] 'auth_token' and 'auth_token_file' are client-only fields."
                 );
+            }
+            if iroh.request_source.is_some() || iroh.target.is_some() {
+                anyhow::bail!(
+                    "[iroh] 'source' / 'request_source' / 'target' are client-only fields. \
+                    Servers use 'allowed_sources' to restrict what clients can request."
+                );
+            }
+            if iroh.server_node_id.is_some() {
+                anyhow::bail!("[iroh] 'server_node_id' is a client-only field.");
+            }
+            if let Some(ref allowed) = iroh.allowed_sources {
+                validate_allowed_sources(allowed)?;
             }
         }
-        if expected_mode == Mode::Nostr {
-            if let Some(ref nostr) = self.nostr {
-                if nostr.nsec.is_some() && nostr.nsec_file.is_some() {
-                    anyhow::bail!("[nostr] Use only one of 'nsec' or 'nsec_file'.");
-                }
-                // Reject client-only fields
-                if nostr.request_source.is_some() || nostr.target.is_some() {
-                    anyhow::bail!(
-                        "[nostr] 'source' / 'request_source' / 'target' are client-only fields. \
-                        Servers use 'allowed_sources' to restrict what clients can request."
-                    );
-                }
-                // Validate CIDR format
-                if let Some(ref allowed) = nostr.allowed_sources {
-                    validate_allowed_sources(allowed)?;
-                }
-                validate_transport_tuning(&nostr.transport, "nostr.transport")?;
-            }
-            // Server nostr mode should not have top-level source
-            if self.source.is_some() {
-                anyhow::bail!(
-                    "Top-level 'source' is not allowed for nostr server mode. \
-                    Use [nostr.allowed_sources] to restrict what clients can request."
-                );
-            }
-        }
-        if expected_mode == Mode::Manual {
-            if let Some(ref manual) = self.manual {
-                // Reject client-only fields
-                if manual.request_source.is_some() || manual.target.is_some() {
-                    anyhow::bail!(
-                        "[manual] 'source' / 'request_source' / 'target' are client-only fields. \
-                        Servers use 'allowed_sources' to restrict what clients can request."
-                    );
-                }
-                // Validate CIDR format
-                if let Some(ref allowed) = manual.allowed_sources {
-                    validate_allowed_sources(allowed)?;
-                }
-                validate_transport_tuning(&manual.transport, "manual.transport")?;
-            }
-            // Reject top-level source for manual server
-            if self.source.is_some() {
-                anyhow::bail!(
-                    "Top-level 'source' is not allowed for manual server mode. \
-                    Use [manual.allowed_sources] to restrict what clients can request."
-                );
-            }
+        if self.source.is_some() {
+            anyhow::bail!(
+                "Top-level 'source' is not allowed for server mode. \
+                Use [iroh.allowed_sources] to restrict what clients can request."
+            );
         }
 
         Ok(())
@@ -521,24 +356,12 @@ impl ServerConfig {
 }
 
 impl ClientConfig {
-    /// Get iroh config section (multi-source mode).
+    /// Get iroh config section.
     pub fn iroh(&self) -> Option<&IrohConfig> {
         self.iroh.as_ref()
     }
 
-    /// Get nostr config section.
-    pub fn nostr(&self) -> Option<&NostrConfig> {
-        self.nostr.as_ref()
-    }
-
     /// Validate that config matches expected role and mode.
-    ///
-    /// Enforces:
-    /// - Role must be "client"
-    /// - Mode must match expected_mode
-    /// - Multi-source modes (iroh, nostr): rejects server-only fields (allowed_sources, max_sessions)
-    /// - Multi-source modes: validates request_source URL format if present
-    /// - Single-target modes: validates target URL format if present
     pub fn validate(&self, expected_mode: &str) -> Result<()> {
         let role = self
             .role
@@ -547,101 +370,46 @@ impl ClientConfig {
             anyhow::bail!("Config file has role = \"server\", but running as client");
         }
 
-        let mode = self.mode.context(
-            "Config file missing required 'mode' field. Add: mode = \"iroh\" (or \"manual\", \"nostr\")",
+        let mode = self.mode.as_deref().context(
+            "Config file missing required 'mode' field. Add: mode = \"iroh\"",
         )?;
-        let expected_mode = parse_expected_mode(expected_mode)?;
         if mode != expected_mode {
             anyhow::bail!(
                 "Config file has mode = \"{}\", but running with {}",
-                mode.as_str(),
-                expected_mode.as_str()
+                mode,
+                expected_mode
             );
         }
 
-        // Mode-specific validation
-        if expected_mode == Mode::Iroh {
-            if let Some(ref iroh) = self.iroh {
-                // Validate auth_token mutual exclusion
-                if iroh.auth_token.is_some() && iroh.auth_token_file.is_some() {
-                    anyhow::bail!("[iroh] Use only one of 'auth_token' or 'auth_token_file'.");
-                }
-                // Reject server-only fields
-                if iroh.allowed_sources.is_some() {
-                    anyhow::bail!(
-                        "[iroh] 'allowed_sources' is a server-only field. \
-                        Clients use 'source' to specify what to request from server."
-                    );
-                }
-                if iroh.max_sessions.is_some() {
-                    anyhow::bail!("[iroh] 'max_sessions' is a server-only field.");
-                }
-                if iroh.auth_tokens.is_some() || iroh.auth_tokens_file.is_some() {
-                    anyhow::bail!(
-                        "[iroh] 'auth_tokens' and 'auth_tokens_file' are server-only fields."
-                    );
-                }
-                if iroh.secret.is_some() || iroh.secret_file.is_some() {
-                    anyhow::bail!(
-                        "[iroh] 'secret' and 'secret_file' are server-only fields. \
-                        Clients use ephemeral identities with token authentication."
-                    );
-                }
-                // Validate request_source URL format
-                if let Some(ref source) = iroh.request_source {
-                    validate_tcp_udp_url(source, "request_source")?;
-                }
-                // Validate target format (host:port)
-                if let Some(ref target) = iroh.target {
-                    validate_host_port(target, "target")?;
-                }
+        if let Some(ref iroh) = self.iroh {
+            if iroh.auth_token.is_some() && iroh.auth_token_file.is_some() {
+                anyhow::bail!("[iroh] Use only one of 'auth_token' or 'auth_token_file'.");
             }
-        }
-        if expected_mode == Mode::Nostr {
-            if let Some(ref nostr) = self.nostr {
-                if nostr.nsec.is_some() && nostr.nsec_file.is_some() {
-                    anyhow::bail!("[nostr] Use only one of 'nsec' or 'nsec_file'.");
-                }
-                // Reject server-only fields
-                if nostr.allowed_sources.is_some() {
-                    anyhow::bail!(
-                        "[nostr] 'allowed_sources' is a server-only field. \
-                        Clients use 'source' to specify what to request from server."
-                    );
-                }
-                if nostr.max_sessions.is_some() {
-                    anyhow::bail!("[nostr] 'max_sessions' is a server-only field.");
-                }
-                // Validate request_source URL format
-                if let Some(ref source) = nostr.request_source {
-                    validate_tcp_udp_url(source, "request_source")?;
-                }
-                // Validate target format (host:port)
-                if let Some(ref target) = nostr.target {
-                    validate_host_port(target, "target")?;
-                }
-                validate_transport_tuning(&nostr.transport, "nostr.transport")?;
+            if iroh.allowed_sources.is_some() {
+                anyhow::bail!(
+                    "[iroh] 'allowed_sources' is a server-only field. \
+                    Clients use 'source' to specify what to request from server."
+                );
             }
-        }
-
-        if expected_mode == Mode::Manual {
-            if let Some(ref manual) = self.manual {
-                // Reject server-only fields
-                if manual.allowed_sources.is_some() {
-                    anyhow::bail!(
-                        "[manual] 'allowed_sources' is a server-only field. \
-                        Clients use 'source' to specify what to request from server."
-                    );
-                }
-                // Validate request_source URL format
-                if let Some(ref source) = manual.request_source {
-                    validate_tcp_udp_url(source, "request_source")?;
-                }
-                // Validate target format (host:port)
-                if let Some(ref target) = manual.target {
-                    validate_host_port(target, "target")?;
-                }
-                validate_transport_tuning(&manual.transport, "manual.transport")?;
+            if iroh.max_sessions.is_some() {
+                anyhow::bail!("[iroh] 'max_sessions' is a server-only field.");
+            }
+            if iroh.auth_tokens.is_some() || iroh.auth_tokens_file.is_some() {
+                anyhow::bail!(
+                    "[iroh] 'auth_tokens' and 'auth_tokens_file' are server-only fields."
+                );
+            }
+            if iroh.secret.is_some() || iroh.secret_file.is_some() {
+                anyhow::bail!(
+                    "[iroh] 'secret' and 'secret_file' are server-only fields. \
+                    Clients use ephemeral identities with token authentication."
+                );
+            }
+            if let Some(ref source) = iroh.request_source {
+                validate_tcp_udp_url(source, "request_source")?;
+            }
+            if let Some(ref target) = iroh.target {
+                validate_host_port(target, "target")?;
             }
         }
 
@@ -740,4 +508,3 @@ pub fn load_client_config(path: Option<&Path>) -> Result<ClientConfig> {
     };
     load_config(&config_path)
 }
-

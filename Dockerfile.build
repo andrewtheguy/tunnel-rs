@@ -9,13 +9,11 @@ COPY crates ./crates
 RUN --mount=type=cache,target=/usr/local/cargo/registry,id=cargo-registry-${TARGETPLATFORM} \
     --mount=type=cache,target=/usr/local/cargo/git,id=cargo-git-${TARGETPLATFORM} \
     --mount=type=cache,target=/build/target,id=cargo-target-${TARGETPLATFORM} \
-    cargo build --release -p tunnel-rs -p tunnel-rs-ice && \
-    cp target/release/tunnel-rs /tunnel-rs && \
-    cp target/release/tunnel-rs-ice /tunnel-rs-ice
+    cargo build --release -p tunnel-rs && \
+    cp target/release/tunnel-rs /tunnel-rs
 
 FROM scratch AS export
 COPY --from=builder /tunnel-rs /tunnel-rs
-COPY --from=builder /tunnel-rs-ice /tunnel-rs-ice
 
 FROM debian:trixie-slim AS runtime
 LABEL org.opencontainers.image.source=https://github.com/andrewtheguy/tunnel-rs

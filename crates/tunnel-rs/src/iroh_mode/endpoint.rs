@@ -1,7 +1,7 @@
 //! Common endpoint helpers for iroh tunnel connections.
 
 use anyhow::{Context, Result};
-use tunnel_common::error::TunnelError;
+use crate::error::TunnelError;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use iroh::{
     address_lookup::{DnsAddressLookup, MdnsAddressLookup, PkarrPublisher, PkarrResolver},
@@ -15,7 +15,7 @@ use tokio::task::JoinHandle;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use tunnel_common::config::{CongestionController, TransportTuning, DEFAULT_RECEIVE_WINDOW};
+use crate::config::{CongestionController, TransportTuning, DEFAULT_RECEIVE_WINDOW};
 use url::Url;
 
 pub const RELAY_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);

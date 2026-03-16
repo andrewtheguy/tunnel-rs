@@ -4,12 +4,7 @@ This document outlines planned features and improvements for tunnel-rs.
 
 ## Current Status
 
-tunnel-rs currently supports three operational modes:
-- **iroh**: Persistent identity with automatic discovery, relay fallback, and client-requested sources
-- **nostr**: Full ICE with automated Nostr relay signaling and client-requested sources
-- **manual**: Full ICE with manual signaling (single-session)
-
-Port forwarding modes (iroh, nostr, manual) support TCP and UDP tunneling with end-to-end encryption via QUIC/TLS 1.3.
+tunnel-rs uses iroh mode with persistent identity, automatic discovery, relay fallback, and client-requested sources. It supports TCP and UDP tunneling with end-to-end encryption via QUIC/TLS 1.3.
 
 ---
 
@@ -158,26 +153,6 @@ pub enum Access {
 - Private self-hosted relay infrastructure
 - Enterprise deployments requiring relay-level access control
 - Additional defense-in-depth beyond tunnel-rs auth tokens
-
----
-
-#### macOS Localhost Multi-Binding (tunnel-ice only)
-
-**Status:** Idea
-
-**Note:** This issue affects **tunnel-ice only** (nostr and manual modes). The iroh mode is already fixed.
-
-On macOS, third-party apps connecting to `localhost` try IPv6 (`::1`) before IPv4 (`127.0.0.1`). If the tunnel-ice client only binds to one address, connections may fail or experience 250ms delays. The fix is to bind to both addresses when listening on localhost.
-
-See [MACOS_LOCALHOST_PROPOSAL.md](MACOS_LOCALHOST_PROPOSAL.md) for detailed design.
-
----
-
-#### Relay Fallback for manual/nostr Modes
-
-**Status:** Idea
-
-manual and nostr modes use full ICE but have no relay fallback for symmetric NAT scenarios where direct connectivity fails.
 
 ---
 

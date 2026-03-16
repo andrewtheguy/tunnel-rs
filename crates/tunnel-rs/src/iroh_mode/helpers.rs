@@ -9,7 +9,7 @@ use std::sync::Arc;
 use tokio::net::{TcpStream, UdpSocket};
 use tokio::sync::Mutex;
 
-use tunnel_common::net::{
+use crate::net::{
     copy_stream, order_udp_addresses, retry_with_backoff, STREAM_OPEN_BASE_DELAY_MS,
     STREAM_OPEN_MAX_ATTEMPTS,
 };

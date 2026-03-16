@@ -68,12 +68,10 @@ jobs:
       - name: Build Release
         run: |
           cargo build --release --target ${{ matrix.target }} -p tunnel-rs
-          cargo build --release --target ${{ matrix.target }} -p tunnel-rs-ice
 
       - name: Rename Binaries
         run: |
           mv target/${{ matrix.target }}/release/tunnel-rs target/release/tunnel-rs-${{ matrix.suffix }}
-          mv target/${{ matrix.target }}/release/tunnel-rs-ice target/release/tunnel-rs-ice-${{ matrix.suffix }}
 
       - uses: actions/upload-artifact@v4
         with:
@@ -84,11 +82,6 @@ jobs:
         with:
           name: release-${{ matrix.suffix }}
           path: target/release/tunnel-rs-${{ matrix.suffix }}
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: release-ice-${{ matrix.suffix }}
-          path: target/release/tunnel-rs-ice-${{ matrix.suffix }}
 
   build-macos:
     needs: setup
@@ -101,22 +94,15 @@ jobs:
       - name: Build Release
         run: |
           cargo build --release --target aarch64-apple-darwin -p tunnel-rs
-          cargo build --release --target aarch64-apple-darwin -p tunnel-rs-ice
 
       - name: Rename Binaries
         run: |
           mv target/aarch64-apple-darwin/release/tunnel-rs target/release/tunnel-rs-macos-arm64
-          mv target/aarch64-apple-darwin/release/tunnel-rs-ice target/release/tunnel-rs-ice-macos-arm64
 
       - uses: actions/upload-artifact@v4
         with:
           name: release-macos-arm64
           path: target/release/tunnel-rs-macos-arm64
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: release-ice-macos-arm64
-          path: target/release/tunnel-rs-ice-macos-arm64
 
   build-windows:
     needs: setup
@@ -130,22 +116,15 @@ jobs:
       - name: Build Release
         run: |
           cargo build --release --target x86_64-pc-windows-msvc -p tunnel-rs
-          cargo build --release --target x86_64-pc-windows-msvc -p tunnel-rs-ice
 
       - name: Rename Binaries
         run: |
           move target\x86_64-pc-windows-msvc\release\tunnel-rs.exe target\release\tunnel-rs-windows-amd64.exe
-          move target\x86_64-pc-windows-msvc\release\tunnel-rs-ice.exe target\release\tunnel-rs-ice-windows-amd64.exe
 
       - uses: actions/upload-artifact@v4
         with:
           name: release-windows-amd64
           path: target/release/tunnel-rs-windows-amd64.exe
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: release-ice-windows-amd64
-          path: target/release/tunnel-rs-ice-windows-amd64.exe
 
   create-release:
     needs: [setup, build-linux, build-macos, build-windows]

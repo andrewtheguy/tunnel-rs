@@ -10,12 +10,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use tunnel_common::error::TunnelError;
+use crate::error::TunnelError;
 use iroh::{EndpointId, SecretKey};
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::sync::Mutex;
 use tokio::task::JoinSet;
-use tunnel_common::config::TransportTuning;
+use crate::config::TransportTuning;
 
 /// Configuration for the multi-source server.
 pub struct MultiSourceServerConfig {
@@ -111,11 +111,11 @@ use crate::iroh_mode::helpers::{
     bridge_streams, forward_stream_to_udp_client, forward_stream_to_udp_server,
     forward_udp_to_stream, open_bi_with_retry,
 };
-use tunnel_common::net::{
+use crate::net::{
     bind_udp_for_targets, check_source_allowed, extract_addr_from_source, resolve_all_target_addrs,
     resolve_listen_addrs, validate_allowed_networks,
 };
-use tunnel_common::signaling::{
+use crate::signaling::{
     decode_auth_request, decode_auth_response, decode_source_request, decode_source_response,
     encode_auth_request, encode_auth_response, encode_source_request, encode_source_response,
     read_length_prefixed, AuthRequest, AuthResponse, SourceRequest, SourceResponse,
@@ -456,7 +456,7 @@ async fn handle_multi_source_stream(
     if is_tcp {
         // Resolve and connect to TCP target
         let target_addrs = resolve_all_target_addrs(&target_addr).await?;
-        let tcp_stream = tunnel_common::net::try_connect_tcp(&target_addrs)
+        let tcp_stream = crate::net::try_connect_tcp(&target_addrs)
             .await
             .context("Failed to connect to target TCP service")?;
 
