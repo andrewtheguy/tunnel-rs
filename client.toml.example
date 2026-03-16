@@ -23,15 +23,12 @@ server_node_id = "2xnbkpbc7izsilvewd7c62w7wnwziacmpfwvhcrya5nt76dqkpga"
 # Token format: exactly 47 characters (i + 46 Base64URL chars, no padding)
 # Generate with: tunnel-rs generate-token
 #
-# IMPORTANT: Use 'auth_token' or 'auth_token_file' (NOT 'secret' or 'secret_file'
+# IMPORTANT: Use 'auth_token_file' (NOT 'secret' or 'secret_file'
 # which are server-only options for persistent identity)
 #
-# NOTE: Use either auth_token OR auth_token_file, not both.
-auth_token = "iXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"  # Replace with real token from generate-token
-
-# Or use a file containing the token (one token, no comments)
-# NOTE: Use either auth_token OR auth_token_file, not both.
-# auth_token_file = "~/.config/tunnel-rs/token.txt"
+# SECURITY: Plaintext 'auth_token' is not allowed in config files.
+# Use 'auth_token_file' here, or pass --auth-token on the command line.
+auth_token_file = "~/.config/tunnel-rs/token.txt"
 
 # ============================================================================
 # ALPN Token (REQUIRED)
@@ -39,11 +36,10 @@ auth_token = "iXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"  # Replace with r
 # Pre-shared token embedded in the QUIC ALPN protocol identifier.
 # Must match the server's alpn_token value.
 # Generate with: tunnel-rs generate-token --alpn
-alpn_token = "XXXXXXXXXXXXXX"  # Replace with real token from generate-token --alpn
-
-# Or use a file containing the ALPN token
-# NOTE: Use either alpn_token OR alpn_token_file, not both.
-# alpn_token_file = "~/.config/tunnel-rs/alpn_token.txt"
+#
+# SECURITY: Plaintext 'alpn_token' is not allowed in config files.
+# Use 'alpn_token_file' here, or pass --alpn-token on the command line.
+alpn_token_file = "~/.config/tunnel-rs/alpn_token.txt"
 
 # Source address to request from server (required if not specified via CLI --source)
 # Must be in server's allowed_sources list (--allowed-tcp or --allowed-udp)

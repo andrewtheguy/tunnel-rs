@@ -1,6 +1,6 @@
 [package]
 name = "tunnel-rs"
-version = "0.2.5"
+version = "0.2.6-beta"
 edition = "2021"
 description = "TCP/UDP port forwarding through iroh P2P connections"
 

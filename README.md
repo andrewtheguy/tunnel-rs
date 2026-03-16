@@ -200,21 +200,18 @@ iYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY
 
 ### Configuration File
 
+> **Security:** Plaintext tokens and secrets are **not allowed** in TOML config files. Use the `_file` variants (e.g., `auth_tokens_file`, `auth_token_file`, `alpn_token_file`, `secret_file`) in config files. Plaintext values are accepted via `--config-stdin` (JSON) and CLI arguments since those are transient.
+
 **Server** (`server.toml`):
 ```toml
 [iroh]
-auth_tokens = [
-    "iXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",  # Alice
-    "iYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY",  # Bob
-]
-# Or use: auth_tokens_file = "/etc/tunnel-rs/auth_tokens.txt"
+auth_tokens_file = "/etc/tunnel-rs/auth_tokens.txt"
 ```
 
-**Client** (`client.toml` or CLI):
+**Client** (`client.toml`):
 ```toml
 [iroh]
-auth_token = "iXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
-# Or use: auth_token_file = "~/.config/tunnel-rs/token.txt"
+auth_token_file = "~/.config/tunnel-rs/token.txt"
 ```
 
 ## Self-Hosting
@@ -366,6 +363,8 @@ tunnel-rs client \
 
 Use `--default-config` to load from the default location, or `-c <path>` for a custom path (both TOML). For normal usage, prefer config files so your settings are saved and reusable. The `--config-stdin` flag is intended for automation and IPC — it accepts JSON (self-delimiting, so the caller does not need to close stdin). Only one of these may be used at a time. Configuration uses the `[iroh]` section.
 
+> **Security:** TOML config files **reject plaintext sensitive fields** (`auth_token`, `auth_tokens`, `alpn_token`, `secret`). Use the corresponding `_file` variants in config files, or pass values via CLI arguments or `--config-stdin` (JSON), which are transient and not persisted to disk.
+
 **Default locations:**
 - Server: `~/.config/tunnel-rs/server.toml`
 - Client: `~/.config/tunnel-rs/client.toml`
@@ -404,18 +403,13 @@ secret_file = "./server.key"
 dns_server = "https://dns.example.com/pkarr"
 max_sessions = 100
 
-# Authentication: clients must provide one of these tokens (47 chars)
-# Generate with: tunnel-rs generate-token
-auth_tokens = [
-    "iXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
-    "iYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY",
-]
-# Or use: auth_tokens_file = "/etc/tunnel-rs/auth_tokens.txt"
+# Authentication tokens file (one token per line, # comments allowed)
+# Generate tokens with: tunnel-rs generate-token
+auth_tokens_file = "/etc/tunnel-rs/auth_tokens.txt"
 
-# ALPN token for QUIC handshake-level filtering (14-char Base64URL)
+# ALPN token file for QUIC handshake-level filtering
 # Generate with: tunnel-rs generate-token --alpn
-alpn_token = "XXXXXXXXXXXXXX"
-# Or use: alpn_token_file = "/etc/tunnel-rs/alpn_token.txt"
+alpn_token_file = "/etc/tunnel-rs/alpn_token.txt"
 
 [iroh.allowed_sources]
 tcp = ["127.0.0.0/8", "192.168.0.0/16"]
@@ -450,13 +444,11 @@ target = "127.0.0.1:2222"
 # relay_urls = ["https://relay.example.com"]
 dns_server = "https://dns.example.com/pkarr"
 
-# Authentication token (get from server admin, 47 chars)
-auth_token = "iXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
-# Or use: auth_token_file = "~/.config/tunnel-rs/token.txt"
+# Authentication token file (get token from server admin, 47 chars)
+auth_token_file = "~/.config/tunnel-rs/token.txt"
 
-# ALPN token (must match server, 14-char Base64URL)
-alpn_token = "XXXXXXXXXXXXXX"
-# Or use: alpn_token_file = "~/.config/tunnel-rs/alpn_token.txt"
+# ALPN token file (must match server, 14-char Base64URL)
+alpn_token_file = "~/.config/tunnel-rs/alpn_token.txt"
 ```
 
 > [!NOTE]

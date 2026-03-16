@@ -69,6 +69,55 @@ pub struct IrohConfig {
     pub transport: TransportTuning,
 }
 
+impl IrohConfig {
+    /// Reject plaintext sensitive fields when config is loaded from a file.
+    ///
+    /// Client fields: `auth_token`, `alpn_token`
+    /// Server fields: `auth_tokens`, `alpn_token`, `secret`
+    ///
+    /// Structured so that future encrypted-value support (e.g. `enc:` prefix)
+    /// can bypass rejection without changing the overall architecture.
+    fn reject_plaintext_secrets(&self, role: Role) -> Result<()> {
+        match role {
+            Role::Client => {
+                if self.auth_token.is_some() {
+                    anyhow::bail!(
+                        "[iroh] Plaintext 'auth_token' is not allowed in config files. \
+                         Use 'auth_token_file' instead, or pass --auth-token on the command line."
+                    );
+                }
+                if self.alpn_token.is_some() {
+                    anyhow::bail!(
+                        "[iroh] Plaintext 'alpn_token' is not allowed in config files. \
+                         Use 'alpn_token_file' instead, or pass --alpn-token on the command line."
+                    );
+                }
+            }
+            Role::Server => {
+                if self.auth_tokens.is_some() {
+                    anyhow::bail!(
+                        "[iroh] Plaintext 'auth_tokens' is not allowed in config files. \
+                         Use 'auth_tokens_file' instead, or pass --auth-tokens on the command line."
+                    );
+                }
+                if self.alpn_token.is_some() {
+                    anyhow::bail!(
+                        "[iroh] Plaintext 'alpn_token' is not allowed in config files. \
+                         Use 'alpn_token_file' instead, or pass --alpn-token on the command line."
+                    );
+                }
+                if self.secret.is_some() {
+                    anyhow::bail!(
+                        "[iroh] Plaintext 'secret' is not allowed in config files. \
+                         Use 'secret_file' instead, or pass --secret on the command line."
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
 /// Allowed source networks for client-requested source feature.
 /// Separate CIDR lists for TCP and UDP protocols.
 #[derive(Deserialize, Default, Clone)]
@@ -79,6 +128,16 @@ pub struct AllowedSources {
     /// Allowed UDP source networks (CIDR notation)
     #[serde(default)]
     pub udp: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfigSource {
+    /// TOML file on disk — plaintext secrets rejected
+    File,
+    /// JSON from stdin — all values allowed
+    Stdin,
+    /// No config, defaults only
+    None,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -306,7 +365,7 @@ impl ServerConfig {
     }
 
     /// Validate that config matches expected role and mode.
-    pub fn validate(&self) -> Result<()> {
+    pub fn validate(&self, source: ConfigSource) -> Result<()> {
         let role = self
             .role
             .context("Config file missing required 'role' field. Add: role = \"server\"")?;
@@ -319,6 +378,9 @@ impl ServerConfig {
         )?;
 
         if let Some(ref iroh) = self.iroh {
+            if source == ConfigSource::File {
+                iroh.reject_plaintext_secrets(Role::Server)?;
+            }
             if iroh.secret.is_some() && iroh.secret_file.is_some() {
                 anyhow::bail!("[iroh] Use only one of 'secret' or 'secret_file'.");
             }
@@ -365,7 +427,7 @@ impl ClientConfig {
     }
 
     /// Validate that config matches expected role and mode.
-    pub fn validate(&self) -> Result<()> {
+    pub fn validate(&self, source: ConfigSource) -> Result<()> {
         let role = self
             .role
             .context("Config file missing required 'role' field. Add: role = \"client\"")?;
@@ -378,6 +440,9 @@ impl ClientConfig {
         )?;
 
         if let Some(ref iroh) = self.iroh {
+            if source == ConfigSource::File {
+                iroh.reject_plaintext_secrets(Role::Client)?;
+            }
             if iroh.auth_token.is_some() && iroh.auth_token_file.is_some() {
                 anyhow::bail!("[iroh] Use only one of 'auth_token' or 'auth_token_file'.");
             }
@@ -507,4 +572,121 @@ pub fn load_client_config(path: Option<&Path>) -> Result<ClientConfig> {
         })?,
     };
     load_config(&config_path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn client_config_with_iroh(iroh: IrohConfig) -> ClientConfig {
+        ClientConfig {
+            role: Some(Role::Client),
+            mode: Some(Mode::Iroh),
+            iroh: Some(iroh),
+        }
+    }
+
+    fn server_config_with_iroh(iroh: IrohConfig) -> ServerConfig {
+        ServerConfig {
+            role: Some(Role::Server),
+            mode: Some(Mode::Iroh),
+            source: None,
+            iroh: Some(iroh),
+        }
+    }
+
+    #[test]
+    fn client_rejects_plaintext_auth_token_from_file() {
+        let cfg = client_config_with_iroh(IrohConfig {
+            auth_token: Some("secret123".into()),
+            ..Default::default()
+        });
+        let err = cfg.validate(ConfigSource::File).unwrap_err();
+        assert!(err.to_string().contains("Plaintext 'auth_token'"));
+    }
+
+    #[test]
+    fn client_allows_plaintext_auth_token_from_stdin() {
+        let cfg = client_config_with_iroh(IrohConfig {
+            auth_token: Some("secret123".into()),
+            ..Default::default()
+        });
+        assert!(cfg.validate(ConfigSource::Stdin).is_ok());
+    }
+
+    #[test]
+    fn client_rejects_plaintext_alpn_token_from_file() {
+        let cfg = client_config_with_iroh(IrohConfig {
+            alpn_token: Some("alpn123".into()),
+            ..Default::default()
+        });
+        let err = cfg.validate(ConfigSource::File).unwrap_err();
+        assert!(err.to_string().contains("Plaintext 'alpn_token'"));
+    }
+
+    #[test]
+    fn client_allows_plaintext_alpn_token_from_stdin() {
+        let cfg = client_config_with_iroh(IrohConfig {
+            alpn_token: Some("alpn123".into()),
+            ..Default::default()
+        });
+        assert!(cfg.validate(ConfigSource::Stdin).is_ok());
+    }
+
+    #[test]
+    fn server_rejects_plaintext_auth_tokens_from_file() {
+        let cfg = server_config_with_iroh(IrohConfig {
+            auth_tokens: Some(vec!["tok1".into()]),
+            ..Default::default()
+        });
+        let err = cfg.validate(ConfigSource::File).unwrap_err();
+        assert!(err.to_string().contains("Plaintext 'auth_tokens'"));
+    }
+
+    #[test]
+    fn server_allows_plaintext_auth_tokens_from_stdin() {
+        let cfg = server_config_with_iroh(IrohConfig {
+            auth_tokens: Some(vec!["tok1".into()]),
+            ..Default::default()
+        });
+        assert!(cfg.validate(ConfigSource::Stdin).is_ok());
+    }
+
+    #[test]
+    fn server_rejects_plaintext_alpn_token_from_file() {
+        let cfg = server_config_with_iroh(IrohConfig {
+            alpn_token: Some("alpn123".into()),
+            ..Default::default()
+        });
+        let err = cfg.validate(ConfigSource::File).unwrap_err();
+        assert!(err.to_string().contains("Plaintext 'alpn_token'"));
+    }
+
+    #[test]
+    fn server_allows_plaintext_alpn_token_from_stdin() {
+        let cfg = server_config_with_iroh(IrohConfig {
+            alpn_token: Some("alpn123".into()),
+            ..Default::default()
+        });
+        assert!(cfg.validate(ConfigSource::Stdin).is_ok());
+    }
+
+    #[test]
+    fn server_rejects_plaintext_secret_from_file() {
+        let cfg = server_config_with_iroh(IrohConfig {
+            secret: Some("base64secret".into()),
+            ..Default::default()
+        });
+        let err = cfg.validate(ConfigSource::File).unwrap_err();
+        assert!(err.to_string().contains("Plaintext 'secret'"));
+    }
+
+    #[test]
+    fn server_allows_plaintext_secret_from_stdin() {
+        let cfg = server_config_with_iroh(IrohConfig {
+            secret: Some("base64secret".into()),
+            ..Default::default()
+        });
+        assert!(cfg.validate(ConfigSource::Stdin).is_ok());
+    }
 }

@@ -369,10 +369,10 @@ graph TB
 
 `iroh` mode uses two distinct credential types:
 
-| Credential | CLI Flags | Config Keys | Expected Usage |
+| Credential | CLI Flags | Config Keys (TOML files must use `_file` variants) | Expected Usage |
 |------------|-----------|-------------|----------------|
-| **ALPN Token** | Server: `--alpn-token`<br>Client: `--alpn-token` | Server/Client: `[iroh].alpn_token` | Pre-handshake QUIC ALPN filter (`mf/2/<token>`). Typically one shared value for a server and all its clients. |
-| **Auth Token** | Server: `--auth-tokens` and/or `--auth-tokens-file`<br>Client: `--auth-token` or `--auth-token-file` | Server: `[iroh].auth_tokens` or `[iroh].auth_tokens_file`<br>Client: `[iroh].auth_token` or `[iroh].auth_token_file` | Per-client credential checked on the auth stream after handshake. Use separate values per client for revocation/rotation. |
+| **ALPN Token** | Server: `--alpn-token`<br>Client: `--alpn-token` | Server/Client: `[iroh].alpn_token_file` | Pre-handshake QUIC ALPN filter (`mf/2/<token>`). Typically one shared value for a server and all its clients. |
+| **Auth Token** | Server: `--auth-tokens` and/or `--auth-tokens-file`<br>Client: `--auth-token` or `--auth-token-file` | Server: `[iroh].auth_tokens_file`<br>Client: `[iroh].auth_token_file` | Per-client credential checked on the auth stream after handshake. Use separate values per client for revocation/rotation. |
 
 Example CLI usage:
 
@@ -389,18 +389,18 @@ tunnel-rs client \
   --auth-token "$ALICE_AUTH_TOKEN"
 ```
 
-Example config usage:
+Example config usage (plaintext tokens are not allowed in TOML config files — use `_file` variants):
 
 ```toml
 # server.toml
 [iroh]
-alpn_token = "ALPN_TOKEN_SHARED_BY_ALL_CLIENTS"
-auth_tokens = ["ALICE_AUTH_TOKEN", "BOB_AUTH_TOKEN"]
+alpn_token_file = "/etc/tunnel-rs/alpn_token.txt"
+auth_tokens_file = "/etc/tunnel-rs/auth_tokens.txt"
 
 # client.toml
 [iroh]
-alpn_token = "ALPN_TOKEN_SHARED_BY_ALL_CLIENTS"
-auth_token = "ALICE_AUTH_TOKEN"
+alpn_token_file = "~/.config/tunnel-rs/alpn_token.txt"
+auth_token_file = "~/.config/tunnel-rs/token.txt"
 ```
 
 ### Configuration Loading Flow
@@ -529,8 +529,8 @@ Iroh mode uses two layers of authentication. First, a pre-shared ALPN token is e
 
 #### ALPN Token vs Auth Token
 
-- **ALPN Token** (`--alpn-token` / `[iroh].alpn_token`): Pre-handshake shared value used for QUIC ALPN filtering.
-- **Auth Token** (server: `--auth-tokens` / `--auth-tokens-file`; client: `--auth-token` / `--auth-token-file`; config: `[iroh].auth_tokens` / `[iroh].auth_token`): Per-client token validated on the auth stream.
+- **ALPN Token** (`--alpn-token` / `[iroh].alpn_token_file`): Pre-handshake shared value used for QUIC ALPN filtering.
+- **Auth Token** (server: `--auth-tokens` / `--auth-tokens-file`; client: `--auth-token` / `--auth-token-file`; config: `[iroh].auth_tokens_file` / `[iroh].auth_token_file`): Per-client token validated on the auth stream.
 - **Mapping**: These are **distinct tokens**, not the same value. In code, ALPN tokens are 14-char Base64URL values, while auth tokens are 47-char `i...` tokens. Typical setup is one shared ALPN token plus per-client auth tokens for revocation.
 
 1. **ALPN Filtering**: Both server and client specify `--alpn-token`. The token is embedded in the QUIC ALPN identifier (`mf/2/<token>`). Connections from clients without a matching ALPN are rejected at the handshake level — acting as a lightweight "port knock".

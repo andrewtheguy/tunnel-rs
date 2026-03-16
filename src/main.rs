@@ -18,7 +18,7 @@ use crate::error::{ErrorCategory, TunnelError};
 
 use crate::config::{
     expand_tilde, load_client_config, load_server_config, parse_config_from_reader,
-    validate_transport_tuning, ClientConfig, ServerConfig, TransportTuning,
+    validate_transport_tuning, ClientConfig, ConfigSource, ServerConfig, TransportTuning,
 };
 use crate::iroh_mode::endpoint::{
     load_secret, load_secret_from_string, secret_to_endpoint_id,
@@ -401,12 +401,12 @@ fn resolve_iroh_secret(secret: Option<String>, secret_file: Option<PathBuf>) -> 
     }
 }
 
-/// Load server config based on flags. Returns (config, was_loaded_from_file).
+/// Load server config based on flags. Returns (config, source).
 async fn resolve_server_config(
     config: Option<PathBuf>,
     default_config: bool,
     config_stdin: bool,
-) -> Result<(ServerConfig, bool)> {
+) -> Result<(ServerConfig, ConfigSource)> {
     let source_count = config.is_some() as u8 + default_config as u8 + config_stdin as u8;
     if source_count > 1 {
         anyhow::bail!(
@@ -415,22 +415,22 @@ async fn resolve_server_config(
     }
 
     if config_stdin {
-        Ok((parse_config_from_reader(std::io::stdin()).await?, true))
+        Ok((parse_config_from_reader(std::io::stdin()).await?, ConfigSource::Stdin))
     } else if let Some(path) = config {
-        Ok((load_server_config(Some(&path))?, true))
+        Ok((load_server_config(Some(&path))?, ConfigSource::File))
     } else if default_config {
-        Ok((load_server_config(None)?, true))
+        Ok((load_server_config(None)?, ConfigSource::File))
     } else {
-        Ok((ServerConfig::default(), false))
+        Ok((ServerConfig::default(), ConfigSource::None))
     }
 }
 
-/// Load client config based on flags. Returns (config, was_loaded_from_file).
+/// Load client config based on flags. Returns (config, source).
 async fn resolve_client_config(
     config: Option<PathBuf>,
     default_config: bool,
     config_stdin: bool,
-) -> Result<(ClientConfig, bool)> {
+) -> Result<(ClientConfig, ConfigSource)> {
     let source_count =
         config.is_some() as u8 + default_config as u8 + config_stdin as u8;
     if source_count > 1 {
@@ -440,13 +440,13 @@ async fn resolve_client_config(
     }
 
     if config_stdin {
-        Ok((parse_config_from_reader(std::io::stdin()).await?, true))
+        Ok((parse_config_from_reader(std::io::stdin()).await?, ConfigSource::Stdin))
     } else if let Some(path) = config {
-        Ok((load_client_config(Some(&path))?, true))
+        Ok((load_client_config(Some(&path))?, ConfigSource::File))
     } else if default_config {
-        Ok((load_client_config(None)?, true))
+        Ok((load_client_config(None)?, ConfigSource::File))
     } else {
-        Ok((ClientConfig::default(), false))
+        Ok((ClientConfig::default(), ConfigSource::None))
     }
 }
 
@@ -489,11 +489,11 @@ async fn run_inner() -> Result<()> {
             relay_only,
             ..
         } => {
-            let (cfg, from_file) =
+            let (cfg, source) =
                 resolve_server_config(config.clone(), *default_config, *config_stdin).await?;
 
-            if from_file {
-                cfg.validate()?;
+            if source != ConfigSource::None {
+                cfg.validate(source)?;
             }
 
             let iroh_cfg = cfg.iroh();
@@ -577,11 +577,11 @@ async fn run_inner() -> Result<()> {
             relay_only,
             ..
         } => {
-            let (cfg, from_file) =
+            let (cfg, source) =
                 resolve_client_config(config.clone(), *default_config, *config_stdin).await?;
 
-            if from_file {
-                cfg.validate()?;
+            if source != ConfigSource::None {
+                cfg.validate(source)?;
             }
 
             let iroh_cfg = cfg.iroh();
