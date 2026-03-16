@@ -99,18 +99,16 @@ pub fn write_identity_file(
     public_key: &str,
     force: bool,
 ) -> Result<()> {
-    if path.exists() && !force {
-        anyhow::bail!(
-            "File already exists: {}. Use --force to overwrite.",
-            path.display()
-        );
-    }
-
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).context("Failed to create parent directory")?;
     }
 
-    let content = format!("# public key: {}\n{}\n", public_key, secret_key);
+    let append = path.exists() && !force;
+    let content = if append {
+        format!("\n# public key: {}\n{}\n", public_key, secret_key)
+    } else {
+        format!("# public key: {}\n{}\n", public_key, secret_key)
+    };
 
     #[cfg(unix)]
     {
@@ -120,7 +118,8 @@ pub fn write_identity_file(
         let mut file = std::fs::OpenOptions::new()
             .create(true)
             .write(true)
-            .truncate(true)
+            .append(append)
+            .truncate(!append)
             .mode(0o600)
             .open(path)
             .context("Failed to open encryption key file")?;
@@ -133,7 +132,17 @@ pub fn write_identity_file(
 
     #[cfg(not(unix))]
     {
-        std::fs::write(path, &content).context("Failed to write encryption key file")?;
+        if append {
+            use std::io::Write;
+            let mut file = std::fs::OpenOptions::new()
+                .append(true)
+                .open(path)
+                .context("Failed to open encryption key file")?;
+            file.write_all(content.as_bytes())
+                .context("Failed to append to encryption key file")?;
+        } else {
+            std::fs::write(path, &content).context("Failed to write encryption key file")?;
+        }
     }
 
     Ok(())
@@ -221,17 +230,30 @@ mod tests {
     }
 
     #[test]
-    fn test_write_identity_file_no_overwrite() {
+    fn test_write_identity_file_appends() {
         let dir = tempfile::tempdir().unwrap();
         let key_path = dir.path().join("age.key");
 
-        let (secret, public) = generate_keypair();
-        write_identity_file(&key_path, &secret, &public, false).unwrap();
+        let (secret1, public1) = generate_keypair();
+        write_identity_file(&key_path, &secret1, &public1, false).unwrap();
 
-        // Second write without force should fail
-        let result = write_identity_file(&key_path, &secret, &public, false);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("already exists"));
+        let (secret2, public2) = generate_keypair();
+        write_identity_file(&key_path, &secret2, &public2, false).unwrap();
+
+        let contents = std::fs::read_to_string(&key_path).unwrap();
+        let secret_lines: Vec<&str> = contents
+            .lines()
+            .filter(|l| l.starts_with("AGE-SECRET-KEY-"))
+            .collect();
+        assert_eq!(secret_lines.len(), 2);
+        assert_eq!(secret_lines[0], secret1);
+        assert_eq!(secret_lines[1], secret2);
+
+        let pub_lines: Vec<&str> = contents
+            .lines()
+            .filter(|l| l.starts_with("# public key: "))
+            .collect();
+        assert_eq!(pub_lines.len(), 2);
     }
 
     #[test]
@@ -239,8 +261,24 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let key_path = dir.path().join("age.key");
 
-        let (secret, public) = generate_keypair();
-        write_identity_file(&key_path, &secret, &public, false).unwrap();
-        write_identity_file(&key_path, &secret, &public, true).unwrap();
+        let (secret1, public1) = generate_keypair();
+        write_identity_file(&key_path, &secret1, &public1, false).unwrap();
+
+        // Append a second key
+        let (_secret2, _public2) = generate_keypair();
+        write_identity_file(&key_path, &_secret2, &_public2, false).unwrap();
+
+        // Force overwrite with a third key — should replace everything
+        let (secret3, public3) = generate_keypair();
+        write_identity_file(&key_path, &secret3, &public3, true).unwrap();
+
+        let contents = std::fs::read_to_string(&key_path).unwrap();
+        let secret_lines: Vec<&str> = contents
+            .lines()
+            .filter(|l| l.starts_with("AGE-SECRET-KEY-"))
+            .collect();
+        assert_eq!(secret_lines.len(), 1);
+        assert_eq!(secret_lines[0], secret3);
+        assert!(contents.contains(&public3));
     }
 }
