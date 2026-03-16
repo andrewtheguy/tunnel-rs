@@ -190,15 +190,15 @@ enum Command {
 enum ConfigEncryptionCommand {
     /// Generate an age encryption keypair
     ///
-    /// The private key is saved to the output file. The public key (recipient)
-    /// is printed to stdout for use with encrypt-value or in config files.
+    /// Without --output, prints both keys to stdout. With --output, saves the
+    /// private key to a file and prints the public key (recipient) to stdout.
     GenerateKey {
         /// Path where to save the age identity (private key) file
         #[arg(short, long)]
-        output: PathBuf,
+        output: Option<PathBuf>,
 
-        /// Overwrite existing file if it exists
-        #[arg(long)]
+        /// Overwrite existing file if it exists (requires --output)
+        #[arg(long, requires = "output")]
         force: bool,
     },
     /// Encrypt a value for use in config files (reads plaintext from stdin)
@@ -755,11 +755,18 @@ async fn run_inner() -> Result<()> {
         }
         Command::ConfigEncryption { action } => match action {
             ConfigEncryptionCommand::GenerateKey { output, force } => {
-                let output = expand_tilde(output);
                 let (secret_key, public_key) = encryption::generate_keypair();
-                encryption::write_identity_file(&output, &secret_key, &public_key, *force)?;
-                log::info!("Encryption key saved to: {}", output.display());
-                println!("{}", public_key);
+                if let Some(path) = output {
+                    let path = expand_tilde(path);
+                    encryption::write_identity_file(&path, &secret_key, &public_key, *force)?;
+                    log::info!("Encryption key saved to: {}", path.display());
+                    println!("{}", public_key);
+                } else {
+                    let now = jiff::Zoned::now().strftime("%Y-%m-%dT%H:%M:%S%:z");
+                    println!("# created: {}", now);
+                    println!("# public key: {}", public_key);
+                    println!("{}", secret_key);
+                }
                 Ok(())
             }
             ConfigEncryptionCommand::EncryptValue { recipient, config } => {

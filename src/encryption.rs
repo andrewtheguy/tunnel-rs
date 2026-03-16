@@ -94,6 +94,7 @@ pub fn generate_keypair() -> (String, String) {
 ///
 /// The file format matches the standard `age-keygen` output:
 /// ```text
+/// # created: 2025-09-24T10:53:46-07:00
 /// # public key: age1...
 /// AGE-SECRET-KEY-1...
 /// ```
@@ -108,10 +109,12 @@ pub fn write_identity_file(
     }
 
     let append = path.exists() && !force;
+    let now = jiff::Zoned::now().strftime("%Y-%m-%dT%H:%M:%S%:z");
+    let block = format!("# created: {}\n# public key: {}\n{}\n", now, public_key, secret_key);
     let content = if append {
-        format!("\n# public key: {}\n{}\n", public_key, secret_key)
+        format!("\n{}", block)
     } else {
-        format!("# public key: {}\n{}\n", public_key, secret_key)
+        block
     };
 
     #[cfg(unix)]
@@ -258,6 +261,12 @@ mod tests {
             .filter(|l| l.starts_with("# public key: "))
             .collect();
         assert_eq!(pub_lines.len(), 2);
+
+        let created_lines: Vec<&str> = contents
+            .lines()
+            .filter(|l| l.starts_with("# created: "))
+            .collect();
+        assert_eq!(created_lines.len(), 2);
     }
 
     #[test]
@@ -284,5 +293,11 @@ mod tests {
         assert_eq!(secret_lines.len(), 1);
         assert_eq!(secret_lines[0], secret3);
         assert!(contents.contains(&public3));
+
+        let created_lines: Vec<&str> = contents
+            .lines()
+            .filter(|l| l.starts_with("# created: "))
+            .collect();
+        assert_eq!(created_lines.len(), 1);
     }
 }
