@@ -5,7 +5,7 @@
 #
 # Mode is inferred from the 'mode' field below.
 # CLI arguments take precedence over config file values.
-# This file is iroh-only. For ICE modes, see server_ice.toml.example.
+# This file is iroh-only.
 
 # Required: validates config matches CLI command
 role = "server"

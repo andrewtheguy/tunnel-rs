@@ -5,7 +5,7 @@
 #
 # Mode is inferred from the 'mode' field below.
 # CLI arguments take precedence over config file values.
-# This file is iroh-only. For ICE modes, see client_ice.toml.example.
+# This file is iroh-only.
 
 # Required: validates config matches CLI command
 role = "client"
@@ -13,7 +13,7 @@ mode = "iroh"
 
 [iroh]
 # Server's EndpointId to connect to (required for iroh)
-# Get this from the server operator (shown when server starts, or via show-iroh-node-id)
+# Get this from the server operator (shown when server starts, or via show-server-id)
 server_node_id = "2xnbkpbc7izsilvewd7c62w7wnwziacmpfwvhcrya5nt76dqkpga"
 
 # ============================================================================
