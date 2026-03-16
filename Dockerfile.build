@@ -1,4 +1,4 @@
-FROM rust:1.93 AS builder
+FROM rust:1.93-slim AS builder
 
 ARG TARGETPLATFORM
 WORKDIR /build
@@ -15,7 +15,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,id=cargo-registry-${TARG
 FROM scratch AS export
 COPY --from=builder /tunnel-rs /tunnel-rs
 
-FROM debian:trixie-slim AS runtime
+FROM debian:bookworm-slim AS runtime
 LABEL org.opencontainers.image.source=https://github.com/andrewtheguy/tunnel-rs
 
 RUN apt-get update && apt-get install -y \
@@ -26,7 +26,7 @@ RUN apt-get update && apt-get install -y \
 COPY --from=builder /tunnel-rs /usr/local/bin/tunnel-rs
 ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/tunnel-rs"]
 
-FROM debian:trixie-slim AS runtime-prebuilt
+FROM debian:bookworm-slim AS runtime-prebuilt
 LABEL org.opencontainers.image.source=https://github.com/andrewtheguy/tunnel-rs
 
 RUN apt-get update && apt-get install -y \
