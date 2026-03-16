@@ -427,7 +427,7 @@ where
                 if attempt >= max_attempts {
                     return Err(err);
                 }
-                let multiplier = 2_u64.pow(attempt.saturating_sub(1));
+                let multiplier = 1_u64.checked_shl(attempt.saturating_sub(1)).unwrap_or(u64::MAX);
                 let bounded = multiplier.min(BACKOFF_MAX_MULTIPLIER);
                 let delay = Duration::from_millis(base_delay_ms.saturating_mul(bounded));
                 tokio::time::sleep(delay).await;
