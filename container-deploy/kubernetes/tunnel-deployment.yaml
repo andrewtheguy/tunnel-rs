@@ -43,20 +43,18 @@
 #
 #   7. On remote machine, connect to any service in allowed networks:
 #      # Access postgres
-#      tunnel-rs client \
+#      TUNNEL_RS_AUTH_TOKEN=<AUTH_TOKEN> TUNNEL_RS_ALPN_TOKEN=<ALPN_TOKEN> \
+#        tunnel-rs client \
 #        --server-node-id <SERVER_NODE_ID> \
 #        --source tcp://postgres.default.svc.cluster.local:5432 \
-#        --target 127.0.0.1:5432 \
-#        --auth-token <AUTH_TOKEN> \
-#        --alpn-token <ALPN_TOKEN>
+#        --target 127.0.0.1:5432
 #
 #      # Access cluster DNS (UDP!)
-#      tunnel-rs client \
+#      TUNNEL_RS_AUTH_TOKEN=<AUTH_TOKEN> TUNNEL_RS_ALPN_TOKEN=<ALPN_TOKEN> \
+#        tunnel-rs client \
 #        --server-node-id <SERVER_NODE_ID> \
 #        --source udp://kube-dns.kube-system.svc.cluster.local:53 \
-#        --target 127.0.0.1:5353 \
-#        --auth-token <AUTH_TOKEN> \
-#        --alpn-token <ALPN_TOKEN>
+#        --target 127.0.0.1:5353
 
 apiVersion: apps/v1
 kind: Deployment

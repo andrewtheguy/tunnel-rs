@@ -5,7 +5,7 @@
 #
 # Mode is inferred from the 'mode' field below.
 # CLI arguments take precedence over config file values.
-# This file is iroh-only. For ICE modes, see client_ice.toml.example.
+# This file is iroh-only.
 
 # Required: validates config matches CLI command
 role = "client"
@@ -13,7 +13,7 @@ mode = "iroh"
 
 [iroh]
 # Server's EndpointId to connect to (required for iroh)
-# Get this from the server operator (shown when server starts, or via show-iroh-node-id)
+# Get this from the server operator (shown when server starts, or via show-server-id)
 server_node_id = "2xnbkpbc7izsilvewd7c62w7wnwziacmpfwvhcrya5nt76dqkpga"
 
 # ============================================================================
@@ -23,15 +23,12 @@ server_node_id = "2xnbkpbc7izsilvewd7c62w7wnwziacmpfwvhcrya5nt76dqkpga"
 # Token format: exactly 47 characters (i + 46 Base64URL chars, no padding)
 # Generate with: tunnel-rs generate-token
 #
-# IMPORTANT: Use 'auth_token' or 'auth_token_file' (NOT 'secret' or 'secret_file'
+# IMPORTANT: Use 'auth_token_file' (NOT 'secret' or 'secret_file'
 # which are server-only options for persistent identity)
 #
-# NOTE: Use either auth_token OR auth_token_file, not both.
-auth_token = "iXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"  # Replace with real token from generate-token
-
-# Or use a file containing the token (one token, no comments)
-# NOTE: Use either auth_token OR auth_token_file, not both.
-# auth_token_file = "~/.config/tunnel-rs/token.txt"
+# SECURITY: Plaintext 'auth_token' is not allowed in config files.
+# Use 'auth_token_file' here (recommended). For containers/automation, set TUNNEL_RS_AUTH_TOKEN environment variable instead.
+auth_token_file = "~/.config/tunnel-rs/token.txt"
 
 # ============================================================================
 # ALPN Token (REQUIRED)
@@ -39,11 +36,10 @@ auth_token = "iXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"  # Replace with r
 # Pre-shared token embedded in the QUIC ALPN protocol identifier.
 # Must match the server's alpn_token value.
 # Generate with: tunnel-rs generate-token --alpn
-alpn_token = "XXXXXXXXXXXXXX"  # Replace with real token from generate-token --alpn
-
-# Or use a file containing the ALPN token
-# NOTE: Use either alpn_token OR alpn_token_file, not both.
-# alpn_token_file = "~/.config/tunnel-rs/alpn_token.txt"
+#
+# SECURITY: Plaintext 'alpn_token' is not allowed in config files.
+# Use 'alpn_token_file' here (recommended). For containers/automation, set TUNNEL_RS_ALPN_TOKEN environment variable instead.
+alpn_token_file = "~/.config/tunnel-rs/alpn_token.txt"
 
 # Source address to request from server (required if not specified via CLI --source)
 # Must be in server's allowed_sources list (--allowed-tcp or --allowed-udp)
@@ -70,6 +66,26 @@ alpn_token = "XXXXXXXXXXXXXX"  # Replace with real token from generate-token --a
 #   1. Common relay server - both specify the same relay_urls
 #   2. mDNS - automatic discovery on the same local network
 # dns_server = "none"
+
+# ============================================================================
+# Encrypted Inline Secrets (Optional)
+# ============================================================================
+# Instead of _file variants, you can encrypt secrets directly in this config
+# using age encryption. This is useful for managing multiple configs with a
+# single shared private key.
+#
+# 1. Generate a key: tunnel-rs config-encryption generate-key --output ~/.config/tunnel-rs/age.key
+# 2. Encrypt a value: echo -n "token" | tunnel-rs config-encryption encrypt-value --recipient age1...
+# 3. Paste the ageenc:... output as a TOML string value.
+#
+# encryption_key_file is required at runtime to decrypt ageenc: values.
+# encryption_recipient is only used by `encrypt-value` to know which public key to encrypt for.
+#
+# encryption_key_file = "~/.config/tunnel-rs/age.key"
+# encryption_recipient = "age1..."
+#
+# auth_token = "ageenc:YWdlLWVuY3J5cHRpb24ub3Jn..."
+# alpn_token = "ageenc:YWdlLWVuY3J5cHRpb24ub3Jn..."
 
 # ============================================================================
 # Transport Tuning (Optional)

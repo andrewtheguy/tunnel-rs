@@ -5,7 +5,7 @@
 #
 # Mode is inferred from the 'mode' field below.
 # CLI arguments take precedence over config file values.
-# This file is iroh-only. For ICE modes, see server_ice.toml.example.
+# This file is iroh-only.
 
 # Required: validates config matches CLI command
 role = "server"
@@ -15,12 +15,11 @@ mode = "iroh"
 # Clients request sources dynamically. Use allowed_sources below to restrict.
 
 [iroh]
-# Base64-encoded secret key for persistent identity (inline)
-# secret = "base64..."
-#
-# Path to secret key file for persistent identity.
-# One of 'secret' or 'secret_file' is required; use 'secret_file' to point to the generated key file.
+# Path to secret key file for persistent identity (required).
 # Generate with: tunnel-rs generate-server-key --output server.key
+#
+# SECURITY: Plaintext 'secret' is not allowed in config files.
+# Use 'secret_file' here (recommended). For containers/automation, set TUNNEL_RS_SECRET environment variable instead.
 secret_file = "./server.key"
 
 # Custom relay server URL(s) for failover
@@ -51,17 +50,11 @@ max_sessions = 100
 # Clients must provide one of these tokens to connect.
 # Token format: exactly 47 characters (i + 46 Base64URL chars, no padding)
 # Generate with: tunnel-rs generate-token
-
-# Authentication tokens (inline list)
-# NOTE: Use either auth_tokens OR auth_tokens_file, not both.
-auth_tokens = [
-    "iXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",  # Replace with real tokens from generate-token
-    # "iYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY",  # Add more tokens as needed
-]
-
-# Or use a file (one token per line, # comments allowed)
-# NOTE: Use either auth_tokens OR auth_tokens_file, not both.
-# auth_tokens_file = "/etc/tunnel-rs/auth_tokens.txt"
+#
+# SECURITY: Plaintext 'auth_tokens' is not allowed in config files.
+# Use 'auth_tokens_file' here (recommended). For containers/automation, set TUNNEL_RS_AUTH_TOKENS environment variable instead.
+# File format: one token per line, # comments allowed.
+auth_tokens_file = "/etc/tunnel-rs/auth_tokens.txt"
 
 # ============================================================================
 # ALPN Token (REQUIRED)
@@ -70,11 +63,10 @@ auth_tokens = [
 # Rejects unknown clients at the QUIC handshake level (before any streams open).
 # Both server and all clients must use the same ALPN token.
 # Generate with: tunnel-rs generate-token --alpn
-alpn_token = "XXXXXXXXXXXXXX"  # Replace with real token from generate-token --alpn
-
-# Or use a file containing the ALPN token
-# NOTE: Use either alpn_token OR alpn_token_file, not both.
-# alpn_token_file = "/etc/tunnel-rs/alpn_token.txt"
+#
+# SECURITY: Plaintext 'alpn_token' is not allowed in config files.
+# Use 'alpn_token_file' here (recommended). For containers/automation, set TUNNEL_RS_ALPN_TOKEN environment variable instead.
+alpn_token_file = "/etc/tunnel-rs/alpn_token.txt"
 
 # ============================================================================
 # Allowed source networks that clients can request (CIDR notation)
@@ -90,6 +82,26 @@ tcp = [
 udp = [
     "10.0.0.0/8",       # private network
 ]
+
+# ============================================================================
+# Encrypted Inline Secrets (Optional)
+# ============================================================================
+# Instead of _file variants, you can encrypt secrets directly in this config
+# using age encryption. This is useful for managing multiple configs with a
+# single shared private key.
+#
+# 1. Generate a key: tunnel-rs config-encryption generate-key --output ~/.config/tunnel-rs/age.key
+# 2. Encrypt a value: echo -n "token" | tunnel-rs config-encryption encrypt-value --recipient age1...
+# 3. Paste the ageenc:... output as a TOML string value.
+#
+# encryption_key_file is required at runtime to decrypt ageenc: values.
+# encryption_recipient is only used by `encrypt-value` to know which public key to encrypt for.
+#
+# encryption_key_file = "~/.config/tunnel-rs/age.key"
+# encryption_recipient = "age1..."
+#
+# auth_tokens = ["ageenc:YWdlLWVuY3J5cHRpb24ub3Jn..."]
+# alpn_token = "ageenc:YWdlLWVuY3J5cHRpb24ub3Jn..."
 
 # ============================================================================
 # Transport Tuning (Optional)

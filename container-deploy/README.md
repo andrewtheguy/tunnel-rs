@@ -19,13 +19,13 @@ tunnel-rs uses a **client-initiated** model similar to SSH `-L` tunneling:
 
 **Server** (runs in container, waits for connections):
 - Uses `--allowed-tcp` / `--allowed-udp` with **CIDR notation** (e.g., `10.0.0.0/8`) to whitelist networks
-- Uses `--auth-tokens` or `--auth-tokens-file` to authenticate clients by pre-shared token
+- Uses `TUNNEL_RS_AUTH_TOKENS` env var or `--auth-tokens-file` to authenticate clients by pre-shared token
 - Does NOT specify ports — clients choose the destination
 
 **Client** (initiates connection from remote machine):
 - Uses `--source` with **protocol + address** (e.g., `tcp://postgres:5432` or `udp://kube-dns.kube-system.svc.cluster.local:53`) to request a specific service
 - Uses `--target` to specify local listen address
-- Uses `--auth-token` to authenticate with the server
+- Uses `TUNNEL_RS_AUTH_TOKEN` env var to authenticate with the server
 
 ## Quick Start
 
@@ -43,21 +43,21 @@ ALPN_TOKEN=$(tunnel-rs generate-token --alpn)
 echo $ALPN_TOKEN
 
 # 4. Server: allow connections with token authentication
+export TUNNEL_RS_AUTH_TOKENS="$AUTH_TOKEN"
+export TUNNEL_RS_ALPN_TOKEN="$ALPN_TOKEN"
 tunnel-rs server \
   --secret-file ./server.key \
   --allowed-tcp 127.0.0.0/8 \
-  --allowed-tcp 192.168.0.0/16 \
-  --auth-tokens "$AUTH_TOKEN" \
-  --alpn-token "$ALPN_TOKEN"
+  --allowed-tcp 192.168.0.0/16
 # Output: EndpointId: <SERVER_NODE_ID>
 
 # 5. Client: connect and request a service
+export TUNNEL_RS_AUTH_TOKEN="$AUTH_TOKEN"
+export TUNNEL_RS_ALPN_TOKEN="$ALPN_TOKEN"
 tunnel-rs client \
   --server-node-id <SERVER_NODE_ID> \
   --source tcp://127.0.0.1:22 \
-  --target 127.0.0.1:2222 \
-  --auth-token "$AUTH_TOKEN" \
-  --alpn-token "$ALPN_TOKEN"
+  --target 127.0.0.1:2222
 ```
 
 ## Docker
@@ -90,20 +90,18 @@ docker compose logs tunnel-server | grep EndpointId
 # EndpointId: <SERVER_NODE_ID>
 
 # 6. On remote machine - connect to web service
+export TUNNEL_RS_AUTH_TOKEN="$AUTH_TOKEN"
+export TUNNEL_RS_ALPN_TOKEN="$ALPN_TOKEN"
 tunnel-rs client \
   --server-node-id <SERVER_NODE_ID> \
   --source tcp://web:80 \
-  --target 127.0.0.1:8080 \
-  --auth-token "$AUTH_TOKEN" \
-  --alpn-token "$ALPN_TOKEN"
+  --target 127.0.0.1:8080
 
 # 7. Or connect to database
 tunnel-rs client \
   --server-node-id <SERVER_NODE_ID> \
   --source tcp://db:5432 \
-  --target 127.0.0.1:5432 \
-  --auth-token "$AUTH_TOKEN" \
-  --alpn-token "$ALPN_TOKEN"
+  --target 127.0.0.1:5432
 
 # Access at http://127.0.0.1:8080 or localhost:5432
 ```
@@ -139,29 +137,26 @@ kubectl logs -l app=tunnel-server | grep EndpointId
 **Client examples** (run on your local machine):
 
 ```bash
+export TUNNEL_RS_AUTH_TOKEN="$AUTH_TOKEN"
+export TUNNEL_RS_ALPN_TOKEN="$ALPN_TOKEN"
+
 # Tunnel to PostgreSQL
 tunnel-rs client \
   --server-node-id <SERVER_NODE_ID> \
   --source tcp://postgres.database.svc:5432 \
-  --target 127.0.0.1:5432 \
-  --auth-token "$AUTH_TOKEN" \
-  --alpn-token "$ALPN_TOKEN"
+  --target 127.0.0.1:5432
 
 # Tunnel to Redis
 tunnel-rs client \
   --server-node-id <SERVER_NODE_ID> \
   --source tcp://redis.cache.svc:6379 \
-  --target 127.0.0.1:6379 \
-  --auth-token "$AUTH_TOKEN" \
-  --alpn-token "$ALPN_TOKEN"
+  --target 127.0.0.1:6379
 
 # Tunnel to a web dashboard
 tunnel-rs client \
   --server-node-id <SERVER_NODE_ID> \
   --source tcp://kubernetes-dashboard.kubernetes-dashboard.svc:443 \
-  --target 127.0.0.1:8443 \
-  --auth-token "$AUTH_TOKEN" \
-  --alpn-token "$ALPN_TOKEN"
+  --target 127.0.0.1:8443
 ```
 
 **Advantages over `kubectl port-forward`:**
@@ -177,12 +172,12 @@ Tunnel UDP services like DNS (something `kubectl port-forward` can't do):
 
 ```bash
 # Expose cluster DNS
+export TUNNEL_RS_AUTH_TOKEN="$AUTH_TOKEN"
+export TUNNEL_RS_ALPN_TOKEN="$ALPN_TOKEN"
 tunnel-rs client \
   --server-node-id <SERVER_NODE_ID> \
   --source udp://kube-dns.kube-system.svc.cluster.local:53 \
-  --target 127.0.0.1:5353 \
-  --auth-token "$AUTH_TOKEN" \
-  --alpn-token "$ALPN_TOKEN"
+  --target 127.0.0.1:5353
 
 # Query cluster DNS locally
 dig @127.0.0.1 -p 5353 kubernetes.default.svc.cluster.local

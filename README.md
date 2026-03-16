@@ -136,10 +136,20 @@ tunnel-rs show-server-id --secret-file ./server.key
 
 Then reference the key in your server config or CLI:
 
-**CLI**:
+**CLI** (tokens saved to files — recommended):
 ```bash
-tunnel-rs server --secret-file ./server.key --allowed-tcp 127.0.0.0/8 --auth-tokens "$AUTH_TOKEN" --alpn-token "$ALPN_TOKEN"
+# Save tokens to files with restricted permissions
+echo "$AUTH_TOKEN" > auth_tokens.txt && chmod 600 auth_tokens.txt
+echo "$ALPN_TOKEN" > alpn_token.txt && chmod 600 alpn_token.txt
+
+tunnel-rs server \
+  --secret-file ./server.key \
+  --allowed-tcp 127.0.0.0/8 \
+  --auth-tokens-file ./auth_tokens.txt \
+  --alpn-token-file ./alpn_token.txt
 ```
+
+> **Tip:** For containers and automation scripts, use environment variables (`TUNNEL_RS_AUTH_TOKENS`, `TUNNEL_RS_ALPN_TOKEN`) instead of files. See the server environment variable table below.
 
 **Config file** (`server.toml`):
 ```toml
@@ -148,6 +158,8 @@ secret_file = "./server.key"
 ```
 
 > **Note:** Clients use ephemeral identities by default. Only the server needs a persistent key to maintain a stable EndpointId that clients can connect to.
+
+> **Note:** The age encryption key (`config-encryption generate-key`) is different from the server identity key (`generate-server-key`). The server key establishes a stable EndpointId for P2P connections. The encryption key protects secrets stored in config files.
 
 ## Authentication
 
@@ -177,16 +189,14 @@ tunnel-rs generate-token -c 5
 ### Multiple Tokens (Server)
 
 ```bash
-# Multiple --auth-tokens flags
-tunnel-rs server \
-  --allowed-tcp 127.0.0.0/8 \
-  --auth-tokens "token-for-alice" \
-  --auth-tokens "token-for-bob"
-
-# Or use a file (one token per line, # comments allowed)
+# Use a file with one token per line (recommended)
 tunnel-rs server \
   --allowed-tcp 127.0.0.0/8 \
   --auth-tokens-file /etc/tunnel-rs/auth_tokens.txt
+
+# Or comma-separated via environment variable (for containers/automation)
+export TUNNEL_RS_AUTH_TOKENS="token-for-alice,token-for-bob"
+tunnel-rs server --allowed-tcp 127.0.0.0/8
 ```
 
 **Example `auth_tokens.txt`:**
@@ -200,21 +210,18 @@ iYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY
 
 ### Configuration File
 
+> **Security:** Plaintext tokens and secrets are **not allowed** in TOML config files. Use the `_file` variants (e.g., `auth_tokens_file`, `auth_token_file`, `alpn_token_file`, `secret_file`) in config files. For non-containerized deployments, `_file` variants are the recommended approach. Environment variables (`TUNNEL_RS_*`) are best suited for containers and automation scripts where secrets are injected dynamically. Plaintext values are also accepted via `--config-stdin` (JSON) for IPC.
+
 **Server** (`server.toml`):
 ```toml
 [iroh]
-auth_tokens = [
-    "iXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",  # Alice
-    "iYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY",  # Bob
-]
-# Or use: auth_tokens_file = "/etc/tunnel-rs/auth_tokens.txt"
+auth_tokens_file = "/etc/tunnel-rs/auth_tokens.txt"
 ```
 
-**Client** (`client.toml` or CLI):
+**Client** (`client.toml`):
 ```toml
 [iroh]
-auth_token = "iXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
-# Or use: auth_token_file = "~/.config/tunnel-rs/token.txt"
+auth_token_file = "~/.config/tunnel-rs/token.txt"
 ```
 
 ## Self-Hosting
@@ -265,11 +272,15 @@ echo $ALPN_TOKEN
 
 **Server** (on server — waits for client connections):
 ```bash
+# Save tokens to files (recommended for non-containerized use)
+echo "$AUTH_TOKEN" > auth_tokens.txt && chmod 600 auth_tokens.txt
+echo "$ALPN_TOKEN" > alpn_token.txt && chmod 600 alpn_token.txt
+
 tunnel-rs server \
   --secret-file ./server.key \
   --allowed-tcp 127.0.0.0/8 \
-  --auth-tokens "$AUTH_TOKEN" \
-  --alpn-token "$ALPN_TOKEN"
+  --auth-tokens-file ./auth_tokens.txt \
+  --alpn-token-file ./alpn_token.txt
 ```
 
 Output:
@@ -281,15 +292,21 @@ Waiting for clients to connect...
 
 **Client** (on client — requests source from server):
 ```bash
+# Save tokens to files
+echo "$AUTH_TOKEN" > auth_token.txt && chmod 600 auth_token.txt
+echo "$ALPN_TOKEN" > alpn_token.txt && chmod 600 alpn_token.txt
+
 tunnel-rs client \
   --server-node-id <SERVER_ENDPOINT_ID> \
   --source tcp://127.0.0.1:22 \
   --target 127.0.0.1:2222 \
-  --auth-token "$AUTH_TOKEN" \
-  --alpn-token "$ALPN_TOKEN"
+  --auth-token-file ./auth_token.txt \
+  --alpn-token-file ./alpn_token.txt
 ```
 
 Then connect: `ssh -p 2222 user@127.0.0.1`
+
+> **Tip:** For containers and automation scripts, use environment variables (`TUNNEL_RS_AUTH_TOKEN`, `TUNNEL_RS_ALPN_TOKEN`, etc.) instead of files. See the client environment variable table below.
 
 ### 3. UDP Tunnel (e.g., WireGuard/Game/DNS)
 
@@ -298,8 +315,8 @@ Then connect: `ssh -p 2222 user@127.0.0.1`
 tunnel-rs server \
   --secret-file ./server.key \
   --allowed-udp 127.0.0.0/8 \
-  --auth-tokens "$AUTH_TOKEN" \
-  --alpn-token "$ALPN_TOKEN"
+  --auth-tokens-file ./auth_tokens.txt \
+  --alpn-token-file ./alpn_token.txt
 ```
 
 **Client**:
@@ -308,8 +325,8 @@ tunnel-rs client \
   --server-node-id <SERVER_ENDPOINT_ID> \
   --source udp://127.0.0.1:51820 \
   --target 0.0.0.0:51820 \
-  --auth-token "$AUTH_TOKEN" \
-  --alpn-token "$ALPN_TOKEN"
+  --auth-token-file ./auth_token.txt \
+  --alpn-token-file ./alpn_token.txt
 ```
 
 ## CLI Options
@@ -328,16 +345,25 @@ tunnel-rs client \
 |--------|---------|-------------|
 | `--allowed-tcp` | - | Allowed TCP networks in CIDR notation (repeatable) |
 | `--allowed-udp` | - | Allowed UDP networks in CIDR notation (repeatable) |
-| `--auth-tokens` | - | Authentication tokens (repeatable). Required unless provided via `--auth-tokens-file`. |
-| `--auth-tokens-file` | - | Path to file containing authentication tokens (one per line, # comments allowed). Can be combined with `--auth-tokens`. |
-| `--alpn-token` | required | ALPN token for QUIC handshake-level filtering (14-char Base64URL with CRC16 checksum). Generate with `generate-token --alpn`. |
-| `--alpn-token-file` | - | Path to file containing ALPN token (use this or `--alpn-token`, not both) |
+| `--auth-tokens-file` | - | Path to file containing authentication tokens (one per line, # comments allowed) |
+| `--alpn-token-file` | - | Path to file containing ALPN token |
 | `--max-sessions` | 100 | Maximum concurrent sessions |
-| `--secret` | - | Base64-encoded secret key for persistent server identity (use this or `--secret-file`) |
-| `--secret-file` | - | Path to secret key file for persistent server identity (use this or `--secret`) |
+| `--secret-file` | - | Path to secret key file for persistent server identity |
 | `--relay-url` | public | Custom relay server URL(s), repeatable |
 | `--relay-only` | false | Force all traffic through relay (CLI-only; not supported in config files) |
 | `--dns-server` | public | Custom DNS server URL, or "none" to disable DNS discovery |
+| `--encryption-key-file` | - | Path to age identity file for decrypting age-encrypted config values |
+
+**Environment variables** (for containers and automation scripts):
+
+> Environment variables are primarily intended for containerized deployments and automation scripts. For regular use, prefer the `_file` CLI flags or config file equivalents.
+
+| Env Var | Description |
+|---------|-------------|
+| `TUNNEL_RS_AUTH_TOKENS` | Authentication tokens (comma-separated). Required unless provided via `--auth-tokens-file`. |
+| `TUNNEL_RS_ALPN_TOKEN` | ALPN token for QUIC handshake-level filtering (14-char Base64URL with CRC16 checksum). Required unless provided via `--alpn-token-file`. Generate with `generate-token --alpn`. |
+| `TUNNEL_RS_SECRET` | Base64-encoded secret key for persistent server identity (use this or `--secret-file`) |
+| `TUNNEL_RS_ENCRYPTION_KEY_FILE` | Path to age identity file for decrypting age-encrypted config values |
 
 ### client
 
@@ -354,17 +380,28 @@ tunnel-rs client \
 | `--server-node-id`, `-n` | required | EndpointId of the server |
 | `--source`, `-s` | required | Source address to request from server (tcp://host:port or udp://host:port) |
 | `--target`, `-t` | required | Local address to listen on |
-| `--auth-token` | - | Authentication token to send to server (required unless provided via `--auth-token-file`) |
-| `--auth-token-file` | - | Path to file containing authentication token (use this or `--auth-token`) |
-| `--alpn-token` | required | ALPN token for QUIC handshake-level filtering (14-char Base64URL with CRC16 checksum, must match server). Generate with `generate-token --alpn`. |
-| `--alpn-token-file` | - | Path to file containing ALPN token (use this or `--alpn-token`, not both) |
+| `--auth-token-file` | - | Path to file containing authentication token |
+| `--alpn-token-file` | - | Path to file containing ALPN token |
 | `--relay-url` | public | Custom relay server URL(s), repeatable |
 | `--relay-only` | false | Force all traffic through relay (CLI-only; not supported in config files) |
 | `--dns-server` | public | Custom DNS server URL, or "none" to disable DNS discovery |
+| `--encryption-key-file` | - | Path to age identity file for decrypting age-encrypted config values |
+
+**Environment variables** (for containers and automation scripts):
+
+> Environment variables are primarily intended for containerized deployments and automation scripts. For regular use, prefer the `_file` CLI flags or config file equivalents.
+
+| Env Var | Description |
+|---------|-------------|
+| `TUNNEL_RS_AUTH_TOKEN` | Authentication token to send to server (required unless provided via `--auth-token-file`) |
+| `TUNNEL_RS_ALPN_TOKEN` | ALPN token for QUIC handshake-level filtering (14-char Base64URL with CRC16 checksum, must match server). Generate with `generate-token --alpn`. |
+| `TUNNEL_RS_ENCRYPTION_KEY_FILE` | Path to age identity file for decrypting age-encrypted config values |
 
 ## Configuration Files
 
 Use `--default-config` to load from the default location, or `-c <path>` for a custom path (both TOML). For normal usage, prefer config files so your settings are saved and reusable. The `--config-stdin` flag is intended for automation and IPC — it accepts JSON (self-delimiting, so the caller does not need to close stdin). Only one of these may be used at a time. Configuration uses the `[iroh]` section.
+
+> **Security:** TOML config files **reject plaintext sensitive fields** (`auth_token`, `auth_tokens`, `alpn_token`, `secret`). You have three options: use the corresponding `_file` variants (recommended), use environment variables (`TUNNEL_RS_*`) for containers/automation, or use [age-encrypted inline values](#encrypted-config-values). Plaintext values are also accepted via `--config-stdin` (JSON) for IPC.
 
 **Default locations:**
 - Server: `~/.config/tunnel-rs/server.toml`
@@ -389,6 +426,34 @@ tunnel-rs server --default-config \
 
 This lets you keep common settings (keys, relay URLs) in the config file while varying per-session options on the command line. You can also omit fields like `source` and `target` from the config entirely and provide them only via CLI.
 
+### Encrypted Config Values
+
+Instead of separate `_file` variants, you can embed age-encrypted secrets directly in TOML config files. This is useful when managing configs for multiple servers — each config is self-contained with a single shared private key.
+
+**Setup:**
+
+```bash
+# 1. Generate an age keypair (run again to add keys for rotation)
+tunnel-rs config-encryption generate-key --output ~/.config/tunnel-rs/age.key
+# Output: age1ql3z7hjy...  (this is your public key / recipient)
+
+# 2. Encrypt a secret value
+echo -n "$AUTH_TOKEN" | tunnel-rs config-encryption encrypt-value --recipient age1ql3z7hjy...
+```
+
+**Use in config:**
+
+```toml
+[iroh]
+encryption_key_file = "~/.config/tunnel-rs/age.key"
+encryption_recipient = "age1ql3z7hjy..."
+
+auth_token = "ageenc:YWdlLWVuY3J5cHRpb24ub3JnL3Yx..."
+alpn_token = "ageenc:YWdlLWVuY3J5cHRpb24ub3JnL3Yx..."
+```
+
+Each encrypted value is a single-line `ageenc:` prefixed string (base64-encoded age ciphertext). The `encryption_key_file` can also be specified via `--encryption-key-file` CLI flag or `TUNNEL_RS_ENCRYPTION_KEY_FILE` env var.
+
 ### Server Config Example
 
 ```toml
@@ -404,18 +469,13 @@ secret_file = "./server.key"
 dns_server = "https://dns.example.com/pkarr"
 max_sessions = 100
 
-# Authentication: clients must provide one of these tokens (47 chars)
-# Generate with: tunnel-rs generate-token
-auth_tokens = [
-    "iXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
-    "iYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY",
-]
-# Or use: auth_tokens_file = "/etc/tunnel-rs/auth_tokens.txt"
+# Authentication tokens file (one token per line, # comments allowed)
+# Generate tokens with: tunnel-rs generate-token
+auth_tokens_file = "/etc/tunnel-rs/auth_tokens.txt"
 
-# ALPN token for QUIC handshake-level filtering (14-char Base64URL)
+# ALPN token file for QUIC handshake-level filtering
 # Generate with: tunnel-rs generate-token --alpn
-alpn_token = "XXXXXXXXXXXXXX"
-# Or use: alpn_token_file = "/etc/tunnel-rs/alpn_token.txt"
+alpn_token_file = "/etc/tunnel-rs/alpn_token.txt"
 
 [iroh.allowed_sources]
 tcp = ["127.0.0.0/8", "192.168.0.0/16"]
@@ -450,13 +510,11 @@ target = "127.0.0.1:2222"
 # relay_urls = ["https://relay.example.com"]
 dns_server = "https://dns.example.com/pkarr"
 
-# Authentication token (get from server admin, 47 chars)
-auth_token = "iXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
-# Or use: auth_token_file = "~/.config/tunnel-rs/token.txt"
+# Authentication token file (get token from server admin, 47 chars)
+auth_token_file = "~/.config/tunnel-rs/token.txt"
 
-# ALPN token (must match server, 14-char Base64URL)
-alpn_token = "XXXXXXXXXXXXXX"
-# Or use: alpn_token_file = "~/.config/tunnel-rs/alpn_token.txt"
+# ALPN token file (must match server, 14-char Base64URL)
+alpn_token_file = "~/.config/tunnel-rs/alpn_token.txt"
 ```
 
 > [!NOTE]
@@ -550,6 +608,34 @@ tunnel-rs generate-server-key --output ./server.key
 tunnel-rs show-server-id --secret-file ./server.key
 ```
 
+## config-encryption
+
+Age encryption commands for config file secrets.
+
+### generate-key
+
+Generate an age keypair for encrypting config file secrets:
+
+```bash
+tunnel-rs config-encryption generate-key --output ~/.config/tunnel-rs/age.key
+# Prints the public key (recipient) to stdout
+```
+
+Running again with the same `--output` appends a new keypair to the file, enabling key rotation. Use `--force` to overwrite the file and start fresh.
+
+### encrypt-value
+
+Encrypt a value for embedding in config files (reads plaintext from stdin):
+
+```bash
+echo -n "$AUTH_TOKEN" | tunnel-rs config-encryption encrypt-value --recipient age1...
+
+# Or read recipient from a config file
+echo -n "$AUTH_TOKEN" | tunnel-rs config-encryption encrypt-value --config client.toml
+```
+
+Output is a single-line `ageenc:` string ready to paste into TOML config values.
+
 ---
 
 ## Security
@@ -615,4 +701,3 @@ done
 7. **Source request phase:** Client opens source stream with `SourceRequest`
 8. Server validates source against allowed networks and responds
 9. If accepted, traffic forwarding begins
-

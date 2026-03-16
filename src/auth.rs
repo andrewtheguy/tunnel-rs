@@ -127,7 +127,7 @@ pub fn validate_token(token: &str) -> Result<()> {
 /// Load auth tokens from CLI arguments and/or a file.
 ///
 /// # Arguments
-/// * `cli_tokens` - Tokens specified via CLI `--auth-tokens` flags
+/// * `cli_tokens` - Tokens from env var or other sources
 /// * `file` - Optional path to a file containing tokens (one per line)
 ///
 /// # Returns
