@@ -41,6 +41,9 @@ jobs:
           elif [ "$REF_NAME" != "main" ]; then
             echo "release_tag=$TAG" >> "$GITHUB_OUTPUT"
             echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
+          elif echo "$TAG" | grep -qiE '(alpha|beta|rc)'; then
+            echo "release_tag=$TAG" >> "$GITHUB_OUTPUT"
+            echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
           else
             echo "release_tag=$TAG" >> "$GITHUB_OUTPUT"
             echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
