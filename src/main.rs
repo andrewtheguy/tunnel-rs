@@ -764,7 +764,12 @@ async fn run_inner() -> Result<()> {
             }
             ConfigEncryptionCommand::EncryptValue { recipient, config } => {
                 let recipient_str = match (recipient, config) {
-                    (Some(r), _) => r.clone(),
+                    (Some(_), Some(_)) => {
+                        anyhow::bail!(
+                            "Cannot combine --recipient and --config. Use only one."
+                        );
+                    }
+                    (Some(r), None) => r.clone(),
                     (None, Some(config_path)) => {
                         let expanded = expand_tilde(config_path);
                         let content = std::fs::read_to_string(&expanded).with_context(|| {
