@@ -68,6 +68,23 @@ alpn_token_file = "~/.config/tunnel-rs/alpn_token.txt"
 # dns_server = "none"
 
 # ============================================================================
+# Encrypted Inline Secrets (Optional)
+# ============================================================================
+# Instead of _file variants, you can encrypt secrets directly in this config
+# using age encryption. This is useful for managing multiple configs with a
+# single shared private key.
+#
+# 1. Generate a key: tunnel-rs generate-encryption-key --output ~/.config/tunnel-rs/age.key
+# 2. Encrypt a value: echo -n "token" | tunnel-rs encrypt-value --recipient age1...
+# 3. Paste the age-encrypted output as a multi-line TOML string.
+#
+# encryption_key_file = "~/.config/tunnel-rs/age.key"
+# encryption_recipient = "age1..."
+#
+# auth_token = "ageenc:YWdlLWVuY3J5cHRpb24ub3Jn..."
+# alpn_token = "ageenc:YWdlLWVuY3J5cHRpb24ub3Jn..."
+
+# ============================================================================
 # Transport Tuning (Optional)
 # ============================================================================
 # Fine-tune QUIC transport layer for performance optimization.

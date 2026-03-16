@@ -4,6 +4,7 @@
 
 mod auth;
 mod config;
+mod encryption;
 mod error;
 mod iroh_mode;
 mod net;
@@ -87,6 +88,10 @@ enum Command {
         /// Path to file containing ALPN token
         #[arg(long)]
         alpn_token_file: Option<PathBuf>,
+
+        /// Path to age identity file for decrypting age-encrypted config values
+        #[arg(long)]
+        encryption_key_file: Option<PathBuf>,
     },
     /// Run as client (connects to server and exposes local port)
     Client {
@@ -135,6 +140,10 @@ enum Command {
         /// Path to file containing ALPN token
         #[arg(long)]
         alpn_token_file: Option<PathBuf>,
+
+        /// Path to age identity file for decrypting age-encrypted config values
+        #[arg(long)]
+        encryption_key_file: Option<PathBuf>,
     },
     /// Generate a server private key for persistent identity
     ///
@@ -169,6 +178,32 @@ enum Command {
         /// Generate an ALPN token (14-char Base64URL) instead of an auth token
         #[arg(long)]
         alpn: bool,
+    },
+    /// Generate an age encryption keypair for config file secrets
+    ///
+    /// The private key is saved to the output file. The public key (recipient)
+    /// is printed to stdout for use with encrypt-value or in config files.
+    GenerateEncryptionKey {
+        /// Path where to save the age identity (private key) file
+        #[arg(short, long)]
+        output: PathBuf,
+
+        /// Overwrite existing file if it exists
+        #[arg(long)]
+        force: bool,
+    },
+    /// Encrypt a value for use in config files (reads plaintext from stdin)
+    ///
+    /// Outputs an `ageenc:` prefixed single-line string that can be used directly
+    /// as a TOML config value.
+    EncryptValue {
+        /// Age recipient (public key, starts with "age1...")
+        #[arg(short, long)]
+        recipient: Option<String>,
+
+        /// Config file to read encryption_recipient from (alternative to --recipient)
+        #[arg(short, long)]
+        config: Option<PathBuf>,
     },
 }
 
@@ -215,6 +250,7 @@ fn resolve_server_iroh_params(
         dns_server,
         auth_tokens_file,
         alpn_token_file,
+        encryption_key_file: _,
         ..
     } = cli
     else {
@@ -307,6 +343,7 @@ fn resolve_client_iroh_params(
         dns_server,
         auth_token_file,
         alpn_token_file,
+        encryption_key_file: _,
         ..
     } = cli
     else {
@@ -474,13 +511,28 @@ async fn run_inner() -> Result<()> {
             default_config,
             config_stdin,
             relay_only,
+            encryption_key_file,
             ..
         } => {
-            let (cfg, source) =
+            let (mut cfg, source) =
                 resolve_server_config(config.clone(), *default_config, *config_stdin).await?;
 
             if source != ConfigSource::None {
                 cfg.validate(source)?;
+            }
+
+            // Decrypt age-encrypted values if present
+            let enc_key = encryption_key_file
+                .clone()
+                .or_else(|| env_var_opt("TUNNEL_RS_ENCRYPTION_KEY_FILE").map(PathBuf::from))
+                .or_else(|| {
+                    cfg.iroh
+                        .as_ref()
+                        .and_then(|i| i.encryption_key_file.clone())
+                })
+                .map(|p| expand_tilde(&p));
+            if let Some(ref mut iroh) = cfg.iroh {
+                iroh.decrypt_secrets(enc_key.as_deref())?;
             }
 
             let iroh_cfg = cfg.iroh();
@@ -562,13 +614,28 @@ async fn run_inner() -> Result<()> {
             default_config,
             config_stdin,
             relay_only,
+            encryption_key_file,
             ..
         } => {
-            let (cfg, source) =
+            let (mut cfg, source) =
                 resolve_client_config(config.clone(), *default_config, *config_stdin).await?;
 
             if source != ConfigSource::None {
                 cfg.validate(source)?;
+            }
+
+            // Decrypt age-encrypted values if present
+            let enc_key = encryption_key_file
+                .clone()
+                .or_else(|| env_var_opt("TUNNEL_RS_ENCRYPTION_KEY_FILE").map(PathBuf::from))
+                .or_else(|| {
+                    cfg.iroh
+                        .as_ref()
+                        .and_then(|i| i.encryption_key_file.clone())
+                })
+                .map(|p| expand_tilde(&p));
+            if let Some(ref mut iroh) = cfg.iroh {
+                iroh.decrypt_secrets(enc_key.as_deref())?;
             }
 
             let iroh_cfg = cfg.iroh();
@@ -675,6 +742,62 @@ async fn run_inner() -> Result<()> {
                     println!("{}", auth::generate_token());
                 }
             }
+            Ok(())
+        }
+        Command::GenerateEncryptionKey { output, force } => {
+            let output = expand_tilde(output);
+            let (secret_key, public_key) = encryption::generate_keypair();
+            encryption::write_identity_file(&output, &secret_key, &public_key, *force)?;
+            log::info!("Encryption key saved to: {}", output.display());
+            println!("{}", public_key);
+            Ok(())
+        }
+        Command::EncryptValue { recipient, config } => {
+            let recipient_str = match (recipient, config) {
+                (Some(r), _) => r.clone(),
+                (None, Some(config_path)) => {
+                    let expanded = expand_tilde(config_path);
+                    let content = std::fs::read_to_string(&expanded)
+                        .with_context(|| format!("Failed to read config: {}", expanded.display()))?;
+
+                    // Parse just enough to extract encryption_recipient
+                    #[derive(serde::Deserialize)]
+                    struct MinimalConfig {
+                        iroh: Option<MinimalIroh>,
+                    }
+                    #[derive(serde::Deserialize)]
+                    struct MinimalIroh {
+                        encryption_recipient: Option<String>,
+                    }
+
+                    let cfg: MinimalConfig = toml::from_str(&content)
+                        .with_context(|| format!("Failed to parse config: {}", expanded.display()))?;
+                    cfg.iroh
+                        .and_then(|i| i.encryption_recipient)
+                        .ok_or_else(|| {
+                            anyhow::anyhow!(
+                                "No [iroh].encryption_recipient found in {}",
+                                expanded.display()
+                            )
+                        })?
+                }
+                (None, None) => {
+                    anyhow::bail!(
+                        "Provide --recipient or --config to specify the age public key"
+                    );
+                }
+            };
+
+            let mut plaintext = String::new();
+            std::io::Read::read_to_string(&mut std::io::stdin(), &mut plaintext)
+                .context("Failed to read plaintext from stdin")?;
+            let plaintext = plaintext.trim_end_matches('\n');
+            if plaintext.is_empty() {
+                anyhow::bail!("No input provided on stdin");
+            }
+
+            let encrypted = encryption::encrypt_value(plaintext, &recipient_str)?;
+            println!("{}", encrypted);
             Ok(())
         }
     }

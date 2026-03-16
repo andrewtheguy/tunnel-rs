@@ -159,6 +159,8 @@ secret_file = "./server.key"
 
 > **Note:** Clients use ephemeral identities by default. Only the server needs a persistent key to maintain a stable EndpointId that clients can connect to.
 
+> **Note:** The age encryption key (`generate-encryption-key`) is different from the server identity key (`generate-server-key`). The server key establishes a stable EndpointId for P2P connections. The encryption key protects secrets stored in config files.
+
 ## Authentication
 
 Iroh mode requires authentication using pre-shared tokens. Clients must provide a valid token to connect.
@@ -350,6 +352,7 @@ tunnel-rs client \
 | `--relay-url` | public | Custom relay server URL(s), repeatable |
 | `--relay-only` | false | Force all traffic through relay (CLI-only; not supported in config files) |
 | `--dns-server` | public | Custom DNS server URL, or "none" to disable DNS discovery |
+| `--encryption-key-file` | - | Path to age identity file for decrypting age-encrypted config values |
 
 **Environment variables** (for containers and automation scripts):
 
@@ -360,6 +363,7 @@ tunnel-rs client \
 | `TUNNEL_RS_AUTH_TOKENS` | Authentication tokens (comma-separated). Required unless provided via `--auth-tokens-file`. |
 | `TUNNEL_RS_ALPN_TOKEN` | ALPN token for QUIC handshake-level filtering (14-char Base64URL with CRC16 checksum). Required unless provided via `--alpn-token-file`. Generate with `generate-token --alpn`. |
 | `TUNNEL_RS_SECRET` | Base64-encoded secret key for persistent server identity (use this or `--secret-file`) |
+| `TUNNEL_RS_ENCRYPTION_KEY_FILE` | Path to age identity file for decrypting age-encrypted config values |
 
 ### client
 
@@ -381,6 +385,7 @@ tunnel-rs client \
 | `--relay-url` | public | Custom relay server URL(s), repeatable |
 | `--relay-only` | false | Force all traffic through relay (CLI-only; not supported in config files) |
 | `--dns-server` | public | Custom DNS server URL, or "none" to disable DNS discovery |
+| `--encryption-key-file` | - | Path to age identity file for decrypting age-encrypted config values |
 
 **Environment variables** (for containers and automation scripts):
 
@@ -390,12 +395,13 @@ tunnel-rs client \
 |---------|-------------|
 | `TUNNEL_RS_AUTH_TOKEN` | Authentication token to send to server (required unless provided via `--auth-token-file`) |
 | `TUNNEL_RS_ALPN_TOKEN` | ALPN token for QUIC handshake-level filtering (14-char Base64URL with CRC16 checksum, must match server). Generate with `generate-token --alpn`. |
+| `TUNNEL_RS_ENCRYPTION_KEY_FILE` | Path to age identity file for decrypting age-encrypted config values |
 
 ## Configuration Files
 
 Use `--default-config` to load from the default location, or `-c <path>` for a custom path (both TOML). For normal usage, prefer config files so your settings are saved and reusable. The `--config-stdin` flag is intended for automation and IPC — it accepts JSON (self-delimiting, so the caller does not need to close stdin). Only one of these may be used at a time. Configuration uses the `[iroh]` section.
 
-> **Security:** TOML config files **reject plaintext sensitive fields** (`auth_token`, `auth_tokens`, `alpn_token`, `secret`). Use the corresponding `_file` variants in config files (recommended for non-containerized deployments). Environment variables (`TUNNEL_RS_*`) are best suited for containers and automation scripts. Plaintext values are also accepted via `--config-stdin` (JSON) for IPC.
+> **Security:** TOML config files **reject plaintext sensitive fields** (`auth_token`, `auth_tokens`, `alpn_token`, `secret`). You have three options: use the corresponding `_file` variants (recommended), use environment variables (`TUNNEL_RS_*`) for containers/automation, or use [age-encrypted inline values](#encrypted-config-values). Plaintext values are also accepted via `--config-stdin` (JSON) for IPC.
 
 **Default locations:**
 - Server: `~/.config/tunnel-rs/server.toml`
@@ -419,6 +425,34 @@ tunnel-rs server --default-config \
 ```
 
 This lets you keep common settings (keys, relay URLs) in the config file while varying per-session options on the command line. You can also omit fields like `source` and `target` from the config entirely and provide them only via CLI.
+
+### Encrypted Config Values
+
+Instead of separate `_file` variants, you can embed age-encrypted secrets directly in TOML config files. This is useful when managing configs for multiple servers — each config is self-contained with a single shared private key.
+
+**Setup:**
+
+```bash
+# 1. Generate an age keypair (one-time)
+tunnel-rs generate-encryption-key --output ~/.config/tunnel-rs/age.key
+# Output: age1ql3z7hjy...  (this is your public key / recipient)
+
+# 2. Encrypt a secret value
+echo -n "$AUTH_TOKEN" | tunnel-rs encrypt-value --recipient age1ql3z7hjy...
+```
+
+**Use in config:**
+
+```toml
+[iroh]
+encryption_key_file = "~/.config/tunnel-rs/age.key"
+encryption_recipient = "age1ql3z7hjy..."
+
+auth_token = "ageenc:YWdlLWVuY3J5cHRpb24ub3JnL3Yx..."
+alpn_token = "ageenc:YWdlLWVuY3J5cHRpb24ub3JnL3Yx..."
+```
+
+Each encrypted value is a single-line `ageenc:` prefixed string (base64-encoded age ciphertext). The `encryption_key_file` can also be specified via `--encryption-key-file` CLI flag or `TUNNEL_RS_ENCRYPTION_KEY_FILE` env var.
 
 ### Server Config Example
 
@@ -573,6 +607,28 @@ tunnel-rs generate-server-key --output ./server.key
 ```bash
 tunnel-rs show-server-id --secret-file ./server.key
 ```
+
+## generate-encryption-key
+
+Generate an age keypair for encrypting config file secrets:
+
+```bash
+tunnel-rs generate-encryption-key --output ~/.config/tunnel-rs/age.key
+# Prints the public key (recipient) to stdout
+```
+
+## encrypt-value
+
+Encrypt a value for embedding in config files (reads plaintext from stdin):
+
+```bash
+echo -n "$AUTH_TOKEN" | tunnel-rs encrypt-value --recipient age1...
+
+# Or read recipient from a config file
+echo -n "$AUTH_TOKEN" | tunnel-rs encrypt-value --config client.toml
+```
+
+Output is a single-line `ageenc:` string ready to paste into TOML config values.
 
 ---
 

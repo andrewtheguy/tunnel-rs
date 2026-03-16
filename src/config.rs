@@ -64,6 +64,13 @@ pub struct IrohConfig {
     pub alpn_token: Option<String>,
     /// Path to file containing the ALPN token.
     pub alpn_token_file: Option<PathBuf>,
+    /// Path to age identity (private key) file for decrypting age-encrypted values.
+    pub encryption_key_file: Option<PathBuf>,
+    /// Age public key (recipient) for encrypting values in this config.
+    /// Used by `encrypt-value --config`, not required for decryption.
+    /// Accessed via separate minimal TOML parsing in the encrypt-value command.
+    #[allow(dead_code)]
+    pub encryption_recipient: Option<String>,
     /// Transport layer tuning (congestion control, buffer sizes).
     #[serde(default)]
     pub transport: TransportTuning,
@@ -75,45 +82,124 @@ impl IrohConfig {
     /// Client fields: `auth_token`, `alpn_token`
     /// Server fields: `auth_tokens`, `alpn_token`, `secret`
     ///
-    /// Structured so that future encrypted-value support (e.g. `enc:` prefix)
-    /// can bypass rejection without changing the overall architecture.
+    /// Age-encrypted values (detected by `ageenc:` prefix) are allowed through;
+    /// they will be decrypted later via `decrypt_secrets()`.
     fn reject_plaintext_secrets(&self, role: Role) -> Result<()> {
+        use crate::encryption::is_age_encrypted;
         match role {
             Role::Client => {
-                if self.auth_token.is_some() {
+                if self.auth_token.as_ref().is_some_and(|v| !is_age_encrypted(v)) {
                     anyhow::bail!(
                         "[iroh] Plaintext 'auth_token' is not allowed in config files. \
-                         Use 'auth_token_file' instead, or set TUNNEL_RS_AUTH_TOKEN environment variable."
+                         Use 'auth_token_file', set TUNNEL_RS_AUTH_TOKEN env var, \
+                         or use an age-encrypted value. See: tunnel-rs encrypt-value --help"
                     );
                 }
-                if self.alpn_token.is_some() {
+                if self.alpn_token.as_ref().is_some_and(|v| !is_age_encrypted(v)) {
                     anyhow::bail!(
                         "[iroh] Plaintext 'alpn_token' is not allowed in config files. \
-                         Use 'alpn_token_file' instead, or set TUNNEL_RS_ALPN_TOKEN environment variable."
+                         Use 'alpn_token_file', set TUNNEL_RS_ALPN_TOKEN env var, \
+                         or use an age-encrypted value. See: tunnel-rs encrypt-value --help"
                     );
                 }
             }
             Role::Server => {
-                if self.auth_tokens.is_some() {
+                if self
+                    .auth_tokens
+                    .as_ref()
+                    .is_some_and(|vs| vs.iter().any(|v| !is_age_encrypted(v)))
+                {
                     anyhow::bail!(
                         "[iroh] Plaintext 'auth_tokens' is not allowed in config files. \
-                         Use 'auth_tokens_file' instead, or set TUNNEL_RS_AUTH_TOKENS environment variable."
+                         Use 'auth_tokens_file', set TUNNEL_RS_AUTH_TOKENS env var, \
+                         or use age-encrypted values. See: tunnel-rs encrypt-value --help"
                     );
                 }
-                if self.alpn_token.is_some() {
+                if self.alpn_token.as_ref().is_some_and(|v| !is_age_encrypted(v)) {
                     anyhow::bail!(
                         "[iroh] Plaintext 'alpn_token' is not allowed in config files. \
-                         Use 'alpn_token_file' instead, or set TUNNEL_RS_ALPN_TOKEN environment variable."
+                         Use 'alpn_token_file', set TUNNEL_RS_ALPN_TOKEN env var, \
+                         or use an age-encrypted value. See: tunnel-rs encrypt-value --help"
                     );
                 }
-                if self.secret.is_some() {
+                if self.secret.as_ref().is_some_and(|v| !is_age_encrypted(v)) {
                     anyhow::bail!(
                         "[iroh] Plaintext 'secret' is not allowed in config files. \
-                         Use 'secret_file' instead, or set TUNNEL_RS_SECRET environment variable."
+                         Use 'secret_file', set TUNNEL_RS_SECRET env var, \
+                         or use an age-encrypted value. See: tunnel-rs encrypt-value --help"
                     );
                 }
             }
         }
+        Ok(())
+    }
+
+    /// Decrypt any age-encrypted fields in place.
+    ///
+    /// If no fields contain age-encrypted values, returns immediately.
+    /// If encrypted fields are found but no key file is provided, returns an error.
+    pub fn decrypt_secrets(&mut self, encryption_key_file: Option<&Path>) -> Result<()> {
+        use crate::encryption::{decrypt_value, is_age_encrypted};
+
+        let has_encrypted = self
+            .auth_token
+            .as_ref()
+            .is_some_and(|v| is_age_encrypted(v))
+            || self
+                .alpn_token
+                .as_ref()
+                .is_some_and(|v| is_age_encrypted(v))
+            || self.secret.as_ref().is_some_and(|v| is_age_encrypted(v))
+            || self
+                .auth_tokens
+                .as_ref()
+                .is_some_and(|vs| vs.iter().any(|v| is_age_encrypted(v)));
+
+        if !has_encrypted {
+            return Ok(());
+        }
+
+        let key_path = encryption_key_file.ok_or_else(|| {
+            anyhow::anyhow!(
+                "Age-encrypted values found but no encryption key file specified.\n\
+                 Set [iroh].encryption_key_file in config, use --encryption-key-file, \
+                 or set TUNNEL_RS_ENCRYPTION_KEY_FILE env var."
+            )
+        })?;
+
+        if let Some(ref v) = self.auth_token {
+            if is_age_encrypted(v) {
+                self.auth_token =
+                    Some(decrypt_value(v, key_path).context("Failed to decrypt auth_token")?);
+            }
+        }
+        if let Some(ref v) = self.alpn_token {
+            if is_age_encrypted(v) {
+                self.alpn_token =
+                    Some(decrypt_value(v, key_path).context("Failed to decrypt alpn_token")?);
+            }
+        }
+        if let Some(ref v) = self.secret {
+            if is_age_encrypted(v) {
+                self.secret =
+                    Some(decrypt_value(v, key_path).context("Failed to decrypt secret")?);
+            }
+        }
+        if let Some(ref vs) = self.auth_tokens {
+            let mut decrypted = Vec::with_capacity(vs.len());
+            for (i, v) in vs.iter().enumerate() {
+                if is_age_encrypted(v) {
+                    decrypted.push(
+                        decrypt_value(v, key_path)
+                            .with_context(|| format!("Failed to decrypt auth_tokens[{}]", i))?,
+                    );
+                } else {
+                    decrypted.push(v.clone());
+                }
+            }
+            self.auth_tokens = Some(decrypted);
+        }
+
         Ok(())
     }
 }
@@ -688,5 +774,72 @@ mod tests {
             ..Default::default()
         });
         assert!(cfg.validate(ConfigSource::Stdin).is_ok());
+    }
+
+    const FAKE_AGE_ENCRYPTED: &str = "ageenc:YWdlLWVuY3J5cHRpb24=";
+
+    #[test]
+    fn client_allows_age_encrypted_auth_token_from_file() {
+        let cfg = client_config_with_iroh(IrohConfig {
+            auth_token: Some(FAKE_AGE_ENCRYPTED.into()),
+            ..Default::default()
+        });
+        assert!(cfg.validate(ConfigSource::File).is_ok());
+    }
+
+    #[test]
+    fn client_allows_age_encrypted_alpn_token_from_file() {
+        let cfg = client_config_with_iroh(IrohConfig {
+            alpn_token: Some(FAKE_AGE_ENCRYPTED.into()),
+            ..Default::default()
+        });
+        assert!(cfg.validate(ConfigSource::File).is_ok());
+    }
+
+    #[test]
+    fn server_allows_age_encrypted_auth_tokens_from_file() {
+        let cfg = server_config_with_iroh(IrohConfig {
+            auth_tokens: Some(vec![FAKE_AGE_ENCRYPTED.into()]),
+            ..Default::default()
+        });
+        assert!(cfg.validate(ConfigSource::File).is_ok());
+    }
+
+    #[test]
+    fn server_rejects_mixed_plaintext_age_auth_tokens_from_file() {
+        let cfg = server_config_with_iroh(IrohConfig {
+            auth_tokens: Some(vec![FAKE_AGE_ENCRYPTED.into(), "plaintext".into()]),
+            ..Default::default()
+        });
+        let err = cfg.validate(ConfigSource::File).unwrap_err();
+        assert!(err.to_string().contains("Plaintext 'auth_tokens'"));
+    }
+
+    #[test]
+    fn server_allows_age_encrypted_secret_from_file() {
+        let cfg = server_config_with_iroh(IrohConfig {
+            secret: Some(FAKE_AGE_ENCRYPTED.into()),
+            ..Default::default()
+        });
+        assert!(cfg.validate(ConfigSource::File).is_ok());
+    }
+
+    #[test]
+    fn server_allows_age_encrypted_alpn_token_from_file() {
+        let cfg = server_config_with_iroh(IrohConfig {
+            alpn_token: Some(FAKE_AGE_ENCRYPTED.into()),
+            ..Default::default()
+        });
+        assert!(cfg.validate(ConfigSource::File).is_ok());
+    }
+
+    #[test]
+    fn decrypt_secrets_missing_key_returns_error() {
+        let mut iroh = IrohConfig {
+            auth_token: Some(FAKE_AGE_ENCRYPTED.into()),
+            ..Default::default()
+        };
+        let err = iroh.decrypt_secrets(None).unwrap_err();
+        assert!(err.to_string().contains("no encryption key file"));
     }
 }

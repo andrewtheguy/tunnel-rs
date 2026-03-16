@@ -369,10 +369,10 @@ graph TB
 
 `iroh` mode uses two distinct credential types:
 
-| Credential | Env Vars / CLI Flags | Config Keys (TOML files must use `_file` variants) | Expected Usage |
+| Credential | Env Vars / CLI Flags | Config Keys (TOML: use `_file` variants or age-encrypted inline) | Expected Usage |
 |------------|-----------|-------------|----------------|
-| **ALPN Token** | `TUNNEL_RS_ALPN_TOKEN` or `--alpn-token-file` | Server/Client: `[iroh].alpn_token_file` | Pre-handshake QUIC ALPN filter (`mf/2/<token>`). Typically one shared value for a server and all its clients. |
-| **Auth Token** | Server: `TUNNEL_RS_AUTH_TOKENS` or `--auth-tokens-file`<br>Client: `TUNNEL_RS_AUTH_TOKEN` or `--auth-token-file` | Server: `[iroh].auth_tokens_file`<br>Client: `[iroh].auth_token_file` | Per-client credential checked on the auth stream after handshake. Use separate values per client for revocation/rotation. |
+| **ALPN Token** | `TUNNEL_RS_ALPN_TOKEN` or `--alpn-token-file` | Server/Client: `[iroh].alpn_token_file` or age-encrypted `[iroh].alpn_token` | Pre-handshake QUIC ALPN filter (`mf/2/<token>`). Typically one shared value for a server and all its clients. |
+| **Auth Token** | Server: `TUNNEL_RS_AUTH_TOKENS` or `--auth-tokens-file`<br>Client: `TUNNEL_RS_AUTH_TOKEN` or `--auth-token-file` | Server: `[iroh].auth_tokens_file` or age-encrypted `[iroh].auth_tokens`<br>Client: `[iroh].auth_token_file` or age-encrypted `[iroh].auth_token` | Per-client credential checked on the auth stream after handshake. Use separate values per client for revocation/rotation. |
 
 Example usage with files (recommended):
 
@@ -401,18 +401,27 @@ export TUNNEL_RS_AUTH_TOKEN="$ALICE_AUTH_TOKEN"
 tunnel-rs client ...
 ```
 
-Example config usage (plaintext tokens are not allowed in TOML config files — use `_file` variants):
+Example config usage (plaintext tokens are not allowed in TOML config files — use `_file` variants or age-encrypted inline values):
 
 ```toml
-# server.toml
+# server.toml — using _file variants
 [iroh]
 alpn_token_file = "/etc/tunnel-rs/alpn_token.txt"
 auth_tokens_file = "/etc/tunnel-rs/auth_tokens.txt"
 
-# client.toml
+# client.toml — using _file variants
 [iroh]
 alpn_token_file = "~/.config/tunnel-rs/alpn_token.txt"
 auth_token_file = "~/.config/tunnel-rs/token.txt"
+```
+
+```toml
+# client.toml — using age-encrypted inline values
+[iroh]
+encryption_key_file = "~/.config/tunnel-rs/age.key"
+
+auth_token = "ageenc:YWdlLWVuY3J5cHRpb24ub3JnL3Yx..."
+alpn_token = "ageenc:YWdlLWVuY3J5cHRpb24ub3JnL3Yx..."
 ```
 
 ### Configuration Loading Flow
