@@ -159,7 +159,7 @@ secret_file = "./server.key"
 
 > **Note:** Clients use ephemeral identities by default. Only the server needs a persistent key to maintain a stable EndpointId that clients can connect to.
 
-> **Note:** The age encryption key (`generate-encryption-key`) is different from the server identity key (`generate-server-key`). The server key establishes a stable EndpointId for P2P connections. The encryption key protects secrets stored in config files.
+> **Note:** The age encryption key (`config-encryption generate-key`) is different from the server identity key (`generate-server-key`). The server key establishes a stable EndpointId for P2P connections. The encryption key protects secrets stored in config files.
 
 ## Authentication
 
