@@ -434,11 +434,11 @@ Instead of separate `_file` variants, you can embed age-encrypted secrets direct
 
 ```bash
 # 1. Generate an age keypair (one-time)
-tunnel-rs generate-encryption-key --output ~/.config/tunnel-rs/age.key
+tunnel-rs config-encryption generate-key --output ~/.config/tunnel-rs/age.key
 # Output: age1ql3z7hjy...  (this is your public key / recipient)
 
 # 2. Encrypt a secret value
-echo -n "$AUTH_TOKEN" | tunnel-rs encrypt-value --recipient age1ql3z7hjy...
+echo -n "$AUTH_TOKEN" | tunnel-rs config-encryption encrypt-value --recipient age1ql3z7hjy...
 ```
 
 **Use in config:**
@@ -608,24 +608,28 @@ tunnel-rs generate-server-key --output ./server.key
 tunnel-rs show-server-id --secret-file ./server.key
 ```
 
-## generate-encryption-key
+## config-encryption
+
+Age encryption commands for config file secrets.
+
+### generate-key
 
 Generate an age keypair for encrypting config file secrets:
 
 ```bash
-tunnel-rs generate-encryption-key --output ~/.config/tunnel-rs/age.key
+tunnel-rs config-encryption generate-key --output ~/.config/tunnel-rs/age.key
 # Prints the public key (recipient) to stdout
 ```
 
-## encrypt-value
+### encrypt-value
 
 Encrypt a value for embedding in config files (reads plaintext from stdin):
 
 ```bash
-echo -n "$AUTH_TOKEN" | tunnel-rs encrypt-value --recipient age1...
+echo -n "$AUTH_TOKEN" | tunnel-rs config-encryption encrypt-value --recipient age1...
 
 # Or read recipient from a config file
-echo -n "$AUTH_TOKEN" | tunnel-rs encrypt-value --config client.toml
+echo -n "$AUTH_TOKEN" | tunnel-rs config-encryption encrypt-value --config client.toml
 ```
 
 Output is a single-line `ageenc:` string ready to paste into TOML config values.

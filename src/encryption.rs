@@ -37,7 +37,7 @@ fn load_identity(path: &Path) -> Result<age::x25519::Identity> {
         .find(|l| l.starts_with("AGE-SECRET-KEY-"))
         .ok_or_else(|| {
             anyhow::anyhow!(
-                "No AGE-SECRET-KEY found in {}. Generate one with: tunnel-rs generate-encryption-key",
+                "No AGE-SECRET-KEY found in {}. Generate one with: tunnel-rs config-encryption generate-key",
                 path.display()
             )
         })?;

@@ -74,8 +74,8 @@ alpn_token_file = "~/.config/tunnel-rs/alpn_token.txt"
 # using age encryption. This is useful for managing multiple configs with a
 # single shared private key.
 #
-# 1. Generate a key: tunnel-rs generate-encryption-key --output ~/.config/tunnel-rs/age.key
-# 2. Encrypt a value: echo -n "token" | tunnel-rs encrypt-value --recipient age1...
+# 1. Generate a key: tunnel-rs config-encryption generate-key --output ~/.config/tunnel-rs/age.key
+# 2. Encrypt a value: echo -n "token" | tunnel-rs config-encryption encrypt-value --recipient age1...
 # 3. Paste the age-encrypted output as a multi-line TOML string.
 #
 # encryption_key_file = "~/.config/tunnel-rs/age.key"

@@ -179,11 +179,20 @@ enum Command {
         #[arg(long)]
         alpn: bool,
     },
-    /// Generate an age encryption keypair for config file secrets
+    /// Age encryption commands for config file secrets
+    ConfigEncryption {
+        #[command(subcommand)]
+        action: ConfigEncryptionCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum ConfigEncryptionCommand {
+    /// Generate an age encryption keypair
     ///
     /// The private key is saved to the output file. The public key (recipient)
     /// is printed to stdout for use with encrypt-value or in config files.
-    GenerateEncryptionKey {
+    GenerateKey {
         /// Path where to save the age identity (private key) file
         #[arg(short, long)]
         output: PathBuf,
@@ -744,61 +753,65 @@ async fn run_inner() -> Result<()> {
             }
             Ok(())
         }
-        Command::GenerateEncryptionKey { output, force } => {
-            let output = expand_tilde(output);
-            let (secret_key, public_key) = encryption::generate_keypair();
-            encryption::write_identity_file(&output, &secret_key, &public_key, *force)?;
-            log::info!("Encryption key saved to: {}", output.display());
-            println!("{}", public_key);
-            Ok(())
-        }
-        Command::EncryptValue { recipient, config } => {
-            let recipient_str = match (recipient, config) {
-                (Some(r), _) => r.clone(),
-                (None, Some(config_path)) => {
-                    let expanded = expand_tilde(config_path);
-                    let content = std::fs::read_to_string(&expanded)
-                        .with_context(|| format!("Failed to read config: {}", expanded.display()))?;
-
-                    // Parse just enough to extract encryption_recipient
-                    #[derive(serde::Deserialize)]
-                    struct MinimalConfig {
-                        iroh: Option<MinimalIroh>,
-                    }
-                    #[derive(serde::Deserialize)]
-                    struct MinimalIroh {
-                        encryption_recipient: Option<String>,
-                    }
-
-                    let cfg: MinimalConfig = toml::from_str(&content)
-                        .with_context(|| format!("Failed to parse config: {}", expanded.display()))?;
-                    cfg.iroh
-                        .and_then(|i| i.encryption_recipient)
-                        .ok_or_else(|| {
-                            anyhow::anyhow!(
-                                "No [iroh].encryption_recipient found in {}",
-                                expanded.display()
-                            )
-                        })?
-                }
-                (None, None) => {
-                    anyhow::bail!(
-                        "Provide --recipient or --config to specify the age public key"
-                    );
-                }
-            };
-
-            let mut plaintext = String::new();
-            std::io::Read::read_to_string(&mut std::io::stdin(), &mut plaintext)
-                .context("Failed to read plaintext from stdin")?;
-            let plaintext = plaintext.trim_end_matches('\n');
-            if plaintext.is_empty() {
-                anyhow::bail!("No input provided on stdin");
+        Command::ConfigEncryption { action } => match action {
+            ConfigEncryptionCommand::GenerateKey { output, force } => {
+                let output = expand_tilde(output);
+                let (secret_key, public_key) = encryption::generate_keypair();
+                encryption::write_identity_file(&output, &secret_key, &public_key, *force)?;
+                log::info!("Encryption key saved to: {}", output.display());
+                println!("{}", public_key);
+                Ok(())
             }
+            ConfigEncryptionCommand::EncryptValue { recipient, config } => {
+                let recipient_str = match (recipient, config) {
+                    (Some(r), _) => r.clone(),
+                    (None, Some(config_path)) => {
+                        let expanded = expand_tilde(config_path);
+                        let content = std::fs::read_to_string(&expanded).with_context(|| {
+                            format!("Failed to read config: {}", expanded.display())
+                        })?;
 
-            let encrypted = encryption::encrypt_value(plaintext, &recipient_str)?;
-            println!("{}", encrypted);
-            Ok(())
-        }
+                        #[derive(serde::Deserialize)]
+                        struct MinimalConfig {
+                            iroh: Option<MinimalIroh>,
+                        }
+                        #[derive(serde::Deserialize)]
+                        struct MinimalIroh {
+                            encryption_recipient: Option<String>,
+                        }
+
+                        let cfg: MinimalConfig =
+                            toml::from_str(&content).with_context(|| {
+                                format!("Failed to parse config: {}", expanded.display())
+                            })?;
+                        cfg.iroh
+                            .and_then(|i| i.encryption_recipient)
+                            .ok_or_else(|| {
+                                anyhow::anyhow!(
+                                    "No [iroh].encryption_recipient found in {}",
+                                    expanded.display()
+                                )
+                            })?
+                    }
+                    (None, None) => {
+                        anyhow::bail!(
+                            "Provide --recipient or --config to specify the age public key"
+                        );
+                    }
+                };
+
+                let mut plaintext = String::new();
+                std::io::Read::read_to_string(&mut std::io::stdin(), &mut plaintext)
+                    .context("Failed to read plaintext from stdin")?;
+                let plaintext = plaintext.trim_end_matches('\n');
+                if plaintext.is_empty() {
+                    anyhow::bail!("No input provided on stdin");
+                }
+
+                let encrypted = encryption::encrypt_value(plaintext, &recipient_str)?;
+                println!("{}", encrypted);
+                Ok(())
+            }
+        },
     }
 }
