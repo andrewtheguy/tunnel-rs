@@ -374,7 +374,20 @@ graph TB
 | **ALPN Token** | `TUNNEL_RS_ALPN_TOKEN` or `--alpn-token-file` | Server/Client: `[iroh].alpn_token_file` | Pre-handshake QUIC ALPN filter (`mf/2/<token>`). Typically one shared value for a server and all its clients. |
 | **Auth Token** | Server: `TUNNEL_RS_AUTH_TOKENS` or `--auth-tokens-file`<br>Client: `TUNNEL_RS_AUTH_TOKEN` or `--auth-token-file` | Server: `[iroh].auth_tokens_file`<br>Client: `[iroh].auth_token_file` | Per-client credential checked on the auth stream after handshake. Use separate values per client for revocation/rotation. |
 
-Example usage with environment variables:
+Example usage with files (recommended):
+
+```bash
+# Server — save tokens to files with restricted permissions
+echo "$ALPN_TOKEN" > alpn_token.txt && chmod 600 alpn_token.txt
+# auth_tokens.txt: one token per line (Alice and Bob)
+tunnel-rs server --alpn-token-file ./alpn_token.txt --auth-tokens-file ./auth_tokens.txt ...
+
+# Alice's client
+echo "$ALICE_AUTH_TOKEN" > auth_token.txt && chmod 600 auth_token.txt
+tunnel-rs client --alpn-token-file ./alpn_token.txt --auth-token-file ./auth_token.txt ...
+```
+
+Example usage with environment variables (for containers/automation):
 
 ```bash
 # Server

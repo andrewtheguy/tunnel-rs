@@ -19,7 +19,7 @@ mode = "iroh"
 # Generate with: tunnel-rs generate-server-key --output server.key
 #
 # SECURITY: Plaintext 'secret' is not allowed in config files.
-# Use 'secret_file' here, or set TUNNEL_RS_SECRET environment variable.
+# Use 'secret_file' here (recommended). For containers/automation, set TUNNEL_RS_SECRET environment variable instead.
 secret_file = "./server.key"
 
 # Custom relay server URL(s) for failover
@@ -52,7 +52,7 @@ max_sessions = 100
 # Generate with: tunnel-rs generate-token
 #
 # SECURITY: Plaintext 'auth_tokens' is not allowed in config files.
-# Use 'auth_tokens_file' here, or set TUNNEL_RS_AUTH_TOKENS environment variable.
+# Use 'auth_tokens_file' here (recommended). For containers/automation, set TUNNEL_RS_AUTH_TOKENS environment variable instead.
 # File format: one token per line, # comments allowed.
 auth_tokens_file = "/etc/tunnel-rs/auth_tokens.txt"
 
@@ -65,7 +65,7 @@ auth_tokens_file = "/etc/tunnel-rs/auth_tokens.txt"
 # Generate with: tunnel-rs generate-token --alpn
 #
 # SECURITY: Plaintext 'alpn_token' is not allowed in config files.
-# Use 'alpn_token_file' here, or set TUNNEL_RS_ALPN_TOKEN environment variable.
+# Use 'alpn_token_file' here (recommended). For containers/automation, set TUNNEL_RS_ALPN_TOKEN environment variable instead.
 alpn_token_file = "/etc/tunnel-rs/alpn_token.txt"
 
 # ============================================================================

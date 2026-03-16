@@ -11,20 +11,31 @@ Use a custom relay server instead of the public iroh relay infrastructure.
 > **Note:** The public iroh DNS endpoint is now dual-stack (IPv4 + IPv6). IPv6-only environments no longer need a custom DNS server just to reach the default discovery service.
 
 ```bash
-# Both sides must use the same relay (tokens passed via env vars)
-export TUNNEL_RS_AUTH_TOKENS="$AUTH_TOKEN"
-export TUNNEL_RS_ALPN_TOKEN="$ALPN_TOKEN"
-tunnel-rs server --relay-url https://relay.example.com --allowed-tcp 127.0.0.0/8
+# Both sides must use the same relay (tokens via files — recommended)
+tunnel-rs server \
+  --relay-url https://relay.example.com \
+  --allowed-tcp 127.0.0.0/8 \
+  --auth-tokens-file ./auth_tokens.txt \
+  --alpn-token-file ./alpn_token.txt
 
-export TUNNEL_RS_AUTH_TOKEN="$AUTH_TOKEN"
-export TUNNEL_RS_ALPN_TOKEN="$ALPN_TOKEN"
-tunnel-rs client --relay-url https://relay.example.com --server-node-id <ID> --source tcp://127.0.0.1:22 --target 127.0.0.1:2222
+tunnel-rs client \
+  --relay-url https://relay.example.com \
+  --server-node-id <ID> \
+  --source tcp://127.0.0.1:22 \
+  --target 127.0.0.1:2222 \
+  --auth-token-file ./auth_token.txt \
+  --alpn-token-file ./alpn_token.txt
 
 # Force relay-only (no direct P2P) - CLI-only flag (not supported in config files)
-export TUNNEL_RS_AUTH_TOKENS="$AUTH_TOKEN"
-export TUNNEL_RS_ALPN_TOKEN="$ALPN_TOKEN"
-tunnel-rs server --relay-url https://relay.example.com --relay-only --allowed-tcp 127.0.0.0/8
+tunnel-rs server \
+  --relay-url https://relay.example.com \
+  --relay-only \
+  --allowed-tcp 127.0.0.0/8 \
+  --auth-tokens-file ./auth_tokens.txt \
+  --alpn-token-file ./alpn_token.txt
 ```
+
+> **Tip:** For container deployments, use environment variables (`TUNNEL_RS_AUTH_TOKENS`, `TUNNEL_RS_ALPN_TOKEN`, etc.) instead of files.
 
 ### Running iroh-relay (Quick Start)
 
@@ -43,12 +54,21 @@ The `--dns-server` flag (e.g., `https://dns.example.com/pkarr`) is a **pkarr pee
 For fully independent operation without public infrastructure. Note that `--dns-server` is for iroh node discovery via pkarr and does **not** provide ordinary DNS name resolution:
 
 ```bash
-# Both sides use custom DNS server (tokens passed via env vars)
-TUNNEL_RS_AUTH_TOKENS="$AUTH_TOKEN" TUNNEL_RS_ALPN_TOKEN="$ALPN_TOKEN" \
-  tunnel-rs server --dns-server https://dns.example.com/pkarr --secret-file ./server.key --allowed-tcp 127.0.0.0/8
+# Both sides use custom DNS server (tokens via files — recommended)
+tunnel-rs server \
+  --dns-server https://dns.example.com/pkarr \
+  --secret-file ./server.key \
+  --allowed-tcp 127.0.0.0/8 \
+  --auth-tokens-file ./auth_tokens.txt \
+  --alpn-token-file ./alpn_token.txt
 
-TUNNEL_RS_AUTH_TOKEN="$AUTH_TOKEN" TUNNEL_RS_ALPN_TOKEN="$ALPN_TOKEN" \
-  tunnel-rs client --dns-server https://dns.example.com/pkarr --server-node-id <ID> --source tcp://127.0.0.1:22 --target 127.0.0.1:2222
+tunnel-rs client \
+  --dns-server https://dns.example.com/pkarr \
+  --server-node-id <ID> \
+  --source tcp://127.0.0.1:22 \
+  --target 127.0.0.1:2222 \
+  --auth-token-file ./auth_token.txt \
+  --alpn-token-file ./alpn_token.txt
 ```
 
 ## Disabling DNS Discovery
@@ -58,12 +78,22 @@ You can disable DNS-based peer discovery entirely by setting `--dns-server none`
 > **Note:** This used to be a common workaround for IPv6-only networks when the public iroh DNS endpoint was IPv4-only. Since it is now dual-stack, only use `--dns-server none` if you intentionally want to disable DNS discovery.
 
 ```bash
-# Both sides disable DNS discovery (tokens passed via env vars)
-TUNNEL_RS_AUTH_TOKENS="$AUTH_TOKEN" TUNNEL_RS_ALPN_TOKEN="$ALPN_TOKEN" \
-  tunnel-rs server --dns-server none --relay-url https://relay.example.com --allowed-tcp 127.0.0.0/8
+# Both sides disable DNS discovery (tokens via files — recommended)
+tunnel-rs server \
+  --dns-server none \
+  --relay-url https://relay.example.com \
+  --allowed-tcp 127.0.0.0/8 \
+  --auth-tokens-file ./auth_tokens.txt \
+  --alpn-token-file ./alpn_token.txt
 
-TUNNEL_RS_AUTH_TOKEN="$AUTH_TOKEN" TUNNEL_RS_ALPN_TOKEN="$ALPN_TOKEN" \
-  tunnel-rs client --dns-server none --relay-url https://relay.example.com --server-node-id <ID> --source tcp://127.0.0.1:22 --target 127.0.0.1:2222
+tunnel-rs client \
+  --dns-server none \
+  --relay-url https://relay.example.com \
+  --server-node-id <ID> \
+  --source tcp://127.0.0.1:22 \
+  --target 127.0.0.1:2222 \
+  --auth-token-file ./auth_token.txt \
+  --alpn-token-file ./alpn_token.txt
 ```
 
 When DNS discovery is disabled, clients and server must connect using one of these methods:
@@ -145,25 +175,27 @@ enabled = false
 ### Using Your Infrastructure
 
 ```bash
-# Server
-export TUNNEL_RS_AUTH_TOKENS="$AUTH_TOKEN"
-export TUNNEL_RS_ALPN_TOKEN="$ALPN_TOKEN"
+# Server (tokens via files — recommended)
 tunnel-rs server \
   --relay-url https://relay.example.com \
   --dns-server https://dns.example.com/pkarr \
   --secret-file ./server.key \
-  --allowed-tcp 127.0.0.0/8
+  --allowed-tcp 127.0.0.0/8 \
+  --auth-tokens-file ./auth_tokens.txt \
+  --alpn-token-file ./alpn_token.txt
 
-# Client
-export TUNNEL_RS_AUTH_TOKEN="$AUTH_TOKEN"
-export TUNNEL_RS_ALPN_TOKEN="$ALPN_TOKEN"
+# Client (tokens via files — recommended)
 tunnel-rs client \
   --relay-url https://relay.example.com \
   --dns-server https://dns.example.com/pkarr \
   --server-node-id <ID> \
   --source tcp://127.0.0.1:22 \
-  --target 127.0.0.1:2222
+  --target 127.0.0.1:2222 \
+  --auth-token-file ./auth_token.txt \
+  --alpn-token-file ./alpn_token.txt
 ```
+
+> **Tip:** For container deployments, use environment variables (`TUNNEL_RS_AUTH_TOKENS`, `TUNNEL_RS_AUTH_TOKEN`, `TUNNEL_RS_ALPN_TOKEN`) instead of files.
 
 ## Relay Behavior
 

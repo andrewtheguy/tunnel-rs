@@ -136,12 +136,20 @@ tunnel-rs show-server-id --secret-file ./server.key
 
 Then reference the key in your server config or CLI:
 
-**CLI** (tokens passed via environment variables):
+**CLI** (tokens saved to files — recommended):
 ```bash
-export TUNNEL_RS_AUTH_TOKENS="$AUTH_TOKEN"
-export TUNNEL_RS_ALPN_TOKEN="$ALPN_TOKEN"
-tunnel-rs server --secret-file ./server.key --allowed-tcp 127.0.0.0/8
+# Save tokens to files with restricted permissions
+echo "$AUTH_TOKEN" > auth_tokens.txt && chmod 600 auth_tokens.txt
+echo "$ALPN_TOKEN" > alpn_token.txt && chmod 600 alpn_token.txt
+
+tunnel-rs server \
+  --secret-file ./server.key \
+  --allowed-tcp 127.0.0.0/8 \
+  --auth-tokens-file ./auth_tokens.txt \
+  --alpn-token-file ./alpn_token.txt
 ```
+
+> **Tip:** For containers and automation scripts, use environment variables (`TUNNEL_RS_AUTH_TOKENS`, `TUNNEL_RS_ALPN_TOKEN`) instead of files. See [Environment Variables](#environment-variables).
 
 **Config file** (`server.toml`):
 ```toml
@@ -179,14 +187,14 @@ tunnel-rs generate-token -c 5
 ### Multiple Tokens (Server)
 
 ```bash
-# Comma-separated via environment variable
-export TUNNEL_RS_AUTH_TOKENS="token-for-alice,token-for-bob"
-tunnel-rs server --allowed-tcp 127.0.0.0/8
-
-# Or use a file (one token per line, # comments allowed)
+# Use a file with one token per line (recommended)
 tunnel-rs server \
   --allowed-tcp 127.0.0.0/8 \
   --auth-tokens-file /etc/tunnel-rs/auth_tokens.txt
+
+# Or comma-separated via environment variable (for containers/automation)
+export TUNNEL_RS_AUTH_TOKENS="token-for-alice,token-for-bob"
+tunnel-rs server --allowed-tcp 127.0.0.0/8
 ```
 
 **Example `auth_tokens.txt`:**
@@ -200,7 +208,7 @@ iYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY
 
 ### Configuration File
 
-> **Security:** Plaintext tokens and secrets are **not allowed** in TOML config files. Use the `_file` variants (e.g., `auth_tokens_file`, `auth_token_file`, `alpn_token_file`, `secret_file`) in config files. Plaintext values are accepted via environment variables and `--config-stdin` (JSON) since those are transient.
+> **Security:** Plaintext tokens and secrets are **not allowed** in TOML config files. Use the `_file` variants (e.g., `auth_tokens_file`, `auth_token_file`, `alpn_token_file`, `secret_file`) in config files. For non-containerized deployments, `_file` variants are the recommended approach. Environment variables (`TUNNEL_RS_*`) are best suited for containers and automation scripts where secrets are injected dynamically. Plaintext values are also accepted via `--config-stdin` (JSON) for IPC.
 
 **Server** (`server.toml`):
 ```toml
@@ -262,11 +270,15 @@ echo $ALPN_TOKEN
 
 **Server** (on server — waits for client connections):
 ```bash
-export TUNNEL_RS_AUTH_TOKENS="$AUTH_TOKEN"
-export TUNNEL_RS_ALPN_TOKEN="$ALPN_TOKEN"
+# Save tokens to files (recommended for non-containerized use)
+echo "$AUTH_TOKEN" > auth_tokens.txt && chmod 600 auth_tokens.txt
+echo "$ALPN_TOKEN" > alpn_token.txt && chmod 600 alpn_token.txt
+
 tunnel-rs server \
   --secret-file ./server.key \
-  --allowed-tcp 127.0.0.0/8
+  --allowed-tcp 127.0.0.0/8 \
+  --auth-tokens-file ./auth_tokens.txt \
+  --alpn-token-file ./alpn_token.txt
 ```
 
 Output:
@@ -278,35 +290,41 @@ Waiting for clients to connect...
 
 **Client** (on client — requests source from server):
 ```bash
-export TUNNEL_RS_AUTH_TOKEN="$AUTH_TOKEN"
-export TUNNEL_RS_ALPN_TOKEN="$ALPN_TOKEN"
+# Save tokens to files
+echo "$AUTH_TOKEN" > auth_token.txt && chmod 600 auth_token.txt
+echo "$ALPN_TOKEN" > alpn_token.txt && chmod 600 alpn_token.txt
+
 tunnel-rs client \
   --server-node-id <SERVER_ENDPOINT_ID> \
   --source tcp://127.0.0.1:22 \
-  --target 127.0.0.1:2222
+  --target 127.0.0.1:2222 \
+  --auth-token-file ./auth_token.txt \
+  --alpn-token-file ./alpn_token.txt
 ```
 
 Then connect: `ssh -p 2222 user@127.0.0.1`
+
+> **Tip:** For containers and automation scripts, use environment variables (`TUNNEL_RS_AUTH_TOKEN`, `TUNNEL_RS_ALPN_TOKEN`, etc.) instead of files. See [Environment Variables](#environment-variables).
 
 ### 3. UDP Tunnel (e.g., WireGuard/Game/DNS)
 
 **Server**:
 ```bash
-export TUNNEL_RS_AUTH_TOKENS="$AUTH_TOKEN"
-export TUNNEL_RS_ALPN_TOKEN="$ALPN_TOKEN"
 tunnel-rs server \
   --secret-file ./server.key \
-  --allowed-udp 127.0.0.0/8
+  --allowed-udp 127.0.0.0/8 \
+  --auth-tokens-file ./auth_tokens.txt \
+  --alpn-token-file ./alpn_token.txt
 ```
 
 **Client**:
 ```bash
-export TUNNEL_RS_AUTH_TOKEN="$AUTH_TOKEN"
-export TUNNEL_RS_ALPN_TOKEN="$ALPN_TOKEN"
 tunnel-rs client \
   --server-node-id <SERVER_ENDPOINT_ID> \
   --source udp://127.0.0.1:51820 \
-  --target 0.0.0.0:51820
+  --target 0.0.0.0:51820 \
+  --auth-token-file ./auth_token.txt \
+  --alpn-token-file ./alpn_token.txt
 ```
 
 ## CLI Options
@@ -333,7 +351,9 @@ tunnel-rs client \
 | `--relay-only` | false | Force all traffic through relay (CLI-only; not supported in config files) |
 | `--dns-server` | public | Custom DNS server URL, or "none" to disable DNS discovery |
 
-**Environment variables** (for sensitive values):
+**Environment variables** (for containers and automation scripts):
+
+> Environment variables are primarily intended for containerized deployments and automation scripts. For regular use, prefer the `_file` CLI flags or config file equivalents.
 
 | Env Var | Description |
 |---------|-------------|
@@ -362,7 +382,9 @@ tunnel-rs client \
 | `--relay-only` | false | Force all traffic through relay (CLI-only; not supported in config files) |
 | `--dns-server` | public | Custom DNS server URL, or "none" to disable DNS discovery |
 
-**Environment variables** (for sensitive values):
+**Environment variables** (for containers and automation scripts):
+
+> Environment variables are primarily intended for containerized deployments and automation scripts. For regular use, prefer the `_file` CLI flags or config file equivalents.
 
 | Env Var | Description |
 |---------|-------------|
@@ -373,7 +395,7 @@ tunnel-rs client \
 
 Use `--default-config` to load from the default location, or `-c <path>` for a custom path (both TOML). For normal usage, prefer config files so your settings are saved and reusable. The `--config-stdin` flag is intended for automation and IPC — it accepts JSON (self-delimiting, so the caller does not need to close stdin). Only one of these may be used at a time. Configuration uses the `[iroh]` section.
 
-> **Security:** TOML config files **reject plaintext sensitive fields** (`auth_token`, `auth_tokens`, `alpn_token`, `secret`). Use the corresponding `_file` variants in config files, or pass values via environment variables or `--config-stdin` (JSON), which are transient and not persisted to disk.
+> **Security:** TOML config files **reject plaintext sensitive fields** (`auth_token`, `auth_tokens`, `alpn_token`, `secret`). Use the corresponding `_file` variants in config files (recommended for non-containerized deployments). Environment variables (`TUNNEL_RS_*`) are best suited for containers and automation scripts. Plaintext values are also accepted via `--config-stdin` (JSON) for IPC.
 
 **Default locations:**
 - Server: `~/.config/tunnel-rs/server.toml`

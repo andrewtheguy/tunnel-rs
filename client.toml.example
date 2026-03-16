@@ -27,7 +27,7 @@ server_node_id = "2xnbkpbc7izsilvewd7c62w7wnwziacmpfwvhcrya5nt76dqkpga"
 # which are server-only options for persistent identity)
 #
 # SECURITY: Plaintext 'auth_token' is not allowed in config files.
-# Use 'auth_token_file' here, or set TUNNEL_RS_AUTH_TOKEN environment variable.
+# Use 'auth_token_file' here (recommended). For containers/automation, set TUNNEL_RS_AUTH_TOKEN environment variable instead.
 auth_token_file = "~/.config/tunnel-rs/token.txt"
 
 # ============================================================================
@@ -38,7 +38,7 @@ auth_token_file = "~/.config/tunnel-rs/token.txt"
 # Generate with: tunnel-rs generate-token --alpn
 #
 # SECURITY: Plaintext 'alpn_token' is not allowed in config files.
-# Use 'alpn_token_file' here, or set TUNNEL_RS_ALPN_TOKEN environment variable.
+# Use 'alpn_token_file' here (recommended). For containers/automation, set TUNNEL_RS_ALPN_TOKEN environment variable instead.
 alpn_token_file = "~/.config/tunnel-rs/alpn_token.txt"
 
 # Source address to request from server (required if not specified via CLI --source)
