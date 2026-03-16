@@ -102,47 +102,6 @@ pub async fn resolve_all_target_addrs(target: &str) -> Result<Vec<SocketAddr>> {
     Ok(order_by_loopback_preference(addrs))
 }
 
-/// Resolve a listen address (host:port) to a single SocketAddr.
-///
-/// Supports both IP addresses (127.0.0.1:8080) and hostnames (localhost:8080).
-/// For hostnames, returns the first resolved address (preferring IPv4 for local binding).
-///
-/// Note: For localhost, consider using `resolve_listen_addrs` (plural) to get both
-/// IPv4 and IPv6 addresses, since dual-stack sockets don't work for loopback.
-pub async fn resolve_listen_addr(target: &str) -> Result<SocketAddr> {
-    // First try direct parse for IP addresses (fast path)
-    if let Ok(addr) = target.parse::<SocketAddr>() {
-        return Ok(addr);
-    }
-
-    // Resolve hostname
-    let addrs: Vec<SocketAddr> = lookup_host(target)
-        .await
-        .with_context(|| format!("Failed to resolve listen address '{}'", target))?
-        .collect();
-
-    if addrs.is_empty() {
-        anyhow::bail!("No addresses found for listen address '{}'", target);
-    }
-
-    // Prefer IPv4 for local binding (more compatible), then IPv6
-    let addr = addrs
-        .iter()
-        .find(|a| a.is_ipv4())
-        .or_else(|| addrs.first())
-        .copied()
-        .expect("no listen addresses available after resolution");
-
-    log::debug!(
-        "Resolved listen address '{}' to {} (from {} candidates)",
-        target,
-        addr,
-        addrs.len()
-    );
-
-    Ok(addr)
-}
-
 /// Resolve a listen address to all available socket addresses.
 ///
 /// For localhost/loopback, returns BOTH IPv4 (127.0.0.1) and IPv6 (::1) addresses.
@@ -256,6 +215,7 @@ pub async fn try_connect_tcp(addrs: &[SocketAddr]) -> Result<TcpStream> {
     drop(tx);
 
     // Return the first successful connection
+    let mut errors: Vec<String> = Vec::new();
     while let Some((addr, result)) = rx.recv().await {
         match result {
             Ok(stream) => {
@@ -267,11 +227,15 @@ pub async fn try_connect_tcp(addrs: &[SocketAddr]) -> Result<TcpStream> {
             }
             Err(e) => {
                 log::debug!("Connection attempt to {} failed: {}", addr, e);
+                errors.push(format!("{}: {}", addr, e));
             }
         }
     }
 
-    anyhow::bail!("Failed to connect to any address");
+    anyhow::bail!(
+        "Failed to connect to any address:\n  {}",
+        errors.join("\n  ")
+    );
 }
 
 // ============================================================================
@@ -468,7 +432,7 @@ where
                 if attempt >= max_attempts {
                     return Err(err);
                 }
-                let multiplier = 2_u64.pow(attempt.saturating_sub(1));
+                let multiplier = 1_u64.checked_shl(attempt.saturating_sub(1)).unwrap_or(u64::MAX);
                 let bounded = multiplier.min(BACKOFF_MAX_MULTIPLIER);
                 let delay = Duration::from_millis(base_delay_ms.saturating_mul(bounded));
                 tokio::time::sleep(delay).await;

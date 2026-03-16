@@ -1,5 +1,5 @@
 #!/bin/bash
-# Start tunnel server (client-initiated mode)
+# Start tunnel server
 # Usage: ./test-scripts/server.sh [MAX_SESSIONS]
 #
 # The server whitelists allowed networks and waits for client connections.
@@ -13,7 +13,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 source "$SCRIPT_DIR/keys.sh"
 
 MAX_SESSIONS="${1:-5}"
-TUNNEL_BIN="$SCRIPT_DIR/../target/release/tunnel-rs-ice"
+TUNNEL_BIN="$SCRIPT_DIR/../target/release/tunnel-rs"
 
 [ ! -f "$TUNNEL_BIN" ] && cargo build --release --manifest-path="$SCRIPT_DIR/../Cargo.toml"
 
@@ -22,8 +22,9 @@ echo "Allowed networks: 127.0.0.0/8 (TCP)"
 echo "Max sessions: $MAX_SESSIONS"
 echo ""
 
-exec "$TUNNEL_BIN" server nostr \
+exec "$TUNNEL_BIN" server \
     --allowed-tcp 127.0.0.0/8 \
-    --nsec-file "$SERVER_NSEC_FILE" \
-    --peer-npub "$CLIENT_NPUB" \
+    --secret-file "$SERVER_KEY_FILE" \
+    --auth-tokens "$AUTH_TOKEN" \
+    --alpn-token "$ALPN_TOKEN" \
     --max-sessions "$MAX_SESSIONS"

@@ -10,12 +10,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use tunnel_common::error::TunnelError;
+use crate::error::TunnelError;
 use iroh::{EndpointId, SecretKey};
 use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::sync::Mutex;
 use tokio::task::JoinSet;
-use tunnel_common::config::TransportTuning;
+use crate::config::TransportTuning;
 
 /// Configuration for the multi-source server.
 pub struct MultiSourceServerConfig {
@@ -111,11 +111,11 @@ use crate::iroh_mode::helpers::{
     bridge_streams, forward_stream_to_udp_client, forward_stream_to_udp_server,
     forward_udp_to_stream, open_bi_with_retry,
 };
-use tunnel_common::net::{
+use crate::net::{
     bind_udp_for_targets, check_source_allowed, extract_addr_from_source, resolve_all_target_addrs,
     resolve_listen_addrs, validate_allowed_networks,
 };
-use tunnel_common::signaling::{
+use crate::signaling::{
     decode_auth_request, decode_auth_response, decode_source_request, decode_source_response,
     encode_auth_request, encode_auth_response, encode_source_request, encode_source_response,
     read_length_prefixed, AuthRequest, AuthResponse, SourceRequest, SourceResponse,
@@ -456,7 +456,7 @@ async fn handle_multi_source_stream(
     if is_tcp {
         // Resolve and connect to TCP target
         let target_addrs = resolve_all_target_addrs(&target_addr).await?;
-        let tcp_stream = tunnel_common::net::try_connect_tcp(&target_addrs)
+        let tcp_stream = crate::net::try_connect_tcp(&target_addrs)
             .await
             .context("Failed to connect to target TCP service")?;
 
@@ -723,6 +723,30 @@ async fn run_multi_source_tcp_client(
     Ok(())
 }
 
+/// Send a source request and wait for the server's response.
+async fn send_source_request(
+    send_stream: &mut iroh::endpoint::SendStream,
+    recv_stream: &mut iroh::endpoint::RecvStream,
+    source: &str,
+) -> Result<()> {
+    let request = SourceRequest::new(source.to_string());
+    let encoded = encode_source_request(&request)?;
+    send_stream.write_all(&encoded).await?;
+
+    let response_bytes = tokio::time::timeout(AUTH_TIMEOUT, read_length_prefixed(recv_stream))
+        .await
+        .context("Timed out waiting for source response")?
+        .context("Failed to read source response")?;
+    let response = decode_source_response(&response_bytes).context("Invalid source response")?;
+
+    if !response.accepted {
+        let reason = response.reason.unwrap_or_else(|| "Unknown".to_string());
+        anyhow::bail!("Source request rejected: {}", reason);
+    }
+
+    Ok(())
+}
+
 /// Handle a single TCP connection in multi-source client mode.
 async fn handle_multi_source_tcp_client_connection(
     conn: Arc<iroh::endpoint::Connection>,
@@ -733,21 +757,7 @@ async fn handle_multi_source_tcp_client_connection(
 ) -> Result<()> {
     let (mut send_stream, mut recv_stream) = open_bi_with_retry(&conn).await?;
 
-    // Send source request (auth already validated at connection level)
-    let request = SourceRequest::new(source.clone());
-    let encoded = encode_source_request(&request)?;
-    send_stream.write_all(&encoded).await?;
-
-    // Read response
-    let response_bytes = read_length_prefixed(&mut recv_stream)
-        .await
-        .context("Failed to read source response")?;
-    let response = decode_source_response(&response_bytes).context("Invalid source response")?;
-
-    if !response.accepted {
-        let reason = response.reason.unwrap_or_else(|| "Unknown".to_string());
-        anyhow::bail!("Source request rejected: {}", reason);
-    }
+    send_source_request(&mut send_stream, &mut recv_stream, &source).await?;
 
     // Print success message only on first successful stream
     if !tunnel_established.swap(true, Ordering::Relaxed) {
@@ -770,21 +780,7 @@ async fn run_multi_source_udp_client(
 ) -> Result<()> {
     let (mut send_stream, mut recv_stream) = open_bi_with_retry(&conn).await?;
 
-    // Send source request (auth already validated at connection level)
-    let request = SourceRequest::new(source.clone());
-    let encoded = encode_source_request(&request)?;
-    send_stream.write_all(&encoded).await?;
-
-    // Read response
-    let response_bytes = read_length_prefixed(&mut recv_stream)
-        .await
-        .context("Failed to read source response")?;
-    let response = decode_source_response(&response_bytes).context("Invalid source response")?;
-
-    if !response.accepted {
-        let reason = response.reason.unwrap_or_else(|| "Unknown".to_string());
-        anyhow::bail!("Source request rejected: {}", reason);
-    }
+    send_source_request(&mut send_stream, &mut recv_stream, &source).await?;
 
     log::info!("Tunnel established! Source: {}", source);
 

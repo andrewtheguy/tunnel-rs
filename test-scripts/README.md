@@ -1,9 +1,6 @@
 # Multi-Session Testing Scripts
 
-Scripts for testing client-initiated multi-session nostr tunnel.
-
-> [!NOTE]
-> These scripts test `nostr` mode which uses STUN-only NAT traversal. For containerized environments (Docker, Kubernetes, cloud VMs), use `iroh` mode instead, which includes relay fallback for reliable connectivity behind restrictive NATs.
+Scripts for testing client-initiated multi-session tunnel.
 
 ## Architecture
 
@@ -52,8 +49,8 @@ python3 test-scripts/test_tunnel.py -n 3 --stream 10 --loop  # Stream 10s repeat
 ## Key Management
 
 Keys are auto-generated on first run:
-- nsec files saved to `test-scripts/.keys/`
-- npub values saved to `test-scripts/.tunnel_keys`
+- Server key saved to `test-scripts/.keys/server.key`
+- Auth and ALPN tokens saved to `test-scripts/.tunnel_keys`
 
 ```bash
 # View current keys
@@ -64,7 +61,7 @@ source test-scripts/keys.sh && generate_keys
 
 # Use keys in custom commands
 source test-scripts/keys.sh
-echo $SERVER_NSEC_FILE $SERVER_NPUB $CLIENT_NSEC_FILE $CLIENT_NPUB
+echo $SERVER_KEY_FILE $SERVER_NODE_ID $AUTH_TOKEN $ALPN_TOKEN
 ```
 
 ## Test Modes

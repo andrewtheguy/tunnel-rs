@@ -2,9 +2,6 @@
 
 Docker and Kubernetes configurations for running tunnel-rs in containerized environments.
 
-Note: The container image `ghcr.io/andrewtheguy/tunnel-rs:latest` is iroh-only.
-The `tunnel-rs-ice` binary is published in GitHub releases but is not containerized.
-
 > [!IMPORTANT]
 > **Project Goal:** This tool provides a convenient way to connect to different networks for **development or homelab purposes** without the hassle and security risk of opening a port. It is **not** meant for production setups or designed to be performant at scale.
 

@@ -1,7 +1,7 @@
 //! Common endpoint helpers for iroh tunnel connections.
 
 use anyhow::{Context, Result};
-use tunnel_common::error::TunnelError;
+use crate::error::TunnelError;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use iroh::{
     address_lookup::{DnsAddressLookup, MdnsAddressLookup, PkarrPublisher, PkarrResolver},
@@ -15,7 +15,7 @@ use tokio::task::JoinHandle;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use tunnel_common::config::{CongestionController, TransportTuning, DEFAULT_RECEIVE_WINDOW};
+use crate::config::{CongestionController, TransportTuning, DEFAULT_RECEIVE_WINDOW};
 use url::Url;
 
 pub const RELAY_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -167,7 +167,6 @@ pub fn create_endpoint_builder(
         // Set congestion controller
         let factory = create_congestion_controller_factory(tuning.congestion_controller);
         transport_config = transport_config.congestion_controller_factory(factory);
-        info!("Using {:?} congestion controller", tuning.congestion_controller);
 
         // Set receive window (flow control) for connection + streams
         let receive_window = tuning.receive_window.unwrap_or(DEFAULT_RECEIVE_WINDOW);
@@ -178,24 +177,15 @@ pub fn create_endpoint_builder(
         let send_window = tuning.send_window.unwrap_or(receive_window);
         transport_config = transport_config.send_window(send_window.into());
 
-        info!(
-            "Iroh transport: cc={:?}, stream/receive={}KB, send={}KB",
-            tuning.congestion_controller,
-            receive_window / 1024,
-            send_window / 1024
-        );
         let recv_source = if tuning.receive_window.is_none() { "default" } else { "config" };
         let send_source = if tuning.send_window.is_none() {
-            if tuning.receive_window.is_none() {
-                "default"
-            } else {
-                "derived"
-            }
+            if tuning.receive_window.is_none() { "default" } else { "derived" }
         } else {
             "config"
         };
         info!(
-            "Transport windows: stream/receive={}KB ({}), send={}KB ({})",
+            "Transport: cc={:?}, stream/receive={}KB ({}), send={}KB ({})",
+            tuning.congestion_controller,
             receive_window / 1024,
             recv_source,
             send_window / 1024,
@@ -245,6 +235,21 @@ pub fn create_endpoint_builder(
     Ok(builder)
 }
 
+/// Wait for an endpoint to come online, with a timeout.
+async fn wait_for_endpoint_online(endpoint: &Endpoint) -> Result<()> {
+    info!(
+        "Waiting for endpoint to come online (timeout: {}s)...",
+        RELAY_CONNECT_TIMEOUT.as_secs()
+    );
+    match tokio::time::timeout(RELAY_CONNECT_TIMEOUT, endpoint.online()).await {
+        Ok(()) => Ok(()),
+        Err(_) => Err(TunnelError::connection(anyhow::anyhow!(
+            "Endpoint failed to come online after {}s - check relay server connectivity",
+            RELAY_CONNECT_TIMEOUT.as_secs()
+        )).into()),
+    }
+}
+
 /// Create a server endpoint with optional persistent identity.
 pub async fn create_server_endpoint(
     relay_urls: &[String],
@@ -271,18 +276,7 @@ pub async fn create_server_endpoint(
         .await
         .context("Failed to create iroh endpoint")?;
 
-    // Wait for endpoint to come online with timeout
-    info!(
-        "Waiting for endpoint to come online (timeout: {}s)...",
-        RELAY_CONNECT_TIMEOUT.as_secs()
-    );
-    match tokio::time::timeout(RELAY_CONNECT_TIMEOUT, endpoint.online()).await {
-        Ok(()) => {}
-        Err(_) => return Err(TunnelError::connection(anyhow::anyhow!(
-            "Endpoint failed to come online after {}s - check relay server connectivity",
-            RELAY_CONNECT_TIMEOUT.as_secs()
-        )).into()),
-    }
+    wait_for_endpoint_online(&endpoint).await?;
 
     Ok(endpoint)
 }
@@ -312,18 +306,7 @@ pub async fn create_client_endpoint(
         .await
         .context("Failed to create iroh endpoint")?;
 
-    // Wait for endpoint to come online with timeout
-    info!(
-        "Waiting for endpoint to come online (timeout: {}s)...",
-        RELAY_CONNECT_TIMEOUT.as_secs()
-    );
-    match tokio::time::timeout(RELAY_CONNECT_TIMEOUT, endpoint.online()).await {
-        Ok(()) => {}
-        Err(_) => return Err(TunnelError::connection(anyhow::anyhow!(
-            "Endpoint failed to come online after {}s - check relay server connectivity",
-            RELAY_CONNECT_TIMEOUT.as_secs()
-        )).into()),
-    }
+    wait_for_endpoint_online(&endpoint).await?;
 
     Ok(endpoint)
 }

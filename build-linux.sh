@@ -3,7 +3,6 @@ set -e
 
 # Build script for cross-compiling Linux binaries using Docker
 # Builds for both AMD64 and ARM64 architectures
-# Produces: tunnel-rs and tunnel-rs-ice
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="${SCRIPT_DIR}/target/build"
@@ -43,13 +42,11 @@ docker buildx build \
 
 if [ -d "$BUILD_DIR/linux_amd64" ]; then
     [ -f "$BUILD_DIR/linux_amd64/tunnel-rs" ] && mv "$BUILD_DIR/linux_amd64/tunnel-rs" "$BUILD_DIR/tunnel-rs-linux-amd64"
-    [ -f "$BUILD_DIR/linux_amd64/tunnel-rs-ice" ] && mv "$BUILD_DIR/linux_amd64/tunnel-rs-ice" "$BUILD_DIR/tunnel-rs-ice-linux-amd64"
 fi
 
 if [ -d "$BUILD_DIR/linux_arm64" ]; then
     [ -f "$BUILD_DIR/linux_arm64/tunnel-rs" ] && mv "$BUILD_DIR/linux_arm64/tunnel-rs" "$BUILD_DIR/tunnel-rs-linux-arm64"
-    [ -f "$BUILD_DIR/linux_arm64/tunnel-rs-ice" ] && mv "$BUILD_DIR/linux_arm64/tunnel-rs-ice" "$BUILD_DIR/tunnel-rs-ice-linux-arm64"
 fi
 
 echo "Build complete"
-ls -lh "$BUILD_DIR"/tunnel-rs-* "$BUILD_DIR"/tunnel-rs-ice-* 2>/dev/null || true
+ls -lh "$BUILD_DIR"/tunnel-rs-* 2>/dev/null || true

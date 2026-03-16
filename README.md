@@ -17,9 +17,7 @@ Tunnel-rs enables you to forward TCP and UDP traffic between machines without re
 - **Cross-platform** — Works on Linux, macOS, and Windows
 - **No root required** — Runs as unprivileged user
 - **End-to-end encryption** via QUIC/TLS 1.3
-- **NAT traversal** with multiple strategies (relay fallback, STUN, full ICE)
-- **Flexible signaling** — Automated discovery (iroh), decentralized (Nostr), or manual exchange
-- **Offline/LAN support** — manual mode works without internet
+- **NAT traversal** with automatic NAT hole punching and relay fallback
 
 **Use Cases:**
 - **SSH access** to machines behind NAT/firewalls
@@ -35,45 +33,11 @@ Tunnel-rs enables you to forward TCP and UDP traffic between machines without re
 - **Homelab Networking** — Connecting distributed homelab nodes or accessing local services remotely without complex VPN setups or public IP requirements
 - **Cross-platform Tunneling** for both TCP and UDP workflows (including Windows endpoints)
 
-## Alternative Modes (Niche Use Cases)
-
-| Need | Recommended | Binary |
-|------|-------------|--------|
-| Decentralized signaling (no iroh dependency) | nostr mode | `tunnel-rs-ice` |
-| Offline/LAN-only operation | manual mode | `tunnel-rs-ice` |
-
-> See [docs/ALTERNATIVE-MODES.md](docs/ALTERNATIVE-MODES.md) for detailed documentation on manual and nostr modes.
-
 ## Overview
 
-tunnel-rs provides multiple modes for establishing tunnels. **Use `iroh` mode** for most use cases — it provides the best NAT traversal with relay fallback, automatic discovery, and client authentication. Clients use ephemeral identities by default, so multiple clients can connect to the same server with the same auth token — each session is independent.
-
-**Binaries:**
-- `tunnel-rs`: iroh mode (install script or download from releases)
-- `tunnel-rs-ice`: manual and nostr modes (download from releases)
-
-### Modes
-
-| Mode | NAT Traversal | Discovery | External Dependency |
-|------|---------------|-----------|---------------------|
-| **iroh** (recommended) | Best (relay fallback) | Automatic | iroh relay infrastructure |
-| nostr (alternative mode) | STUN only | Automatic (Nostr) | Nostr relays (decentralized) |
-| manual (alternative mode) | STUN only | Manual copy-paste | None |
+tunnel-rs uses iroh for establishing tunnels, providing NAT traversal with relay fallback, automatic discovery, and client authentication. Clients use ephemeral identities by default, so multiple clients can connect to the same server with the same auth token — each session is independent.
 
 > See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed diagrams and technical deep-dives.
-
-### When to Use Alternative Modes
-
-Choose an alternative mode only if you have specific requirements:
-
-- **nostr**: You want decentralized signaling without depending on iroh infrastructure. Uses Nostr relays instead.
-- **manual**: You want complete independence from third-party services (disable STUN for fully self-contained operation), or no internet is available (offline/LAN-only). Signaling is done via manual copy-paste.
-
-> [!NOTE]
-> The `nostr` and `manual` modes use STUN-only NAT traversal, which may fail when both peers are behind symmetric NATs. The `iroh` mode includes relay fallback for these scenarios. In Kubernetes, `hostNetwork: true` enables direct P2P and NAT hole-punching for `iroh` mode; `nostr` and `manual` modes with `hostNetwork: true` might also work, but they have not been tested yet. See [container-deploy/](container-deploy/) for details.
-
-> [!TIP]
-> If you only need iroh mode, use the `tunnel-rs` binary. ICE modes are in `tunnel-rs-ice`.
 
 ## Installation
 
@@ -89,7 +53,7 @@ curl -sSL https://andrewtheguy.github.io/tunnel-rs/install.sh | bash
 irm https://andrewtheguy.github.io/tunnel-rs/install.ps1 | iex
 ```
 
-This installs `tunnel-rs` (iroh mode). For nostr/manual ICE modes, download `tunnel-rs-ice` separately from [GitHub releases](https://github.com/andrewtheguy/tunnel-rs/releases).
+This installs `tunnel-rs`.
 
 <details>
 <summary>Advanced installation options</summary>
@@ -130,8 +94,7 @@ curl -sSL https://andrewtheguy.github.io/tunnel-rs/install.sh | bash -s 20251210
 ### From Source
 
 ```bash
-cargo install --path . -p tunnel-rs       # iroh mode
-cargo install --path . -p tunnel-rs-ice   # nostr/manual modes
+cargo install --path .
 ```
 
 ### Feature Flags
@@ -149,11 +112,9 @@ Official prebuilt release artifacts currently include:
 
 Intel macOS is supported when building from source.
 
-All modes work across all platforms.
-
 ### Docker & Kubernetes
 
-Container images are available at `ghcr.io/andrewtheguy/tunnel-rs` (iroh-only).
+Container images are available at `ghcr.io/andrewtheguy/tunnel-rs`.
 
 Access services running in Docker or Kubernetes remotely — without opening ports, configuring ingress, or requiring `kubectl`. See [container-deploy/](container-deploy/) for Docker Compose and Kubernetes configurations.
 
@@ -358,7 +319,7 @@ tunnel-rs client \
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--config`, `-c` | - | Path to TOML config file |
-| `--default-config` | false | Load config from `~/.config/tunnel-rs/server.toml` (`tunnel-rs`) or `~/.config/tunnel-rs/server_ice.toml` (`tunnel-rs-ice`) |
+| `--default-config` | false | Load config from `~/.config/tunnel-rs/server.toml` |
 | `--config-stdin` | false | Read JSON config from stdin for automation/IPC (use `-c` for normal usage) |
 
 ### server iroh
@@ -383,7 +344,7 @@ tunnel-rs client \
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--config`, `-c` | - | Path to TOML config file |
-| `--default-config` | false | Load config from `~/.config/tunnel-rs/client.toml` (`tunnel-rs`) or `~/.config/tunnel-rs/client_ice.toml` (`tunnel-rs-ice`) |
+| `--default-config` | false | Load config from `~/.config/tunnel-rs/client.toml` |
 | `--config-stdin` | false | Read JSON config from stdin for automation/IPC (use `-c` for normal usage) |
 
 ### client iroh
@@ -403,20 +364,11 @@ tunnel-rs client \
 
 ## Configuration Files
 
-Use `--default-config` to load from the default location, or `-c <path>` for a custom path (both TOML). For normal usage, prefer config files so your settings are saved and reusable. The `--config-stdin` flag is intended for automation and IPC — it accepts JSON (self-delimiting, so the caller does not need to close stdin). Only one of these may be used at a time. Each mode has its own configuration section:
-- **iroh** mode: `[iroh]` section
-- **manual** mode: `[manual]` section
-- **nostr** mode: `[nostr]` section
-
-When using `tunnel-rs-ice` with a config file, the mode is inferred from the file, so you can omit the subcommand:
-```bash
-tunnel-rs-ice server -c server_ice.toml
-tunnel-rs-ice client -c client_ice.toml
-```
+Use `--default-config` to load from the default location, or `-c <path>` for a custom path (both TOML). For normal usage, prefer config files so your settings are saved and reusable. The `--config-stdin` flag is intended for automation and IPC — it accepts JSON (self-delimiting, so the caller does not need to close stdin). Only one of these may be used at a time. Configuration uses the `[iroh]` section.
 
 **Default locations:**
-- Server: `~/.config/tunnel-rs/server.toml` (`tunnel-rs`) or `~/.config/tunnel-rs/server_ice.toml` (`tunnel-rs-ice`)
-- Client: `~/.config/tunnel-rs/client.toml` (`tunnel-rs`) or `~/.config/tunnel-rs/client_ice.toml` (`tunnel-rs-ice`)
+- Server: `~/.config/tunnel-rs/server.toml`
+- Client: `~/.config/tunnel-rs/client.toml`
 
 > **Note:** `--relay-only` is intentionally **CLI-only** and is not supported in config files to avoid accidental activation.
 
@@ -444,7 +396,7 @@ This lets you keep common settings (keys, relay URLs) in the config file while v
 
 # Required: validates config matches CLI command
 role = "server"
-mode = "iroh"  # or "manual", or "nostr"
+mode = "iroh"
 
 [iroh]
 secret_file = "./server.key"
@@ -471,7 +423,7 @@ udp = ["10.0.0.0/8"]
 ```
 
 > [!NOTE]
-> See [`server.toml.example`](server.toml.example) for the full iroh example, and [`server_ice.toml.example`](server_ice.toml.example) for ICE modes.
+> See [`server.toml.example`](server.toml.example) for the full example.
 
 ```bash
 # Load from default location (mode inferred from config)
@@ -508,7 +460,7 @@ alpn_token = "XXXXXXXXXXXXXX"
 ```
 
 > [!NOTE]
-> See [`client.toml.example`](client.toml.example) for the full iroh example, and [`client_ice.toml.example`](client_ice.toml.example) for ICE modes.
+> See [`client.toml.example`](client.toml.example) for the full example.
 
 ```bash
 # Load from default location (mode inferred from config)
@@ -613,8 +565,6 @@ tunnel-rs show-server-id --secret-file ./server.key
 
 The client process uses categorized exit codes so wrapper scripts can distinguish transient failures (retry) from permanent errors (stop).
 
-> **Note:** Auto-retry wrapper scripts are suitable for **iroh mode** (`tunnel-rs`) and **nostr mode** (`tunnel-rs-ice client nostr`), which use automatic signaling. **Manual mode** (`tunnel-rs-ice client manual`) requires interactive copy-paste SDP exchange each run, so auto-retry is not feasible.
-
 | Exit Code | Meaning | Retry? |
 |-----------|---------|--------|
 | 0 | Success | N/A |
@@ -666,4 +616,3 @@ done
 8. Server validates source against allowed networks and responds
 9. If accepted, traffic forwarding begins
 
-> For manual and nostr mode details, see [docs/ALTERNATIVE-MODES.md](docs/ALTERNATIVE-MODES.md).

@@ -1,19 +1,28 @@
-[workspace]
-resolver = "2"
-members = [
-    "crates/tunnel-common",
-    "crates/tunnel-iroh",
-    "crates/tunnel-ice",
-    "crates/tunnel-rs",
-    "crates/tunnel-rs-ice",
-]
+[package]
+name = "tunnel-rs"
+version = "0.2.5"
+edition = "2021"
+description = "TCP/UDP port forwarding through iroh P2P connections"
 
-
-[workspace.package]
-version = "0.2.4"
-
-[workspace.dependencies]
+[dependencies]
 iroh = { version = "0.96.1", features = ["address-lookup-mdns"] }
+iroh-quinn-proto = "0.15.1"
+tokio = { version = "1", features = ["full"] }
+clap = { version = "4", features = ["derive"] }
+anyhow = "1"
+log = "0.4"
+env_logger = "0.11"
+rand = "0.9"
+base64 = "0.22"
+url = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+ipnet = "2"
+dirs = "6"
+
+[dev-dependencies]
+tempfile = "3.24.0"
 
 # [profile.release]
 # strip = true

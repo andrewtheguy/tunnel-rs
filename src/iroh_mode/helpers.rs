@@ -9,7 +9,7 @@ use std::sync::Arc;
 use tokio::net::{TcpStream, UdpSocket};
 use tokio::sync::Mutex;
 
-use tunnel_common::net::{
+use crate::net::{
     copy_stream, order_udp_addresses, retry_with_backoff, STREAM_OPEN_BASE_DELAY_MS,
     STREAM_OPEN_MAX_ATTEMPTS,
 };
@@ -135,6 +135,7 @@ pub(super) async fn forward_stream_to_udp_server(
 
     let mut active_addr_idx = 0;
     let mut logged_active = false;
+    let mut buf = vec![0u8; u16::MAX as usize];
 
     loop {
         // Track errors for each address for aggregate reporting - fresh for each packet
@@ -153,9 +154,8 @@ pub(super) async fn forward_stream_to_udp_server(
         }
         let len = u16::from_be_bytes(len_buf) as usize;
 
-        let mut buf = vec![0u8; len];
         recv_stream
-            .read_exact(&mut buf)
+            .read_exact(&mut buf[..len])
             .await
             .context("Failed to read frame payload")?;
 
@@ -164,7 +164,7 @@ pub(super) async fn forward_stream_to_udp_server(
         while active_addr_idx < ordered_addrs.len() {
             let target_addr = ordered_addrs[active_addr_idx];
 
-            match udp_socket.send_to(&buf, target_addr).await {
+            match udp_socket.send_to(&buf[..len], target_addr).await {
                 Ok(_) => {
                     if !logged_active {
                         if active_addr_idx > 0 {
@@ -223,6 +223,7 @@ pub(super) async fn forward_stream_to_udp_client(
     udp_socket: Arc<UdpSocket>,
     client_addr: Arc<Mutex<Option<SocketAddr>>>,
 ) -> Result<()> {
+    let mut buf = vec![0u8; u16::MAX as usize];
     loop {
         let mut len_buf = [0u8; 2];
         match recv_stream.read_exact(&mut len_buf).await {
@@ -238,15 +239,14 @@ pub(super) async fn forward_stream_to_udp_client(
         }
         let len = u16::from_be_bytes(len_buf) as usize;
 
-        let mut buf = vec![0u8; len];
         recv_stream
-            .read_exact(&mut buf)
+            .read_exact(&mut buf[..len])
             .await
             .context("Failed to read frame payload")?;
 
         if let Some(addr) = *client_addr.lock().await {
             udp_socket
-                .send_to(&buf, addr)
+                .send_to(&buf[..len], addr)
                 .await
                 .context("Failed to send UDP packet to client")?;
             log::debug!("<- Forwarded {} bytes to client {}", len, addr);

@@ -2,21 +2,27 @@
 //!
 //! Forwards TCP or UDP traffic through iroh P2P connections.
 
+mod auth;
+mod config;
+mod error;
+mod iroh_mode;
+mod net;
+mod secret;
+mod signaling;
 
 use ::iroh::SecretKey;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
-use tunnel_common::error::{ErrorCategory, TunnelError};
+use crate::error::{ErrorCategory, TunnelError};
 
-use tunnel_common::config::{
+use crate::config::{
     expand_tilde, load_client_config, load_server_config, parse_config_from_reader,
     validate_transport_tuning, ClientConfig, ServerConfig, TransportTuning,
 };
-use tunnel_iroh::iroh_mode::endpoint::{
+use crate::iroh_mode::endpoint::{
     load_secret, load_secret_from_string, secret_to_endpoint_id,
 };
-use tunnel_iroh::{auth, iroh_mode, secret};
 
 #[derive(Parser)]
 #[command(name = "tunnel-rs")]
@@ -217,7 +223,7 @@ struct ServerIrohParams {
 /// CLI values take precedence; empty CLI vectors fall back to config.
 fn resolve_server_iroh_params(
     cli: &Command,
-    iroh_cfg: Option<&tunnel_common::config::IrohConfig>,
+    iroh_cfg: Option<&crate::config::IrohConfig>,
 ) -> ServerIrohParams {
     let cfg = iroh_cfg.cloned().unwrap_or_default();
     let cfg_allowed = cfg.allowed_sources.clone().unwrap_or_default();
@@ -305,7 +311,7 @@ struct ClientIrohParams {
 /// CLI values take precedence; empty CLI vectors fall back to config.
 fn resolve_client_iroh_params(
     cli: &Command,
-    iroh_cfg: Option<&tunnel_common::config::IrohConfig>,
+    iroh_cfg: Option<&crate::config::IrohConfig>,
 ) -> ClientIrohParams {
     let cfg = iroh_cfg.cloned().unwrap_or_default();
 
@@ -471,7 +477,6 @@ async fn run() -> i32 {
 async fn run_inner() -> Result<()> {
     let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn"))
         .filter_module("tunnel_rs", log::LevelFilter::Info)
-        .filter_module("tunnel_iroh", log::LevelFilter::Info)
         .try_init();
     let args = Args::parse();
     let command = args.command;
@@ -488,7 +493,7 @@ async fn run_inner() -> Result<()> {
                 resolve_server_config(config.clone(), *default_config, *config_stdin).await?;
 
             if from_file {
-                cfg.validate("iroh")?;
+                cfg.validate()?;
             }
 
             let iroh_cfg = cfg.iroh();
@@ -576,7 +581,7 @@ async fn run_inner() -> Result<()> {
                 resolve_client_config(config.clone(), *default_config, *config_stdin).await?;
 
             if from_file {
-                cfg.validate("iroh")?;
+                cfg.validate()?;
             }
 
             let iroh_cfg = cfg.iroh();
