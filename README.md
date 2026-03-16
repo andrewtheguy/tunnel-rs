@@ -94,7 +94,7 @@ curl -sSL https://andrewtheguy.github.io/tunnel-rs/install.sh | bash -s 20251210
 ### From Source
 
 ```bash
-cargo install --path . -p tunnel-rs
+cargo install --path .
 ```
 
 ### Feature Flags

@@ -4,12 +4,12 @@ ARG TARGETPLATFORM
 WORKDIR /build
 
 COPY Cargo.toml Cargo.lock ./
-COPY crates ./crates
+COPY src ./src
 
 RUN --mount=type=cache,target=/usr/local/cargo/registry,id=cargo-registry-${TARGETPLATFORM} \
     --mount=type=cache,target=/usr/local/cargo/git,id=cargo-git-${TARGETPLATFORM} \
     --mount=type=cache,target=/build/target,id=cargo-target-${TARGETPLATFORM} \
-    cargo build --release -p tunnel-rs && \
+    cargo build --release && \
     cp target/release/tunnel-rs /tunnel-rs
 
 FROM scratch AS export
