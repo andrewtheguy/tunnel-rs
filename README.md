@@ -149,7 +149,7 @@ tunnel-rs server \
   --alpn-token-file ./alpn_token.txt
 ```
 
-> **Tip:** For containers and automation scripts, use environment variables (`TUNNEL_RS_AUTH_TOKENS`, `TUNNEL_RS_ALPN_TOKEN`) instead of files. See [Environment Variables](#environment-variables).
+> **Tip:** For containers and automation scripts, use environment variables (`TUNNEL_RS_AUTH_TOKENS`, `TUNNEL_RS_ALPN_TOKEN`) instead of files. See the server environment variable table below.
 
 **Config file** (`server.toml`):
 ```toml
@@ -306,7 +306,7 @@ tunnel-rs client \
 
 Then connect: `ssh -p 2222 user@127.0.0.1`
 
-> **Tip:** For containers and automation scripts, use environment variables (`TUNNEL_RS_AUTH_TOKEN`, `TUNNEL_RS_ALPN_TOKEN`, etc.) instead of files. See [Environment Variables](#environment-variables).
+> **Tip:** For containers and automation scripts, use environment variables (`TUNNEL_RS_AUTH_TOKEN`, `TUNNEL_RS_ALPN_TOKEN`, etc.) instead of files. See the client environment variable table below.
 
 ### 3. UDP Tunnel (e.g., WireGuard/Game/DNS)
 
@@ -701,4 +701,3 @@ done
 7. **Source request phase:** Client opens source stream with `SourceRequest`
 8. Server validates source against allowed networks and responds
 9. If accepted, traffic forwarding begins
-

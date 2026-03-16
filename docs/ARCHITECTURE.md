@@ -53,19 +53,24 @@ Relay-only is a CLI-only flag that forces connections through relay servers inst
 ```mermaid
 graph LR
     subgraph "Core Modules"
-        A[main.rs<br/>CLI & Orchestration]
-        B[config.rs<br/>Configuration]
-        C[tunnel.rs<br/>TCP/UDP Forwarding]
-        D[endpoint.rs<br/>iroh Endpoint]
-        E[secret.rs<br/>Identity Management]
-        E2[auth.rs<br/>Token Authentication]
+        A[main.rs<br/>CLI & orchestration]
+        B[config.rs<br/>Config loading & validation]
+        C[multi_source.rs<br/>Server/client tunnel loops]
+        C2[net.rs<br/>Address parsing & ACL checks]
+        D[endpoint.rs<br/>iroh endpoint setup]
+        E[secret.rs<br/>Identity management]
+        E2[auth.rs<br/>Auth + ALPN tokens]
+        F[signaling/codec.rs<br/>Handshake messages]
     end
 
     A --> B
     A --> C
-    A --> D
     A --> E
     A --> E2
+    C --> C2
+    C --> D
+    C --> E2
+    C --> F
 
     style A fill:#E3F2FD
     style C fill:#E8F5E9
@@ -206,13 +211,15 @@ sequenceDiagram
     C->>S: Open auth stream
     C->>S: AuthRequest {token}
     alt Token Valid
-        S-->>C: AuthResponse {accepted}
+        S-->>C: AuthResponse {accepted: true}
     else Token Invalid
-        S->>S: Wait out remaining auth timeout
-        S->>S: Drop connection silently
+        S-->>C: AuthResponse {accepted: false, reason}
+        S->>S: Close connection (error code 1)
+    else Auth Timeout
+        S->>S: Close connection (error code 2)
     end
 
-    Note over C,S: Source Request Phase
+    Note over C,S: Source Request Phase (after successful auth)
     C->>S: Open source stream
     C->>S: SourceRequest {source}
     S-->>C: SourceResponse {accepted}
@@ -340,27 +347,30 @@ graph TB
 graph TB
     subgraph "Config File"
         A[role: server/client]
-        C[source/target: tcp://host:port or udp://host:port]
+        B[mode: iroh]
     end
 
     subgraph "iroh Options"
-        I[secret_file]
-        I2[auth_tokens - server only]
-        I3[auth_token - client only]
-        I4[alpn_token - required on both]
-        J[relay_urls]
-        L[dns_server]
-        M[server_node_id - client only]
+        C[server_node_id<br/>client only]
+        D[request_source / target<br/>client only]
+        E[allowed_sources / max_sessions<br/>server only]
+        F[secret_file / secret<br/>server only]
+        G[auth_token* / auth_tokens*]
+        H[alpn_token* / encryption_key_file]
+        I[relay_urls / dns_server]
+        J[transport<br/>cc + window sizes]
     end
 
     A --> S[Validation]
+    B --> S
+    S --> C
+    S --> D
+    S --> E
+    S --> F
+    S --> G
+    S --> H
     S --> I
-    S --> I2
-    S --> I3
-    S --> I4
     S --> J
-    S --> L
-    S --> M
 
     style S fill:#FFF9C4
 ```

@@ -92,14 +92,14 @@ impl IrohConfig {
                     anyhow::bail!(
                         "[iroh] Plaintext 'auth_token' is not allowed in config files. \
                          Use 'auth_token_file', set TUNNEL_RS_AUTH_TOKEN env var, \
-                         or use an age-encrypted value. See: tunnel-rs encrypt-value --help"
+                         or use an age-encrypted value. See: tunnel-rs config-encryption encrypt-value --help"
                     );
                 }
                 if self.alpn_token.as_ref().is_some_and(|v| !is_age_encrypted(v)) {
                     anyhow::bail!(
                         "[iroh] Plaintext 'alpn_token' is not allowed in config files. \
                          Use 'alpn_token_file', set TUNNEL_RS_ALPN_TOKEN env var, \
-                         or use an age-encrypted value. See: tunnel-rs encrypt-value --help"
+                         or use an age-encrypted value. See: tunnel-rs config-encryption encrypt-value --help"
                     );
                 }
             }
@@ -112,21 +112,21 @@ impl IrohConfig {
                     anyhow::bail!(
                         "[iroh] Plaintext 'auth_tokens' is not allowed in config files. \
                          Use 'auth_tokens_file', set TUNNEL_RS_AUTH_TOKENS env var, \
-                         or use age-encrypted values. See: tunnel-rs encrypt-value --help"
+                         or use age-encrypted values. See: tunnel-rs config-encryption encrypt-value --help"
                     );
                 }
                 if self.alpn_token.as_ref().is_some_and(|v| !is_age_encrypted(v)) {
                     anyhow::bail!(
                         "[iroh] Plaintext 'alpn_token' is not allowed in config files. \
                          Use 'alpn_token_file', set TUNNEL_RS_ALPN_TOKEN env var, \
-                         or use an age-encrypted value. See: tunnel-rs encrypt-value --help"
+                         or use an age-encrypted value. See: tunnel-rs config-encryption encrypt-value --help"
                     );
                 }
                 if self.secret.as_ref().is_some_and(|v| !is_age_encrypted(v)) {
                     anyhow::bail!(
                         "[iroh] Plaintext 'secret' is not allowed in config files. \
                          Use 'secret_file', set TUNNEL_RS_SECRET env var, \
-                         or use an age-encrypted value. See: tunnel-rs encrypt-value --help"
+                         or use an age-encrypted value. See: tunnel-rs config-encryption encrypt-value --help"
                     );
                 }
             }
