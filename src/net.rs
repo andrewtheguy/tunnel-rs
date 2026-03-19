@@ -702,6 +702,7 @@ mod tests {
     fn test_extract_host_from_source_ipv4() {
         let result = extract_host_from_source("tcp://192.168.1.1:22");
         assert_eq!(result.as_deref(), Some("192.168.1.1"));
+        result.unwrap().parse::<IpAddr>().unwrap();
     }
 
     #[test]
