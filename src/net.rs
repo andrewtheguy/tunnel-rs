@@ -254,22 +254,21 @@ pub fn order_udp_addresses(addrs: &[SocketAddr]) -> Vec<SocketAddr> {
 // ============================================================================
 
 /// Extract address (host:port) from a source URL (protocol://host:port).
+/// For IPv6, `host_str()` already includes brackets (e.g., `[::1]`).
 pub fn extract_addr_from_source(source: &str) -> Option<String> {
     let url = url::Url::parse(source).ok()?;
     let host = url.host_str()?;
     let port = url.port()?;
-    // Re-add brackets for IPv6 addresses
-    if host.contains(':') {
-        Some(format!("[{}]:{}", host, port))
-    } else {
-        Some(format!("{}:{}", host, port))
-    }
+    Some(format!("{}:{}", host, port))
 }
 
-/// Extract host from a source URL (protocol://host:port).
+/// Extract host (bare IP or hostname) from a source URL (protocol://host:port).
+/// For IPv6, strips the brackets that `host_str()` includes so the result
+/// can be parsed directly with `IpAddr::parse`.
 pub fn extract_host_from_source(source: &str) -> Option<String> {
     let url = url::Url::parse(source).ok()?;
-    url.host_str().map(|s| s.to_string())
+    url.host_str()
+        .map(|s| s.trim_start_matches('[').trim_end_matches(']').to_string())
 }
 
 /// Extract port from a source URL (protocol://host:port).
@@ -667,6 +666,43 @@ mod tests {
         assert!(result.contains(&v4_1));
         assert!(result.contains(&v4_2));
         assert!(result.contains(&v6_1));
+    }
+
+    #[test]
+    fn test_extract_addr_from_source_ipv4() {
+        let result = extract_addr_from_source("tcp://192.168.1.1:22");
+        assert_eq!(result.as_deref(), Some("192.168.1.1:22"));
+    }
+
+    #[test]
+    fn test_extract_addr_from_source_ipv6() {
+        let result =
+            extract_addr_from_source("tcp://[2600:1f13:adc:a0b1:feb9:cb56:f64e:b6f8]:22");
+        assert_eq!(
+            result.as_deref(),
+            Some("[2600:1f13:adc:a0b1:feb9:cb56:f64e:b6f8]:22")
+        );
+        // Must be parseable as a SocketAddr
+        result.unwrap().parse::<SocketAddr>().unwrap();
+    }
+
+    #[test]
+    fn test_extract_host_from_source_ipv6() {
+        let result =
+            extract_host_from_source("tcp://[2600:1f13:adc:a0b1:feb9:cb56:f64e:b6f8]:22");
+        assert_eq!(
+            result.as_deref(),
+            Some("2600:1f13:adc:a0b1:feb9:cb56:f64e:b6f8")
+        );
+        // Must be parseable as an IpAddr
+        result.unwrap().parse::<IpAddr>().unwrap();
+    }
+
+    #[test]
+    fn test_extract_host_from_source_ipv4() {
+        let result = extract_host_from_source("tcp://192.168.1.1:22");
+        assert_eq!(result.as_deref(), Some("192.168.1.1"));
+        result.unwrap().parse::<IpAddr>().unwrap();
     }
 
     #[test]
