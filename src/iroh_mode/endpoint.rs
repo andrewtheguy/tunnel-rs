@@ -194,9 +194,15 @@ pub fn create_endpoint_builder(
     }
 
     let transport_config = transport_config.build();
+    // iroh 0.98 (PR #3992) requires the crypto provider to be set explicitly
+    // on the builder when starting from `EndpointBuilder::empty()` — the
+    // `tls-ring` feature only makes the ring backend available, it does not
+    // wire it in, and rustls' global `install_default()` is not consulted.
+    let crypto_provider = Arc::new(rustls::crypto::ring::default_provider());
     let mut builder = EndpointBuilder::empty()
         .relay_mode(relay_mode)
-        .transport_config(transport_config);
+        .transport_config(transport_config)
+        .crypto_provider(crypto_provider);
 
     if relay_only {
         builder = builder.clear_ip_transports();

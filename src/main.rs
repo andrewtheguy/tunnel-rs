@@ -511,6 +511,7 @@ async fn run_inner() -> Result<()> {
     let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn"))
         .filter_module("tunnel_rs", log::LevelFilter::Info)
         .try_init();
+
     let args = Args::parse();
     let command = args.command;
 
