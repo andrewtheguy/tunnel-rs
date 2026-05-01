@@ -512,11 +512,6 @@ async fn run_inner() -> Result<()> {
         .filter_module("tunnel_rs", log::LevelFilter::Info)
         .try_init();
 
-    // iroh 0.98's EndpointBuilder::empty() does not install a default rustls
-    // crypto provider even with the `tls-ring` feature enabled, so we install
-    // ring explicitly here. Err means another caller already installed one,
-    // which is also fine.
-    let _ = rustls::crypto::ring::default_provider().install_default();
     let args = Args::parse();
     let command = args.command;
 
