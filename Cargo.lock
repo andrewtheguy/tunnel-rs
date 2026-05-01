@@ -4277,7 +4277,7 @@ checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
 name = "tunnel-rs"
-version = "0.3.2"
+version = "0.3.2-beta1"
 dependencies = [
  "age",
  "anyhow",
@@ -4291,6 +4291,7 @@ dependencies = [
  "log",
  "noq-proto",
  "rand 0.9.2",
+ "rustls",
  "serde",
  "serde_json",
  "tempfile",
