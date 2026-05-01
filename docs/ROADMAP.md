@@ -154,6 +154,21 @@ pub enum Access {
 - Enterprise deployments requiring relay-level access control
 - Additional defense-in-depth beyond tunnel-rs auth tokens
 
+**Simpler alternative since iroh 0.98 — endpoint-side `EndpointHooks`:**
+
+If relay-level filtering isn't required (i.e. you accept that an unauthorized client can *reach* the relay but you want to reject them at your tunnel-rs server), iroh 0.98 added `iroh::endpoint::EndpointHooks` which avoids the relay-coordination complexity above:
+
+```rust
+pub trait EndpointHooks {
+    async fn after_handshake(&self, conn: &ConnectionInfo) -> AfterHandshakeOutcome;
+    // -> Accept | Reject { error_code: VarInt, reason: Vec<u8> }
+}
+```
+
+Installed on the tunnel-rs server's own endpoint via `Endpoint::Builder::hooks(...)`. Runs after the QUIC TLS handshake, so the remote's verified `EndpointId` is known. Rejecting here closes the connection with a QUIC close frame *before* it consumes an `accept_bi()` slot or reaches the application token check in `multi_source.rs`.
+
+This still doesn't replace the pre-shared token in `src/auth.rs` (the hook only sees connection metadata, not stream bytes), but it can be a second factor: an `--allowed-endpoint-ids` flag would allow operators to pin which client identities a given server will talk to. Tradeoff: clients still need ephemeral or long-lived `EndpointId`s the server knows in advance, which loses some of the "ephemeral identity" benefit. Worth offering as an *opt-in* hardening for environments that can manage a peer ID list.
+
 ---
 
 #### External Address Hint for Kubernetes / NAT Environments
