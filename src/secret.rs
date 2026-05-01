@@ -64,7 +64,7 @@ fn write_secret_to_output(
 
 /// Generate a new secret key file (base64 encoded) and output the EndpointId to stdout
 pub fn generate_secret(output: PathBuf, force: bool) -> Result<()> {
-    let secret = SecretKey::generate(&mut rand::rng());
+    let secret = SecretKey::generate();
     let secret_base64 = BASE64.encode(secret.to_bytes());
     let endpoint_id = secret_to_endpoint_id(&secret);
     write_secret_to_output(

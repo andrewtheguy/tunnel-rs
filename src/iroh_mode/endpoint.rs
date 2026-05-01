@@ -9,7 +9,7 @@ use iroh::{
     Endpoint, EndpointAddr, EndpointId, RelayMap, RelayMode, RelayUrl, SecretKey, TransportAddr,
     Watcher,
 };
-use iroh_quinn_proto::congestion::{BbrConfig, CubicConfig, NewRenoConfig};
+use noq_proto::congestion::{BbrConfig, CubicConfig, NewRenoConfig};
 use log::{info, warn};
 use tokio::task::JoinHandle;
 use std::path::Path;
@@ -194,7 +194,9 @@ pub fn create_endpoint_builder(
     }
 
     let transport_config = transport_config.build();
-    let mut builder = Endpoint::empty_builder(relay_mode).transport_config(transport_config);
+    let mut builder = EndpointBuilder::empty()
+        .relay_mode(relay_mode)
+        .transport_config(transport_config);
 
     if relay_only {
         builder = builder.clear_ip_transports();
@@ -210,10 +212,10 @@ pub fn create_endpoint_builder(
             Some(dns_url) => {
                 // Custom DNS server with publishing and resolving via HTTP (pkarr)
                 let pkarr_url: Url = dns_url.parse().context("Invalid DNS server URL")?;
-                if let Some(secret) = secret_key {
+                if secret_key.is_some() {
                     info!("Using custom DNS server: {}", dns_url);
                     builder = builder
-                        .address_lookup(PkarrPublisher::builder(pkarr_url.clone()).build(secret.clone()))
+                        .address_lookup(PkarrPublisher::builder(pkarr_url.clone()))
                         .address_lookup(PkarrResolver::builder(pkarr_url));
                 } else {
                     // Custom DNS server, resolve only via HTTP (no secret = can't publish)
