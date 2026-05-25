@@ -260,7 +260,7 @@ download_binary() {
 
     # Download the binary
     if command -v curl >/dev/null 2>&1; then
-        if ! curl -L -o "$output_path" "$url"; then
+        if ! curl -fL -o "$output_path" "$url"; then
             print_error "Failed to download binary"
             exit 1
         fi
