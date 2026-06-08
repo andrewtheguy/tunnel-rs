@@ -2,10 +2,6 @@ name: Release (Manual)
 
 on:
   workflow_dispatch:
-    inputs:
-      tag_name:
-        description: 'Tag name (leave empty for auto-generated yyyymmddhhmmss)'
-        required: false
 
 permissions:
   contents: write
@@ -23,31 +19,64 @@ jobs:
       minor_version: ${{ steps.version.outputs.minor_version }}
     steps:
       - uses: actions/checkout@v4
-      - name: Extract minor version from Cargo.toml
+      - name: Extract version from Cargo.toml
         id: version
         run: |
-          VERSION=$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)"/\1/')
-          MINOR=$(echo "$VERSION" | cut -d. -f1-2)
-          echo "minor_version=$MINOR" >> "$GITHUB_OUTPUT"
+          VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
+          if [ -z "$VERSION" ] || [ "$VERSION" = "null" ]; then
+            echo "::error::Could not parse version from Cargo.toml"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "minor_version=$(echo "$VERSION" | cut -d. -f1-2)" >> "$GITHUB_OUTPUT"
       - name: Generate Tag
         id: tag
         env:
-          TAG: ${{ inputs.tag_name }}
-          REF_NAME: ${{ github.ref_name }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          if [ -z "$TAG" ]; then
-            echo "release_tag=$(date +'%Y%m%d%H%M%S')" >> "$GITHUB_OUTPUT"
-            echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
-          elif [ "$REF_NAME" != "main" ]; then
-            echo "release_tag=$TAG" >> "$GITHUB_OUTPUT"
-            echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
-          elif echo "$TAG" | grep -qiE '(alpha|beta|rc)'; then
-            echo "release_tag=$TAG" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.ref }}" != "refs/heads/main" ]; then
+            echo "release_tag=$(date +'%Y%m%d%H%M%S')-${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
             echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
           else
-            echo "release_tag=$TAG" >> "$GITHUB_OUTPUT"
+            echo "release_tag=v$VERSION" >> "$GITHUB_OUTPUT"
             echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Abort if tag already exists
+        run: |
+          if git ls-remote --tags origin "refs/tags/${{ steps.tag.outputs.release_tag }}" | grep -q .; then
+            echo "::error::Tag ${{ steps.tag.outputs.release_tag }} already exists on remote"
+            exit 1
+          fi
+
+      - name: Create draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          # Clean up any leftover draft from a previous failed run with the same tag.
+          # A draft release doesn't create the git tag on the remote, so a stale draft is the
+          # only thing that can collide here (real published tags are caught by the step above).
+          if gh release view "${{ steps.tag.outputs.release_tag }}" --json isDraft --jq '.isDraft' 2>/dev/null | grep -qx true; then
+            echo "Deleting stale draft release ${{ steps.tag.outputs.release_tag }}"
+            gh release delete "${{ steps.tag.outputs.release_tag }}" --yes
+          fi
+          args=()
+          if [ "${{ steps.tag.outputs.is_prerelease }}" = "true" ]; then
+            args+=(--prerelease)
+          else
+            # Generate notes against the previous *stable* release, not the latest prerelease.
+            prev_stable=$(gh release list --exclude-pre-releases --exclude-drafts --limit 1 --json tagName --jq '.[0].tagName // empty')
+            if [ -n "$prev_stable" ]; then
+              args+=(--notes-start-tag "$prev_stable")
+            fi
+          fi
+          gh release create "${{ steps.tag.outputs.release_tag }}" \
+            --draft \
+            --target "${{ github.sha }}" \
+            --title "Release ${{ steps.tag.outputs.release_tag }}" \
+            --generate-notes \
+            "${args[@]}"
 
   build-linux:
     needs: setup
@@ -129,7 +158,7 @@ jobs:
           name: release-windows-amd64
           path: target/release/tunnel-rs-windows-amd64.exe
 
-  create-release:
+  publish-release:
     needs: [setup, build-linux, build-macos, build-windows]
     if: always() && needs.setup.result == 'success' && needs.build-linux.result == 'success' && needs.build-macos.result == 'success' && (needs.build-windows.result == 'success' || needs.build-windows.result == 'skipped')
     runs-on: ubuntu-latest
@@ -139,16 +168,21 @@ jobs:
           pattern: release-*
           path: artifacts
           merge-multiple: true
-      - uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ needs.setup.outputs.release_tag }}
-          target_commitish: ${{ github.sha }}
-          name: Release ${{ needs.setup.outputs.release_tag }}
-          prerelease: ${{ needs.setup.outputs.is_prerelease }}
-          generate_release_notes: true
-          files: artifacts/*
+
+      - name: List artifacts
+        run: ls -la artifacts/
+
+      - name: Upload artifacts to draft release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release upload "${{ needs.setup.outputs.release_tag }}" artifacts/* --clobber
+
+      - name: Publish release (remove draft, creates the tag)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release edit "${{ needs.setup.outputs.release_tag }}" --draft=false
 
   docker-build:
     needs: [setup, build-linux]
