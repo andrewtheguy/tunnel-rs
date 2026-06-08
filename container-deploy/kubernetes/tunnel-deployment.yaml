@@ -23,11 +23,11 @@
 #      tunnel-rs generate-server-key --output server.key
 #
 #   2. Generate authentication token:
-#      tunnel-rs generate-token > tokens.txt
+#      tunnel-rs generate-auth-token > tokens.txt
 #      # Share this token with authorized clients
 #
 #   3. Generate ALPN token (shared between server and all clients):
-#      tunnel-rs generate-token --alpn > alpn_token.txt
+#      tunnel-rs generate-alpn-token > alpn_token.txt
 #
 #   4. Create secrets:
 #      kubectl create secret generic tunnel-server-secrets \

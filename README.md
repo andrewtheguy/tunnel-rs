@@ -173,17 +173,17 @@ Iroh mode requires authentication using pre-shared tokens. Clients must provide 
 
 The CRC16 checksum detects all single-byte errors in the token payload.
 
-Generate tokens with: `tunnel-rs generate-token`
+Generate tokens with: `tunnel-rs generate-auth-token`
 
 ### Token Management
 
 ```bash
 # Generate a valid token
-AUTH_TOKEN=$(tunnel-rs generate-token)
+AUTH_TOKEN=$(tunnel-rs generate-auth-token)
 echo $AUTH_TOKEN  # Share this with authorized clients
 
 # Generate multiple tokens
-tunnel-rs generate-token -c 5
+tunnel-rs generate-auth-token -c 5
 ```
 
 ### Multiple Tokens (Server)
@@ -201,7 +201,7 @@ tunnel-rs server --allowed-tcp 127.0.0.0/8
 
 **Example `auth_tokens.txt`:**
 ```text
-# Alice's token (generate with: tunnel-rs generate-token)
+# Alice's token (generate with: tunnel-rs generate-auth-token)
 iXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 
 # Bob's token
@@ -260,11 +260,11 @@ tunnel-rs generate-server-key --output ./server.key
 
 # Create a shared authentication token
 # Share this token with authorized clients
-AUTH_TOKEN=$(tunnel-rs generate-token)
+AUTH_TOKEN=$(tunnel-rs generate-auth-token)
 echo $AUTH_TOKEN
 
 # Create an ALPN token (shared between server and all clients)
-ALPN_TOKEN=$(tunnel-rs generate-token --alpn)
+ALPN_TOKEN=$(tunnel-rs generate-alpn-token)
 echo $ALPN_TOKEN
 ```
 
@@ -361,7 +361,7 @@ tunnel-rs client \
 | Env Var | Description |
 |---------|-------------|
 | `TUNNEL_RS_AUTH_TOKENS` | Authentication tokens (comma-separated). Required unless provided via `--auth-tokens-file`. |
-| `TUNNEL_RS_ALPN_TOKEN` | ALPN token for QUIC handshake-level filtering (14-char Base64URL with CRC16 checksum). Required unless provided via `--alpn-token-file`. Generate with `generate-token --alpn`. |
+| `TUNNEL_RS_ALPN_TOKEN` | ALPN token for QUIC handshake-level filtering (14-char Base64URL with CRC16 checksum). Required unless provided via `--alpn-token-file`. Generate with `generate-alpn-token`. |
 | `TUNNEL_RS_SECRET` | Base64-encoded secret key for persistent server identity (use this or `--secret-file`) |
 | `TUNNEL_RS_ENCRYPTION_KEY_FILE` | Path to age identity file for decrypting age-encrypted config values |
 
@@ -394,7 +394,7 @@ tunnel-rs client \
 | Env Var | Description |
 |---------|-------------|
 | `TUNNEL_RS_AUTH_TOKEN` | Authentication token to send to server (required unless provided via `--auth-token-file`) |
-| `TUNNEL_RS_ALPN_TOKEN` | ALPN token for QUIC handshake-level filtering (14-char Base64URL with CRC16 checksum, must match server). Generate with `generate-token --alpn`. |
+| `TUNNEL_RS_ALPN_TOKEN` | ALPN token for QUIC handshake-level filtering (14-char Base64URL with CRC16 checksum, must match server). Generate with `generate-alpn-token`. |
 | `TUNNEL_RS_ENCRYPTION_KEY_FILE` | Path to age identity file for decrypting age-encrypted config values |
 
 ## Configuration Files
@@ -470,11 +470,11 @@ dns_server = "https://dns.example.com/pkarr"
 max_sessions = 100
 
 # Authentication tokens file (one token per line, # comments allowed)
-# Generate tokens with: tunnel-rs generate-token
+# Generate tokens with: tunnel-rs generate-auth-token
 auth_tokens_file = "/etc/tunnel-rs/auth_tokens.txt"
 
 # ALPN token file for QUIC handshake-level filtering
-# Generate with: tunnel-rs generate-token --alpn
+# Generate with: tunnel-rs generate-alpn-token
 alpn_token_file = "/etc/tunnel-rs/alpn_token.txt"
 
 [iroh.allowed_sources]
@@ -574,23 +574,32 @@ proc.terminate()
 
 # Utility Commands
 
-## generate-token
+## generate-auth-token
 
 Generate authentication tokens for iroh mode:
 
 ```bash
 # Generate a single auth token
-tunnel-rs generate-token
+tunnel-rs generate-auth-token
 # Output: i<base64url-encoded-payload>
 
 # Generate multiple auth tokens
-tunnel-rs generate-token -c 5
-
-# Generate an ALPN token (14-char Base64URL with checksum)
-tunnel-rs generate-token --alpn
+tunnel-rs generate-auth-token -c 5
 ```
 
 Auth token format: `i` + Base64URL-encoded(32 random bytes + CRC16 checksum) = 47 characters total.
+
+## generate-alpn-token
+
+Generate an ALPN token shared between a server and all its clients:
+
+```bash
+# Generate a single ALPN token
+tunnel-rs generate-alpn-token
+
+# Generate multiple ALPN tokens
+tunnel-rs generate-alpn-token -c 5
+```
 
 ALPN token format: Base64URL-encoded(8 random bytes + 2-byte CRC16 checksum) = 14 characters total.
 

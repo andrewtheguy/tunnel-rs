@@ -170,14 +170,19 @@ enum Command {
     ///
     /// Tokens are shared with clients for authentication (like API keys).
     /// Server configures accepted tokens via TUNNEL_RS_AUTH_TOKENS env var or --auth-tokens-file.
-    GenerateToken {
+    GenerateAuthToken {
         /// Number of tokens to generate (default: 1)
         #[arg(short, long, default_value = "1")]
         count: usize,
-
-        /// Generate an ALPN token (14-char Base64URL) instead of an auth token
-        #[arg(long)]
-        alpn: bool,
+    },
+    /// Generate an ALPN token (14-char Base64URL)
+    ///
+    /// Shared between a server and all its clients for pre-handshake QUIC ALPN filtering.
+    /// Configure via TUNNEL_RS_ALPN_TOKEN env var or --alpn-token-file.
+    GenerateAlpnToken {
+        /// Number of tokens to generate (default: 1)
+        #[arg(short, long, default_value = "1")]
+        count: usize,
     },
     /// Age encryption commands for config file secrets
     ConfigEncryption {
@@ -594,12 +599,12 @@ async fn run_inner() -> Result<()> {
                 (None, None) => {
                     anyhow::bail!(
                         "ALPN token is required. Set TUNNEL_RS_ALPN_TOKEN environment variable or use --alpn-token-file.\n\
-                        Generate one with: tunnel-rs generate-token --alpn"
+                        Generate one with: tunnel-rs generate-alpn-token"
                     );
                 }
             };
             auth::validate_alpn_token(&alpn_token).context(
-                "Invalid ALPN token format. Generate a valid token with: tunnel-rs generate-token --alpn",
+                "Invalid ALPN token format. Generate a valid token with: tunnel-rs generate-alpn-token",
             )?;
 
             // Validate transport tuning window sizes
@@ -696,7 +701,7 @@ async fn run_inner() -> Result<()> {
 
             // Validate token format before connecting (fail fast)
             auth::validate_token(&auth_token)
-                .context("Invalid auth token format. Generate a valid token with: tunnel-rs generate-token")
+                .context("Invalid auth token format. Generate a valid token with: tunnel-rs generate-auth-token")
                 .map_err(TunnelError::config)?;
 
             // Resolve ALPN token from env var or file
@@ -715,12 +720,12 @@ async fn run_inner() -> Result<()> {
                 (None, None) => {
                     return Err(TunnelError::config(anyhow::anyhow!(
                         "ALPN token is required. Set TUNNEL_RS_ALPN_TOKEN environment variable or use --alpn-token-file.\n\
-                        Generate one with: tunnel-rs generate-token --alpn"
+                        Generate one with: tunnel-rs generate-alpn-token"
                     )).into());
                 }
             };
             auth::validate_alpn_token(&alpn_token)
-                .context("Invalid ALPN token format. Generate a valid token with: tunnel-rs generate-token --alpn")
+                .context("Invalid ALPN token format. Generate a valid token with: tunnel-rs generate-alpn-token")
                 .map_err(TunnelError::config)?;
 
             // Validate transport tuning window sizes
@@ -744,13 +749,15 @@ async fn run_inner() -> Result<()> {
             secret::generate_secret(expand_tilde(output), *force)
         }
         Command::ShowServerId { secret_file } => secret::show_id(expand_tilde(secret_file)),
-        Command::GenerateToken { count, alpn } => {
+        Command::GenerateAuthToken { count } => {
             for _ in 0..*count {
-                if *alpn {
-                    println!("{}", auth::generate_alpn_token());
-                } else {
-                    println!("{}", auth::generate_token());
-                }
+                println!("{}", auth::generate_token());
+            }
+            Ok(())
+        }
+        Command::GenerateAlpnToken { count } => {
+            for _ in 0..*count {
+                println!("{}", auth::generate_alpn_token());
             }
             Ok(())
         }

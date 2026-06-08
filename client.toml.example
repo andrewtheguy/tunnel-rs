@@ -21,7 +21,7 @@ server_node_id = "2xnbkpbc7izsilvewd7c62w7wnwziacmpfwvhcrya5nt76dqkpga"
 # ============================================================================
 # Token provided by the server admin for authentication
 # Token format: exactly 47 characters (i + 46 Base64URL chars, no padding)
-# Generate with: tunnel-rs generate-token
+# Generate with: tunnel-rs generate-auth-token
 #
 # IMPORTANT: Use 'auth_token_file' (NOT 'secret' or 'secret_file'
 # which are server-only options for persistent identity)
@@ -35,7 +35,7 @@ auth_token_file = "~/.config/tunnel-rs/token.txt"
 # ============================================================================
 # Pre-shared token embedded in the QUIC ALPN protocol identifier.
 # Must match the server's alpn_token value.
-# Generate with: tunnel-rs generate-token --alpn
+# Generate with: tunnel-rs generate-alpn-token
 #
 # SECURITY: Plaintext 'alpn_token' is not allowed in config files.
 # Use 'alpn_token_file' here (recommended). For containers/automation, set TUNNEL_RS_ALPN_TOKEN environment variable instead.

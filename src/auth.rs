@@ -10,7 +10,7 @@
 //!   - First 32 bytes: random entropy
 //!   - Last 2 bytes: CRC16-CCITT-FALSE checksum (big-endian) of the 32 random bytes
 //!
-//! Generate tokens with: `tunnel-rs generate-token`
+//! Generate tokens with: `tunnel-rs generate-auth-token`
 
 use anyhow::{Context, Result};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
@@ -185,7 +185,7 @@ fn parse_token_lines(content: &str) -> impl Iterator<Item = (usize, &str)> {
 ///
 /// # Example file:
 /// ```text
-/// # Authentication tokens (generate with: tunnel-rs generate-token)
+/// # Authentication tokens (generate with: tunnel-rs generate-auth-token)
 /// imfNFxTPDKB3jsM1Q8kzAvZnQHbmJ1W49Rk8i1S2Jzrze9Q
 /// ih9SwOUD1nHkQpl4Gf0fQrVrRIt6QctNfPzIlcwkPhzv0ig
 /// ```

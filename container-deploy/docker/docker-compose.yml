@@ -13,12 +13,12 @@
 #
 #   2. Generate authentication token:
 #      docker run --rm ghcr.io/andrewtheguy/tunnel-rs:latest \
-#        generate-token > tokens.txt
+#        generate-auth-token > tokens.txt
 #      # Share this token with authorized clients
 #
 #   3. Generate ALPN token (shared between server and all clients):
 #      docker run --rm ghcr.io/andrewtheguy/tunnel-rs:latest \
-#        generate-token --alpn > alpn_token.txt
+#        generate-alpn-token > alpn_token.txt
 #
 #   4. Start the services:
 #      docker compose up -d
