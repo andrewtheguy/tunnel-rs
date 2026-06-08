@@ -35,11 +35,11 @@ tunnel-rs generate-server-key --output server.key
 # Output: EndpointId: <SERVER_NODE_ID>
 
 # 2. Create an authentication token
-AUTH_TOKEN=$(tunnel-rs generate-token)
+AUTH_TOKEN=$(tunnel-rs generate-auth-token)
 echo $AUTH_TOKEN  # Share this with authorized clients
 
 # 3. Create an ALPN token (shared between server and all clients)
-ALPN_TOKEN=$(tunnel-rs generate-token --alpn)
+ALPN_TOKEN=$(tunnel-rs generate-alpn-token)
 echo $ALPN_TOKEN
 
 # 4. Server: allow connections with token authentication
@@ -75,11 +75,11 @@ docker run --rm ghcr.io/andrewtheguy/tunnel-rs:latest \
   generate-server-key --output - > server.key
 
 # 2. Create an authentication token
-AUTH_TOKEN=$(docker run --rm ghcr.io/andrewtheguy/tunnel-rs:latest generate-token)
+AUTH_TOKEN=$(docker run --rm ghcr.io/andrewtheguy/tunnel-rs:latest generate-auth-token)
 echo "$AUTH_TOKEN" > tokens.txt
 
 # 3. Create an ALPN token (shared between server and all clients)
-docker run --rm ghcr.io/andrewtheguy/tunnel-rs:latest generate-token --alpn > alpn_token.txt
+docker run --rm ghcr.io/andrewtheguy/tunnel-rs:latest generate-alpn-token > alpn_token.txt
 ALPN_TOKEN=$(cat alpn_token.txt)
 
 # 4. Start services
@@ -115,10 +115,10 @@ Access ClusterIP services from outside the cluster — like SSH tunneling but ov
 tunnel-rs generate-server-key --output server.key
 
 # 2. Create an authentication token
-AUTH_TOKEN=$(tunnel-rs generate-token)
+AUTH_TOKEN=$(tunnel-rs generate-auth-token)
 
 # 3. Create an ALPN token (shared between server and all clients)
-tunnel-rs generate-token --alpn > alpn_token.txt
+tunnel-rs generate-alpn-token > alpn_token.txt
 ALPN_TOKEN=$(cat alpn_token.txt)
 
 # 4. Create secrets

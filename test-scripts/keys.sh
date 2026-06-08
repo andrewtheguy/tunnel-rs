@@ -17,10 +17,10 @@ generate_keys() {
     SERVER_NODE_ID=$("$TUNNEL_BIN" show-server-id --secret-file "$SERVER_KEY_FILE")
 
     # Generate auth token
-    AUTH_TOKEN=$("$TUNNEL_BIN" generate-token)
+    AUTH_TOKEN=$("$TUNNEL_BIN" generate-auth-token)
 
     # Generate ALPN token
-    ALPN_TOKEN=$("$TUNNEL_BIN" generate-token --alpn)
+    ALPN_TOKEN=$("$TUNNEL_BIN" generate-alpn-token)
 
     # Save to config file
     cat > "$KEYS_FILE" << EOF

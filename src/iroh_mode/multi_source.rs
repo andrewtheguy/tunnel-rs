@@ -160,7 +160,7 @@ pub async fn run_multi_source_server(config: MultiSourceServerConfig) -> Result<
         anyhow::bail!(
             "At least one authentication token must be configured.\n\
             Set TUNNEL_RS_AUTH_TOKENS environment variable or use --auth-tokens-file <FILE>.\n\
-            Generate tokens with: tunnel-rs generate-token"
+            Generate tokens with: tunnel-rs generate-auth-token"
         );
     }
 
