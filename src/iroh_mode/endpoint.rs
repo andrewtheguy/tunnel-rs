@@ -59,6 +59,16 @@ pub const QUIC_KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(15);
 /// may have long idle periods between bursts of activity.
 pub const QUIC_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 
+/// Initial QUIC path MTU (UDP payload bytes) before MTU discovery completes.
+///
+/// quinn defaults to the protocol minimum of 1200, which keeps early packets
+/// small and slows the throughput ramp-up of every new connection. 1300 is
+/// safe on virtually all internet paths (well below 1492 PPPoE / 1500 Ethernet
+/// minus IP+UDP overhead) and shortens the ramp-up. MTU discovery stays enabled
+/// with its default upper bound (1452); we do not raise `min_mtu`, so
+/// black-hole detection can still drop back to 1200.
+pub const QUIC_INITIAL_MTU: u16 = 1300;
+
 /// Create a congestion controller factory based on the selected algorithm.
 fn create_congestion_controller_factory(
     controller: CongestionController,
@@ -164,6 +174,13 @@ pub fn create_endpoint_builder(
         .context("converting QUIC_IDLE_TIMEOUT to IdleTimeout")?;
     transport_config = transport_config.max_idle_timeout(Some(idle_timeout));
     transport_config = transport_config.keep_alive_interval(QUIC_KEEP_ALIVE_INTERVAL);
+
+    // Start with a larger initial path MTU so early packets are full-size and
+    // the throughput ramp-up is shorter (see QUIC_INITIAL_MTU). MTU discovery
+    // and min_mtu keep their defaults. Applied unconditionally, independent of
+    // any transport tuning.
+    transport_config = transport_config.initial_mtu(QUIC_INITIAL_MTU);
+    info!("Transport MTU: initial={QUIC_INITIAL_MTU} (discovery enabled)");
 
     // Apply transport tuning if provided
     if let Some(tuning) = transport_tuning {
