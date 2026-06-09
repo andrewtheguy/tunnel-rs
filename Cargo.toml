@@ -1,14 +1,18 @@
 [package]
 name = "tunnel-rs"
-version = "0.3.3"
-edition = "2021"
+version = "0.3.4"
+edition = "2024"
 description = "TCP/UDP port forwarding through iroh P2P connections"
 
 [dependencies]
-iroh = { version = "0.98.2", features = ["address-lookup-mdns"] }
-noq-proto = "0.17.0"
+iroh = "1.0.0-rc.1"
+iroh-mdns-address-lookup = "0.3.0"
+noq-proto = "1.0.0-rc.1"
+futures = "0.3"
+bytes = "1"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 tokio = { version = "1", features = ["full"] }
+socket2 = "0.6"
 clap = { version = "4", features = ["derive"] }
 anyhow = "1"
 log = "0.4"
@@ -27,8 +31,8 @@ jiff = "0.2"
 [dev-dependencies]
 tempfile = "3.24.0"
 
-# [profile.release]
-# strip = true
-# lto = "fat"
-# codegen-units = 1
-# panic = "abort"
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 1
+panic = "abort"

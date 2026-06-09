@@ -3,19 +3,22 @@
 use anyhow::{Context, Result};
 use crate::error::TunnelError;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+use futures::StreamExt;
 use iroh::{
-    address_lookup::{DnsAddressLookup, MdnsAddressLookup, PkarrPublisher, PkarrResolver},
-    endpoint::{Builder as EndpointBuilder, ControllerFactory, PathInfoList, QuicTransportConfig},
+    address_lookup::{DnsAddressLookup, PkarrPublisher, PkarrResolver},
+    endpoint::{presets, Builder as EndpointBuilder, ControllerFactory, PathList, QuicTransportConfig},
     Endpoint, EndpointAddr, EndpointId, RelayMap, RelayMode, RelayUrl, SecretKey, TransportAddr,
-    Watcher,
 };
-use noq_proto::congestion::{BbrConfig, CubicConfig, NewRenoConfig};
+use iroh_mdns_address_lookup::MdnsAddressLookup;
+use noq_proto::congestion::{Bbr3Config, CubicConfig, NewRenoConfig};
 use log::{info, warn};
 use tokio::task::JoinHandle;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use crate::config::{CongestionController, TransportTuning, DEFAULT_RECEIVE_WINDOW};
+use crate::config::{
+    CongestionController, TransportTuning, DEFAULT_RECEIVE_WINDOW, DEFAULT_SEND_WINDOW,
+};
 use url::Url;
 
 pub const RELAY_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -62,7 +65,7 @@ fn create_congestion_controller_factory(
 ) -> Arc<dyn ControllerFactory + Send + Sync> {
     match controller {
         CongestionController::Cubic => Arc::new(CubicConfig::default()),
-        CongestionController::Bbr => Arc::new(BbrConfig::default()),
+        CongestionController::Bbr => Arc::new(Bbr3Config::default()),
         CongestionController::NewReno => Arc::new(NewRenoConfig::default()),
     }
 }
@@ -173,8 +176,12 @@ pub fn create_endpoint_builder(
         transport_config = transport_config.receive_window(receive_window.into());
         transport_config = transport_config.stream_receive_window(receive_window.into());
 
-        // Set send window (defaults to receive window if not specified)
-        let send_window = tuning.send_window.unwrap_or(receive_window);
+        // Set send window (defaults to 2x the stream receive window for bulk transfers)
+        let send_window = match tuning.send_window {
+            Some(send_window) => send_window,
+            None if tuning.receive_window.is_none() => DEFAULT_SEND_WINDOW,
+            None => receive_window.saturating_mul(2),
+        };
         transport_config = transport_config.send_window(send_window.into());
 
         let recv_source = if tuning.receive_window.is_none() { "default" } else { "config" };
@@ -194,12 +201,12 @@ pub fn create_endpoint_builder(
     }
 
     let transport_config = transport_config.build();
-    // iroh 0.98 (PR #3992) requires the crypto provider to be set explicitly
-    // on the builder when starting from `EndpointBuilder::empty()` — the
-    // `tls-ring` feature only makes the ring backend available, it does not
-    // wire it in, and rustls' global `install_default()` is not consulted.
+    // iroh 1.0 requires the crypto provider to be set explicitly on the builder
+    // when starting from the `Empty` preset — the `tls-ring` feature only makes
+    // the ring backend available, it does not wire it in, and rustls' global
+    // `install_default()` is not consulted.
     let crypto_provider = Arc::new(rustls::crypto::ring::default_provider());
-    let mut builder = EndpointBuilder::empty()
+    let mut builder = Endpoint::builder(presets::Empty)
         .relay_mode(relay_mode)
         .transport_config(transport_config)
         .crypto_provider(crypto_provider);
@@ -401,7 +408,7 @@ pub async fn connect_to_server(
 }
 
 /// Format connection path info for display, showing selected paths with RTT.
-fn format_paths(paths: &PathInfoList) -> String {
+fn format_paths(paths: &PathList<'_>) -> String {
     if paths.is_empty() {
         return "establishing...".to_string();
     }
@@ -424,6 +431,17 @@ fn format_paths(paths: &PathInfoList) -> String {
     }
 }
 
+/// Key identifying the selected-path topology, excluding the volatile RTT,
+/// so we only log when the path actually changes.
+fn paths_key(paths: &PathList<'_>) -> (bool, Vec<String>) {
+    let selected = paths
+        .iter()
+        .filter(|p| p.is_selected())
+        .map(|p| format!("{:?}", p.remote_addr()))
+        .collect();
+    (paths.is_empty(), selected)
+}
+
 /// RAII guard that aborts the background path watcher task on drop.
 pub struct PathWatcherGuard(JoinHandle<()>);
 
@@ -439,19 +457,18 @@ impl Drop for PathWatcherGuard {
 /// The returned [`PathWatcherGuard`] aborts the background task when dropped.
 /// Callers must keep the guard alive for the duration of the connection.
 pub fn watch_connection_paths(conn: &iroh::endpoint::Connection) -> PathWatcherGuard {
-    let mut watcher = conn.paths();
-
-    // Log initial snapshot
-    let initial = watcher.get();
-    info!("Connection: {}", format_paths(&initial));
-
-    // Spawn background task that logs on changes
-    let mut last = initial;
+    let conn = conn.clone();
     PathWatcherGuard(tokio::spawn(async move {
-        while let Ok(paths) = watcher.updated().await {
-            if paths != last {
+        // The stream yields the current snapshot on the first poll, then a
+        // fresh snapshot whenever the open or selected paths change; it ends
+        // when the connection closes.
+        let mut stream = conn.paths_stream();
+        let mut last_key = None;
+        while let Some(paths) = stream.next().await {
+            let key = paths_key(&paths);
+            if last_key.as_ref() != Some(&key) {
                 info!("Connection: {}", format_paths(&paths));
-                last = paths;
+                last_key = Some(key);
             }
         }
     }))

@@ -3,7 +3,6 @@
 use anyhow::{Context, Result};
 use std::net::SocketAddr;
 use std::time::Duration;
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{lookup_host, TcpStream, UdpSocket};
 
 /// Delay between starting connection attempts (Happy Eyeballs style).
@@ -18,6 +17,9 @@ pub const STREAM_OPEN_BASE_DELAY_MS: u64 = 100;
 /// Maximum multiplier for exponential backoff to keep delays bounded.
 /// With base delay of 100ms, this caps max delay at ~102 seconds.
 pub const BACKOFF_MAX_MULTIPLIER: u64 = 1024;
+
+/// TCP socket buffer target for local tunnel endpoints (4 MB).
+pub const TCP_SOCKET_BUFFER_SIZE: usize = 4 * 1024 * 1024;
 
 // ============================================================================
 // Address Ordering (Happy Eyeballs)
@@ -219,6 +221,7 @@ pub async fn try_connect_tcp(addrs: &[SocketAddr]) -> Result<TcpStream> {
     while let Some((addr, result)) = rx.recv().await {
         match result {
             Ok(stream) => {
+                tune_tcp_stream(&stream);
                 // Cancel outstanding tasks
                 for handle in handles {
                     handle.abort();
@@ -236,6 +239,31 @@ pub async fn try_connect_tcp(addrs: &[SocketAddr]) -> Result<TcpStream> {
         "Failed to connect to any address:\n  {}",
         errors.join("\n  ")
     );
+}
+
+/// Apply best-effort TCP options that help tunnel throughput and latency.
+pub fn tune_tcp_stream(stream: &TcpStream) {
+    if let Err(err) = stream.set_nodelay(true) {
+        log::debug!("Failed to enable TCP_NODELAY: {}", err);
+    }
+
+    #[cfg(any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "fuchsia",
+        target_os = "cygwin",
+    ))]
+    if let Err(err) = stream.set_quickack(true) {
+        log::debug!("Failed to enable TCP_QUICKACK: {}", err);
+    }
+
+    let socket = socket2::SockRef::from(stream);
+    if let Err(err) = socket.set_recv_buffer_size(TCP_SOCKET_BUFFER_SIZE) {
+        log::debug!("Failed to set TCP receive buffer: {}", err);
+    }
+    if let Err(err) = socket.set_send_buffer_size(TCP_SOCKET_BUFFER_SIZE) {
+        log::debug!("Failed to set TCP send buffer: {}", err);
+    }
 }
 
 // ============================================================================
@@ -389,12 +417,11 @@ pub async fn check_source_allowed(source: &str, allowed_networks: &[String]) -> 
     let mut allowed = false;
     for ip in &source_ips {
         for network_str in allowed_networks {
-            if let Ok(network) = network_str.parse::<ipnet::IpNet>() {
-                if network.contains(ip) {
+            if let Ok(network) = network_str.parse::<ipnet::IpNet>()
+                && network.contains(ip) {
                     allowed = true;
                     break;
                 }
-            }
         }
         if allowed {
             break;
@@ -438,37 +465,6 @@ where
             }
         }
     }
-}
-
-// ============================================================================
-// Stream copy helper
-// ============================================================================
-
-/// Buffer size for stream copies (64 KB).
-const COPY_BUFFER_SIZE: usize = 64 * 1024;
-
-/// Copy a stream until EOF.
-pub async fn copy_stream<R, W>(reader: &mut R, writer: &mut W) -> Result<()>
-where
-    R: AsyncRead + Unpin,
-    W: AsyncWrite + Unpin,
-{
-    let mut buf = vec![0u8; COPY_BUFFER_SIZE];
-    loop {
-        let read_len = reader
-            .read(&mut buf)
-            .await
-            .context("Failed to read from stream")?;
-        if read_len == 0 {
-            break;
-        }
-        writer
-            .write_all(&buf[..read_len])
-            .await
-            .context("Failed to write to stream")?;
-    }
-    writer.flush().await.context("Failed to flush stream")?;
-    Ok(())
 }
 
 // ============================================================================
