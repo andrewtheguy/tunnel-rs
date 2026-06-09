@@ -75,18 +75,16 @@ pub(super) async fn bridge_streams(
 
     tokio::select! {
         result = copy_quic_to_tcp(&mut quic_recv, &mut tcp_write) => {
-            if let Err(e) = result {
-                if !e.to_string().contains("reset") {
+            if let Err(e) = result
+                && !e.to_string().contains("reset") {
                     log::warn!("QUIC->TCP error: {}", e);
                 }
-            }
         }
         result = copy_tcp_to_quic(&mut tcp_read, &mut quic_send) => {
-            if let Err(e) = result {
-                if !e.to_string().contains("reset") {
+            if let Err(e) = result
+                && !e.to_string().contains("reset") {
                     log::warn!("TCP->QUIC error: {}", e);
                 }
-            }
         }
     }
 

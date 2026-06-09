@@ -167,24 +167,21 @@ impl IrohConfig {
             )
         })?;
 
-        if let Some(ref v) = self.auth_token {
-            if is_age_encrypted(v) {
+        if let Some(ref v) = self.auth_token
+            && is_age_encrypted(v) {
                 self.auth_token =
                     Some(decrypt_value(v, key_path).context("Failed to decrypt auth_token")?);
             }
-        }
-        if let Some(ref v) = self.alpn_token {
-            if is_age_encrypted(v) {
+        if let Some(ref v) = self.alpn_token
+            && is_age_encrypted(v) {
                 self.alpn_token =
                     Some(decrypt_value(v, key_path).context("Failed to decrypt alpn_token")?);
             }
-        }
-        if let Some(ref v) = self.secret {
-            if is_age_encrypted(v) {
+        if let Some(ref v) = self.secret
+            && is_age_encrypted(v) {
                 self.secret =
                     Some(decrypt_value(v, key_path).context("Failed to decrypt secret")?);
             }
-        }
         if let Some(ref vs) = self.auth_tokens {
             let mut decrypted = Vec::with_capacity(vs.len());
             for (i, v) in vs.iter().enumerate() {
@@ -586,11 +583,10 @@ pub fn expand_tilde(path: &Path) -> PathBuf {
         if let Some(home) = dirs::home_dir() {
             return home.join(stripped);
         }
-    } else if path_str == "~" {
-        if let Some(home) = dirs::home_dir() {
+    } else if path_str == "~"
+        && let Some(home) = dirs::home_dir() {
             return home;
         }
-    }
     path.to_path_buf()
 }
 

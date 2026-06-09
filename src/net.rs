@@ -417,12 +417,11 @@ pub async fn check_source_allowed(source: &str, allowed_networks: &[String]) -> 
     let mut allowed = false;
     for ip in &source_ips {
         for network_str in allowed_networks {
-            if let Ok(network) = network_str.parse::<ipnet::IpNet>() {
-                if network.contains(ip) {
+            if let Ok(network) = network_str.parse::<ipnet::IpNet>()
+                && network.contains(ip) {
                     allowed = true;
                     break;
                 }
-            }
         }
         if allowed {
             break;
