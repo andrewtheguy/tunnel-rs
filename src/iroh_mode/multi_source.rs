@@ -16,6 +16,7 @@ use tokio::net::{TcpListener, TcpStream, UdpSocket};
 use tokio::sync::Mutex;
 use tokio::task::JoinSet;
 use crate::config::TransportTuning;
+use crate::net::tune_tcp_stream;
 
 /// Configuration for the multi-source server.
 pub struct MultiSourceServerConfig {
@@ -652,6 +653,7 @@ async fn run_multi_source_tcp_client(
             loop {
                 match listener.accept().await {
                     Ok((stream, peer_addr)) => {
+                        tune_tcp_stream(&stream);
                         if tx.send((stream, peer_addr)).await.is_err() {
                             // Channel closed, stop accepting
                             break;

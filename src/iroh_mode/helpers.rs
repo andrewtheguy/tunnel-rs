@@ -4,13 +4,16 @@
 //! iroh mode.
 
 use anyhow::{Context, Result};
+use bytes::{Buf, Bytes, BytesMut};
+use std::io::{self, IoSlice};
 use std::net::SocketAddr;
 use std::sync::Arc;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpStream, UdpSocket};
 use tokio::sync::Mutex;
 
 use crate::net::{
-    copy_stream, order_udp_addresses, retry_with_backoff, STREAM_OPEN_BASE_DELAY_MS,
+    order_udp_addresses, retry_with_backoff, tune_tcp_stream, STREAM_OPEN_BASE_DELAY_MS,
     STREAM_OPEN_MAX_ATTEMPTS,
 };
 
@@ -40,17 +43,18 @@ pub(super) async fn bridge_streams(
     mut quic_send: iroh::endpoint::SendStream,
     tcp_stream: TcpStream,
 ) -> Result<()> {
+    tune_tcp_stream(&tcp_stream);
     let (mut tcp_read, mut tcp_write) = tcp_stream.into_split();
 
     tokio::select! {
-        result = copy_stream(&mut quic_recv, &mut tcp_write) => {
+        result = copy_quic_to_tcp(&mut quic_recv, &mut tcp_write) => {
             if let Err(e) = result {
                 if !e.to_string().contains("reset") {
                     log::warn!("QUIC->TCP error: {}", e);
                 }
             }
         }
-        result = copy_stream(&mut tcp_read, &mut quic_send) => {
+        result = copy_tcp_to_quic(&mut tcp_read, &mut quic_send) => {
             if let Err(e) = result {
                 if !e.to_string().contains("reset") {
                     log::warn!("TCP->QUIC error: {}", e);
@@ -61,6 +65,100 @@ pub(super) async fn bridge_streams(
 
     // Signal EOF on the QUIC send stream for graceful shutdown
     let _ = quic_send.finish();
+
+    Ok(())
+}
+
+const TCP_TO_QUIC_CHUNK_SIZE: usize = 256 * 1024;
+const QUIC_TO_TCP_CHUNKS: usize = 64;
+
+async fn copy_tcp_to_quic<R>(
+    reader: &mut R,
+    writer: &mut iroh::endpoint::SendStream,
+) -> Result<()>
+where
+    R: AsyncRead + Unpin,
+{
+    loop {
+        let mut buf = BytesMut::with_capacity(TCP_TO_QUIC_CHUNK_SIZE);
+        let read_len = reader
+            .read_buf(&mut buf)
+            .await
+            .context("Failed to read from TCP stream")?;
+        if read_len == 0 {
+            break;
+        }
+
+        writer
+            .write_chunk(buf.freeze())
+            .await
+            .context("Failed to write to QUIC stream")?;
+    }
+
+    Ok(())
+}
+
+async fn copy_quic_to_tcp<W>(
+    reader: &mut iroh::endpoint::RecvStream,
+    writer: &mut W,
+) -> Result<()>
+where
+    W: AsyncWrite + Unpin,
+{
+    let mut chunks: [Bytes; QUIC_TO_TCP_CHUNKS] = std::array::from_fn(|_| Bytes::new());
+
+    while let Some(chunk_count) = reader
+        .read_many_chunks(&mut chunks)
+        .await
+        .context("Failed to read from QUIC stream")?
+    {
+        write_all_chunks_vectored(writer, &mut chunks[..chunk_count])
+            .await
+            .context("Failed to write to TCP stream")?;
+    }
+
+    writer.flush().await.context("Failed to flush TCP stream")?;
+    Ok(())
+}
+
+async fn write_all_chunks_vectored<W>(writer: &mut W, chunks: &mut [Bytes]) -> io::Result<()>
+where
+    W: AsyncWrite + Unpin,
+{
+    let mut first = 0;
+
+    while first < chunks.len() {
+        while first < chunks.len() && chunks[first].is_empty() {
+            first += 1;
+        }
+        if first == chunks.len() {
+            break;
+        }
+
+        let slices: Vec<IoSlice<'_>> = chunks[first..]
+            .iter()
+            .filter(|chunk| !chunk.is_empty())
+            .map(|chunk| IoSlice::new(chunk.as_ref()))
+            .collect();
+
+        let written = writer.write_vectored(&slices).await?;
+        if written == 0 {
+            return Err(io::ErrorKind::WriteZero.into());
+        }
+
+        let mut remaining = written;
+        while remaining > 0 && first < chunks.len() {
+            let chunk_len = chunks[first].len();
+            if remaining >= chunk_len {
+                remaining -= chunk_len;
+                chunks[first] = Bytes::new();
+                first += 1;
+            } else {
+                chunks[first].advance(remaining);
+                break;
+            }
+        }
+    }
 
     Ok(())
 }

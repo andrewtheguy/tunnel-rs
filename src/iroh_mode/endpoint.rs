@@ -16,7 +16,9 @@ use tokio::task::JoinHandle;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use crate::config::{CongestionController, TransportTuning, DEFAULT_RECEIVE_WINDOW};
+use crate::config::{
+    CongestionController, TransportTuning, DEFAULT_RECEIVE_WINDOW, DEFAULT_SEND_WINDOW,
+};
 use url::Url;
 
 pub const RELAY_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -174,8 +176,12 @@ pub fn create_endpoint_builder(
         transport_config = transport_config.receive_window(receive_window.into());
         transport_config = transport_config.stream_receive_window(receive_window.into());
 
-        // Set send window (defaults to receive window if not specified)
-        let send_window = tuning.send_window.unwrap_or(receive_window);
+        // Set send window (defaults to 2x the stream receive window for bulk transfers)
+        let send_window = match tuning.send_window {
+            Some(send_window) => send_window,
+            None if tuning.receive_window.is_none() => DEFAULT_SEND_WINDOW,
+            None => receive_window.saturating_mul(2),
+        };
         transport_config = transport_config.send_window(send_window.into());
 
         let recv_source = if tuning.receive_window.is_none() { "default" } else { "config" };
