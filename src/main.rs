@@ -3,6 +3,7 @@
 //! Forwards TCP or UDP traffic through iroh P2P connections.
 
 mod auth;
+mod buffer;
 mod config;
 mod encryption;
 mod error;

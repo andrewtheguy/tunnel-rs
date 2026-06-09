@@ -4,15 +4,45 @@
 //! iroh mode.
 
 use anyhow::{Context, Result};
+use bytes::{Buf, Bytes, BytesMut};
+use std::future::poll_fn;
+use std::io::{self, IoSlice};
 use std::net::SocketAddr;
+use std::pin::Pin;
 use std::sync::Arc;
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio::net::{TcpStream, UdpSocket};
 use tokio::sync::Mutex;
 
+use crate::buffer::uninitialized_vec;
 use crate::net::{
-    copy_stream, order_udp_addresses, retry_with_backoff, STREAM_OPEN_BASE_DELAY_MS,
+    order_udp_addresses, retry_with_backoff, tune_tcp_stream, STREAM_OPEN_BASE_DELAY_MS,
     STREAM_OPEN_MAX_ATTEMPTS,
 };
+
+/// Read exactly enough bytes to fill `read_buf` to its capacity from a QUIC
+/// stream — our own `read_exact` over uninitialized memory.
+///
+/// The stock `RecvStream::read_exact` requires an initialized `&mut [u8]`, which
+/// forces zeroing the buffer first. This reads through the `AsyncRead` impl into
+/// a `ReadBuf::uninit` instead, skipping the memset. `read_buf`'s capacity bounds
+/// the read, so frame boundaries are preserved (no over-read into the next
+/// frame). Errors if the stream ends before the buffer is full.
+async fn read_exact_uninit(
+    stream: &mut iroh::endpoint::RecvStream,
+    read_buf: &mut ReadBuf<'_>,
+) -> Result<()> {
+    while read_buf.remaining() > 0 {
+        let before = read_buf.filled().len();
+        poll_fn(|cx| Pin::new(&mut *stream).poll_read(cx, read_buf))
+            .await
+            .context("Failed to read frame payload")?;
+        if read_buf.filled().len() == before {
+            anyhow::bail!("QUIC stream ended mid-frame");
+        }
+    }
+    Ok(())
+}
 
 // ============================================================================
 // QUIC Stream Helpers
@@ -40,17 +70,18 @@ pub(super) async fn bridge_streams(
     mut quic_send: iroh::endpoint::SendStream,
     tcp_stream: TcpStream,
 ) -> Result<()> {
+    tune_tcp_stream(&tcp_stream);
     let (mut tcp_read, mut tcp_write) = tcp_stream.into_split();
 
     tokio::select! {
-        result = copy_stream(&mut quic_recv, &mut tcp_write) => {
+        result = copy_quic_to_tcp(&mut quic_recv, &mut tcp_write) => {
             if let Err(e) = result {
                 if !e.to_string().contains("reset") {
                     log::warn!("QUIC->TCP error: {}", e);
                 }
             }
         }
-        result = copy_stream(&mut tcp_read, &mut quic_send) => {
+        result = copy_tcp_to_quic(&mut tcp_read, &mut quic_send) => {
             if let Err(e) = result {
                 if !e.to_string().contains("reset") {
                     log::warn!("TCP->QUIC error: {}", e);
@@ -65,6 +96,100 @@ pub(super) async fn bridge_streams(
     Ok(())
 }
 
+const TCP_TO_QUIC_CHUNK_SIZE: usize = 256 * 1024;
+const QUIC_TO_TCP_CHUNKS: usize = 64;
+
+async fn copy_tcp_to_quic<R>(
+    reader: &mut R,
+    writer: &mut iroh::endpoint::SendStream,
+) -> Result<()>
+where
+    R: AsyncRead + Unpin,
+{
+    loop {
+        let mut buf = BytesMut::with_capacity(TCP_TO_QUIC_CHUNK_SIZE);
+        let read_len = reader
+            .read_buf(&mut buf)
+            .await
+            .context("Failed to read from TCP stream")?;
+        if read_len == 0 {
+            break;
+        }
+
+        writer
+            .write_chunk(buf.freeze())
+            .await
+            .context("Failed to write to QUIC stream")?;
+    }
+
+    Ok(())
+}
+
+async fn copy_quic_to_tcp<W>(
+    reader: &mut iroh::endpoint::RecvStream,
+    writer: &mut W,
+) -> Result<()>
+where
+    W: AsyncWrite + Unpin,
+{
+    let mut chunks: [Bytes; QUIC_TO_TCP_CHUNKS] = std::array::from_fn(|_| Bytes::new());
+
+    while let Some(chunk_count) = reader
+        .read_many_chunks(&mut chunks)
+        .await
+        .context("Failed to read from QUIC stream")?
+    {
+        write_all_chunks_vectored(writer, &mut chunks[..chunk_count])
+            .await
+            .context("Failed to write to TCP stream")?;
+    }
+
+    writer.flush().await.context("Failed to flush TCP stream")?;
+    Ok(())
+}
+
+async fn write_all_chunks_vectored<W>(writer: &mut W, chunks: &mut [Bytes]) -> io::Result<()>
+where
+    W: AsyncWrite + Unpin,
+{
+    let mut first = 0;
+
+    while first < chunks.len() {
+        while first < chunks.len() && chunks[first].is_empty() {
+            first += 1;
+        }
+        if first == chunks.len() {
+            break;
+        }
+
+        let slices: Vec<IoSlice<'_>> = chunks[first..]
+            .iter()
+            .filter(|chunk| !chunk.is_empty())
+            .map(|chunk| IoSlice::new(chunk.as_ref()))
+            .collect();
+
+        let written = writer.write_vectored(&slices).await?;
+        if written == 0 {
+            return Err(io::ErrorKind::WriteZero.into());
+        }
+
+        let mut remaining = written;
+        while remaining > 0 && first < chunks.len() {
+            let chunk_len = chunks[first].len();
+            if remaining >= chunk_len {
+                remaining -= chunk_len;
+                chunks[first] = Bytes::new();
+                first += 1;
+            } else {
+                chunks[first].advance(remaining);
+                break;
+            }
+        }
+    }
+
+    Ok(())
+}
+
 // ============================================================================
 // UDP Stream Helpers
 // ============================================================================
@@ -75,13 +200,15 @@ pub(super) async fn forward_udp_to_stream(
     mut send_stream: iroh::endpoint::SendStream,
     peer_addr: Arc<Mutex<Option<SocketAddr>>>,
 ) -> Result<()> {
-    let mut buf = vec![0u8; 65535];
+    let mut storage = uninitialized_vec(65535);
 
     loop {
-        let (len, addr) = udp_socket
-            .recv_from(&mut buf)
+        let mut read_buf = ReadBuf::uninit(&mut storage);
+        let addr = poll_fn(|cx| udp_socket.poll_recv_from(cx, &mut read_buf))
             .await
             .context("Failed to receive UDP packet")?;
+        let data = read_buf.filled();
+        let len = data.len();
 
         *peer_addr.lock().await = Some(addr);
 
@@ -91,7 +218,7 @@ pub(super) async fn forward_udp_to_stream(
             .await
             .context("Failed to write frame length")?;
         send_stream
-            .write_all(&buf[..len])
+            .write_all(data)
             .await
             .context("Failed to write frame payload")?;
 
@@ -120,13 +247,22 @@ pub(super) async fn forward_stream_to_udp_server(
 
     let udp_clone = udp_socket.clone();
     let response_task = tokio::spawn(async move {
-        let mut buf = vec![0u8; 65535];
-        while let Ok((len, _addr)) = udp_clone.recv_from(&mut buf).await {
+        let mut storage = uninitialized_vec(65535);
+        loop {
+            let mut read_buf = ReadBuf::uninit(&mut storage);
+            if poll_fn(|cx| udp_clone.poll_recv_from(cx, &mut read_buf))
+                .await
+                .is_err()
+            {
+                break;
+            }
+            let data = read_buf.filled();
+            let len = data.len();
             let frame_len = (len as u16).to_be_bytes();
             if send_stream.write_all(&frame_len).await.is_err() {
                 break;
             }
-            if send_stream.write_all(&buf[..len]).await.is_err() {
+            if send_stream.write_all(data).await.is_err() {
                 break;
             }
             log::debug!("-> Sent {} bytes back to client", len);
@@ -135,7 +271,7 @@ pub(super) async fn forward_stream_to_udp_server(
 
     let mut active_addr_idx = 0;
     let mut logged_active = false;
-    let mut buf = vec![0u8; u16::MAX as usize];
+    let mut storage = uninitialized_vec(u16::MAX as usize);
 
     loop {
         // Track errors for each address for aggregate reporting - fresh for each packet
@@ -154,17 +290,16 @@ pub(super) async fn forward_stream_to_udp_server(
         }
         let len = u16::from_be_bytes(len_buf) as usize;
 
-        recv_stream
-            .read_exact(&mut buf[..len])
-            .await
-            .context("Failed to read frame payload")?;
+        let mut read_buf = ReadBuf::uninit(&mut storage[..len]);
+        read_exact_uninit(&mut recv_stream, &mut read_buf).await?;
+        let payload = read_buf.filled();
 
         // Try to send to current address, falling back on error
         let mut sent = false;
         while active_addr_idx < ordered_addrs.len() {
             let target_addr = ordered_addrs[active_addr_idx];
 
-            match udp_socket.send_to(&buf[..len], target_addr).await {
+            match udp_socket.send_to(payload, target_addr).await {
                 Ok(_) => {
                     if !logged_active {
                         if active_addr_idx > 0 {
@@ -223,7 +358,7 @@ pub(super) async fn forward_stream_to_udp_client(
     udp_socket: Arc<UdpSocket>,
     client_addr: Arc<Mutex<Option<SocketAddr>>>,
 ) -> Result<()> {
-    let mut buf = vec![0u8; u16::MAX as usize];
+    let mut storage = uninitialized_vec(u16::MAX as usize);
     loop {
         let mut len_buf = [0u8; 2];
         match recv_stream.read_exact(&mut len_buf).await {
@@ -239,14 +374,13 @@ pub(super) async fn forward_stream_to_udp_client(
         }
         let len = u16::from_be_bytes(len_buf) as usize;
 
-        recv_stream
-            .read_exact(&mut buf[..len])
-            .await
-            .context("Failed to read frame payload")?;
+        let mut read_buf = ReadBuf::uninit(&mut storage[..len]);
+        read_exact_uninit(&mut recv_stream, &mut read_buf).await?;
+        let payload = read_buf.filled();
 
         if let Some(addr) = *client_addr.lock().await {
             udp_socket
-                .send_to(&buf[..len], addr)
+                .send_to(payload, addr)
                 .await
                 .context("Failed to send UDP packet to client")?;
             log::debug!("<- Forwarded {} bytes to client {}", len, addr);

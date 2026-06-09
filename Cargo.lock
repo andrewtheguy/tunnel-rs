@@ -4361,11 +4361,12 @@ checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
 name = "tunnel-rs"
-version = "0.3.4-alpha1"
+version = "0.3.4-alpha4"
 dependencies = [
  "age",
  "anyhow",
  "base64 0.22.1",
+ "bytes",
  "clap",
  "dirs",
  "env_logger",
@@ -4380,6 +4381,7 @@ dependencies = [
  "rustls",
  "serde",
  "serde_json",
+ "socket2 0.6.2",
  "tempfile",
  "tokio",
  "toml 0.8.23",

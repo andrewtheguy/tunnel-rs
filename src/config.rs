@@ -261,8 +261,11 @@ pub enum CongestionController {
     NewReno,
 }
 
-/// Default QUIC receive window size (8 MB).
-pub const DEFAULT_RECEIVE_WINDOW: u32 = 8 * 1024 * 1024;
+/// Default QUIC receive window size (16 MB).
+pub const DEFAULT_RECEIVE_WINDOW: u32 = 16 * 1024 * 1024;
+
+/// Default QUIC send window size (32 MB).
+pub const DEFAULT_SEND_WINDOW: u32 = 32 * 1024 * 1024;
 
 
 /// Transport tuning configuration for QUIC connections.
@@ -275,14 +278,14 @@ pub struct TransportTuning {
     #[serde(default)]
     pub congestion_controller: CongestionController,
 
-    /// QUIC receive window size in bytes (default: 8388608 = 8MB).
+    /// QUIC receive window size in bytes (default: 16777216 = 16MB).
     /// Controls flow control - larger values allow more in-flight data.
-    /// Valid range: 1024 to 16777216 (16MB).
+    /// Valid range: 1024 to 67108864 (64MB).
     pub receive_window: Option<u32>,
 
-    /// QUIC send window size in bytes (default: 8388608 = 8MB).
+    /// QUIC send window size in bytes (default: 33554432 = 32MB).
     /// Controls how much data can be sent before acknowledgment.
-    /// Valid range: 1024 to 16777216 (16MB).
+    /// Valid range: 1024 to 67108864 (64MB).
     pub send_window: Option<u32>,
 }
 
@@ -403,10 +406,10 @@ fn validate_allowed_sources(allowed: &AllowedSources) -> Result<()> {
 /// Minimum QUIC window size (1 KB).
 const MIN_WINDOW_SIZE: u32 = 1024;
 
-/// Maximum QUIC window size (16 MB).
-const MAX_WINDOW_SIZE: u32 = 16 * 1024 * 1024;
+/// Maximum QUIC window size (64 MB).
+const MAX_WINDOW_SIZE: u32 = 64 * 1024 * 1024;
 
-/// Validate QUIC window size is within acceptable range (1024-16777216 bytes).
+/// Validate QUIC window size is within acceptable range (1024-67108864 bytes).
 fn validate_window_size(size: u32, field_name: &str, section: &str) -> Result<()> {
     if size < MIN_WINDOW_SIZE {
         anyhow::bail!(
@@ -419,7 +422,7 @@ fn validate_window_size(size: u32, field_name: &str, section: &str) -> Result<()
     }
     if size > MAX_WINDOW_SIZE {
         anyhow::bail!(
-            "[{}] {} value {} exceeds maximum of {} bytes (16MB)",
+            "[{}] {} value {} exceeds maximum of {} bytes (64MB)",
             section,
             field_name,
             size,
