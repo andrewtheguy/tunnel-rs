@@ -58,7 +58,10 @@ impl fmt::Display for TunnelError {
 
 impl std::error::Error for TunnelError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        Some(&*self.source)
+        // `Display` already renders the top of `self.source`'s message chain, so
+        // expose only the remainder as the source. Returning `self.source` itself
+        // would duplicate its top message when formatted with `{:#}`.
+        self.source.source()
     }
 }
 
@@ -97,5 +100,27 @@ mod tests {
     fn test_display() {
         let err = TunnelError::config(anyhow::anyhow!("missing --source"));
         assert_eq!(err.to_string(), "missing --source");
+    }
+
+    #[test]
+    fn test_alternate_format_does_not_duplicate_message() {
+        // A leaf error with no further source must render exactly once under `{:#}`.
+        let err: anyhow::Error =
+            TunnelError::config(anyhow::anyhow!("Auth token is required.")).into();
+        assert_eq!(format!("{:#}", err), "Auth token is required.");
+    }
+
+    #[test]
+    fn test_alternate_format_preserves_context_chain() {
+        // Context added on the inner error is still surfaced exactly once each.
+        use anyhow::Context;
+        let inner = Err::<(), _>(anyhow::anyhow!("invalid base64"))
+            .context("Invalid auth token format")
+            .unwrap_err();
+        let err: anyhow::Error = TunnelError::config(inner).into();
+        assert_eq!(
+            format!("{:#}", err),
+            "Invalid auth token format: invalid base64"
+        );
     }
 }
