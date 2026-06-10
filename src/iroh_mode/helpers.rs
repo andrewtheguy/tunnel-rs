@@ -98,12 +98,15 @@ const TCP_TO_QUIC_CHUNK_SIZE: usize = 256 * 1024;
 const TCP_TO_QUIC_CHUNKS: usize = 16;
 const QUIC_TO_TCP_CHUNKS: usize = 64;
 
-/// Number of 256KB chunks to coalesce per QUIC write on the TCP->QUIC path.
+/// Default number of 256KB chunks to coalesce per QUIC write on the TCP->QUIC
+/// path. `1` matches main's single-write-per-read behavior.
 ///
-/// EXPERIMENTAL (tuning2): overridable via `TUNNEL_TCP_TO_QUIC_BATCH` so the
-/// sender batching can be bisected against retransmit counts without a rebuild.
-/// `1` reproduces main's single-write-per-read behavior; clamped to [1, 16].
-/// Defaults to `TCP_TO_QUIC_CHUNKS`.
+/// Measured to give the lowest iperf3 retransmit count: larger batches make the
+/// QUIC sender burstier, which causes more loss at the bottleneck. Larger values
+/// remain available as an opt-in via `TUNNEL_TCP_TO_QUIC_BATCH` (clamped to
+/// [1, 16]) for throughput/CPU experiments.
+const DEFAULT_TCP_TO_QUIC_BATCH: usize = 1;
+
 fn tcp_to_quic_batch() -> usize {
     use std::sync::OnceLock;
     static BATCH: OnceLock<usize> = OnceLock::new();
@@ -112,7 +115,7 @@ fn tcp_to_quic_batch() -> usize {
             .ok()
             .and_then(|v| v.parse::<usize>().ok())
             .map(|v| v.clamp(1, TCP_TO_QUIC_CHUNKS))
-            .unwrap_or(TCP_TO_QUIC_CHUNKS);
+            .unwrap_or(DEFAULT_TCP_TO_QUIC_BATCH);
         log::info!("TCP->QUIC coalescing batch = {} chunk(s)", batch);
         batch
     })
