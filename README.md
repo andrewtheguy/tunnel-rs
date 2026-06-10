@@ -454,6 +454,22 @@ alpn_token = "ageenc:YWdlLWVuY3J5cHRpb24ub3JnL3Yx..."
 
 Each encrypted value is a single-line `ageenc:` prefixed string (base64-encoded age ciphertext). The `encryption_key_file` can also be specified via `--encryption-key-file` CLI flag or `TUNNEL_RS_ENCRYPTION_KEY_FILE` env var.
 
+### Transport Tuning
+
+QUIC transport parameters can be tuned via an optional `[iroh.transport]` section in either config file. These are **config-only** (no CLI flags) and all have sensible defaults — only set them if you need to.
+
+```toml
+[iroh.transport]
+# Congestion controller: "cubic" (default), "bbr", or "newreno"
+congestion_controller = "cubic"
+# QUIC receive window in bytes (default: 16777216 = 16MB; range 1024–67108864)
+receive_window = 16777216
+# QUIC send window in bytes (default: 33554432 = 32MB; range 1024–67108864)
+send_window = 33554432
+```
+
+If `send_window` is omitted but `receive_window` is set, the send window defaults to twice the receive window. See [`server.toml.example`](server.toml.example) and [`client.toml.example`](client.toml.example) for the annotated reference.
+
 ### Server Config Example
 
 ```toml
@@ -609,7 +625,15 @@ ALPN token format: Base64URL-encoded(8 random bytes + 2-byte CRC16 checksum) = 1
 
 ```bash
 tunnel-rs generate-server-key --output ./server.key
+
+# Write the key to stdout instead of a file (e.g. to capture it in a script)
+tunnel-rs generate-server-key --output -
+
+# Overwrite an existing key file
+tunnel-rs generate-server-key --output ./server.key --force
 ```
+
+The secret key is written to the `--output` target (created with `0600` permissions on Unix), and the EndpointId is printed to stdout. Use `-` as the output to write the key to stdout instead — in that case the EndpointId is printed to stderr so it stays off the key stream. Existing files are not overwritten unless `--force` is passed.
 
 ## show-server-id
 
