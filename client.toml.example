@@ -109,3 +109,11 @@ alpn_token_file = "~/.config/tunnel-rs/alpn_token.txt"
 # Controls how much data can be sent before acknowledgment
 # Valid range: 1024 (1KB) to 67108864 (64MB)
 # send_window = 67108864
+
+# QUIC ACK-eliciting threshold (default: unset = iroh/quinn default cadence)
+# Number of ack-eliciting packets the peer may receive before it must ACK us.
+# This requests the peer to delay ACKs of the data WE send, so a large value
+# starves our own sender-side congestion control and hurts bulk throughput.
+# Leave unset unless you have measured a benefit. 0 = ACK every packet.
+# Valid range: 0 to 65535
+# ack_eliciting_threshold = 2

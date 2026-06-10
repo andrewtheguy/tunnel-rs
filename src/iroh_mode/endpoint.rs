@@ -169,15 +169,24 @@ pub fn create_endpoint_builder(
     transport_config = transport_config.keep_alive_interval(QUIC_KEEP_ALIVE_INTERVAL);
     transport_config = transport_config.send_fairness(false);
 
-    let mut ack_frequency = AckFrequencyConfig::default();
-    ack_frequency.ack_eliciting_threshold(8u32.into());
-    transport_config = transport_config.ack_frequency_config(Some(ack_frequency));
-
     // Apply transport tuning if provided
     if let Some(tuning) = transport_tuning {
         // Set congestion controller
         let factory = create_congestion_controller_factory(tuning.congestion_controller);
         transport_config = transport_config.congestion_controller_factory(factory);
+
+        // Configure the ACK_FREQUENCY extension only when explicitly requested.
+        // This asks the peer to delay ACKs of the data *we* send, so a large
+        // threshold starves our own sender-side congestion control of feedback.
+        // Left unset by default (iroh/quinn default cadence).
+        let ack_threshold_source = if let Some(threshold) = tuning.ack_eliciting_threshold {
+            let mut ack_frequency = AckFrequencyConfig::default();
+            ack_frequency.ack_eliciting_threshold(threshold.into());
+            transport_config = transport_config.ack_frequency_config(Some(ack_frequency));
+            threshold.to_string()
+        } else {
+            "default".to_string()
+        };
 
         // Set the per-stream receive window. Keep iroh's connection-level receive
         // window default, which is effectively unlimited.
@@ -203,12 +212,13 @@ pub fn create_endpoint_builder(
             "config"
         };
         info!(
-            "Transport: cc={:?}, stream_receive={}KB ({}), send={}KB ({}), connection_receive=iroh-default",
+            "Transport: cc={:?}, stream_receive={}KB ({}), send={}KB ({}), connection_receive=iroh-default, ack_eliciting_threshold={}",
             tuning.congestion_controller,
             stream_receive_window / 1024,
             recv_source,
             send_window / 1024,
-            send_source
+            send_source,
+            ack_threshold_source
         );
     }
 
