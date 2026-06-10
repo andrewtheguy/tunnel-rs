@@ -104,6 +104,8 @@ async fn copy_tcp_to_quic<R>(
 where
     R: AsyncRead + Unpin,
 {
+    // Single-write-per-read: coalescing multiple reads into one large QUIC write
+    // was measured to increase iperf3 retransmits by making the sender bursty.
     loop {
         let mut buf = BytesMut::with_capacity(TCP_TO_QUIC_CHUNK_SIZE);
         let read_len = reader

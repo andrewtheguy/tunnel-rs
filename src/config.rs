@@ -258,12 +258,11 @@ pub enum CongestionController {
     NewReno,
 }
 
-/// Default QUIC receive window size (16 MB).
-pub const DEFAULT_RECEIVE_WINDOW: u32 = 16 * 1024 * 1024;
+/// Default QUIC stream receive window size (64 MB).
+pub const DEFAULT_STREAM_RECEIVE_WINDOW: u32 = 64 * 1024 * 1024;
 
-/// Default QUIC send window size (32 MB).
-pub const DEFAULT_SEND_WINDOW: u32 = 32 * 1024 * 1024;
-
+/// Default QUIC send window size (64 MB).
+pub const DEFAULT_SEND_WINDOW: u32 = 64 * 1024 * 1024;
 
 /// Transport tuning configuration for QUIC connections.
 ///
@@ -275,15 +274,29 @@ pub struct TransportTuning {
     #[serde(default)]
     pub congestion_controller: CongestionController,
 
-    /// QUIC receive window size in bytes (default: 16777216 = 16MB).
-    /// Controls flow control - larger values allow more in-flight data.
+    /// QUIC stream receive window size in bytes (default: 67108864 = 64MB).
+    /// Controls per-stream flow control. The connection receive window uses iroh's default.
     /// Valid range: 1024 to 67108864 (64MB).
     pub receive_window: Option<u32>,
 
-    /// QUIC send window size in bytes (default: 33554432 = 32MB).
+    /// QUIC send window size in bytes (default: 67108864 = 64MB).
     /// Controls how much data can be sent before acknowledgment.
     /// Valid range: 1024 to 67108864 (64MB).
     pub send_window: Option<u32>,
+
+    /// QUIC ACK-eliciting threshold: the number of ack-eliciting packets the
+    /// peer may receive before it must send an ACK to us.
+    ///
+    /// This requests the peer to delay acknowledgements of the data *we* send,
+    /// so it directly affects our own sender-side ACK clock. A larger value
+    /// reduces ACK overhead but starves congestion control of feedback, which
+    /// hurts bulk-sending endpoints. A value of 0 makes the peer ACK every
+    /// packet.
+    ///
+    /// When unset, the ACK_FREQUENCY extension is left at iroh/quinn defaults
+    /// (peer ACKs every other packet). Only set this if you have measured a
+    /// benefit. Valid range: 0 to 65535.
+    pub ack_eliciting_threshold: Option<u32>,
 }
 
 /// Unified server configuration.
@@ -406,6 +419,9 @@ const MIN_WINDOW_SIZE: u32 = 1024;
 /// Maximum QUIC window size (64 MB).
 const MAX_WINDOW_SIZE: u32 = 64 * 1024 * 1024;
 
+/// Maximum QUIC ACK-eliciting threshold (fits in a QUIC VarInt and stays sane).
+const MAX_ACK_ELICITING_THRESHOLD: u32 = 65535;
+
 /// Validate QUIC window size is within acceptable range (1024-67108864 bytes).
 fn validate_window_size(size: u32, field_name: &str, section: &str) -> Result<()> {
     if size < MIN_WINDOW_SIZE {
@@ -436,6 +452,16 @@ pub fn validate_transport_tuning(tuning: &TransportTuning, section: &str) -> Res
     }
     if let Some(send) = tuning.send_window {
         validate_window_size(send, "send_window", section)?;
+    }
+    if let Some(threshold) = tuning.ack_eliciting_threshold
+        && threshold > MAX_ACK_ELICITING_THRESHOLD
+    {
+        anyhow::bail!(
+            "[{}] ack_eliciting_threshold value {} exceeds maximum of {}",
+            section,
+            threshold,
+            MAX_ACK_ELICITING_THRESHOLD
+        );
     }
     Ok(())
 }
