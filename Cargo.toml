@@ -1,6 +1,6 @@
 [package]
 name = "tunnel-rs"
-version = "0.3.5"
+version = "0.3.6-alpha1"
 edition = "2024"
 description = "TCP/UDP port forwarding through iroh P2P connections"
 
@@ -30,6 +30,13 @@ jiff = "0.2"
 
 [dev-dependencies]
 tempfile = "3.24.0"
+
+# netwatch 0.18.0 never enables noq-udp's Apple UDP fast path
+# (sendmsg_x/recvmsg_x, up to 32 packets per syscall), leaving macOS at one
+# packet per syscall. Drop this patch once upstream enables it.
+# See docs/PERFORMANCE.md.
+[patch.crates-io]
+netwatch = { git = "https://github.com/andrewchen5678/net-tools", branch = "apple-fast-path" }
 
 [profile.release]
 strip = true

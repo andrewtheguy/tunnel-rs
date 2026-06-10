@@ -2524,8 +2524,7 @@ dependencies = [
 [[package]]
 name = "netwatch"
 version = "0.18.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2071e0c2b5b229622c459096b84f1ad51afa150cdeeefdad491ef3704e581d91"
+source = "git+https://github.com/andrewchen5678/net-tools?branch=apple-fast-path#57d1952ba4e7a198bf17bc7a448e7a18bf8af44b"
 dependencies = [
  "atomic-waker",
  "bytes",
@@ -4361,7 +4360,7 @@ checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
 name = "tunnel-rs"
-version = "0.3.5"
+version = "0.3.6-alpha1"
 dependencies = [
  "age",
  "anyhow",

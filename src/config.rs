@@ -240,17 +240,21 @@ pub enum Mode {
 /// Congestion controller algorithm selection.
 ///
 /// Controls how the QUIC connection manages congestion and adjusts sending rates.
-/// Default is Cubic, which is the most widely tested algorithm.
+/// Default is BBR, which models bandwidth/RTT instead of reacting to loss, so it
+/// sustains throughput when UDP socket buffers overflow (loss-based algorithms
+/// like Cubic collapse under such loss).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum CongestionController {
-    /// CUBIC - Default. Loss-based congestion control, widely deployed.
-    /// Best for general internet conditions.
-    #[default]
+    /// CUBIC - Loss-based congestion control, widely deployed.
+    /// Pick this when strict loss-based fairness with other flows matters more
+    /// than throughput.
     Cubic,
-    /// BBR (Bottleneck Bandwidth and RTT) - Model-based congestion control.
-    /// May perform better on high-bandwidth, high-latency links.
-    /// Experimental - may not be fair to Cubic/NewReno flows.
+    /// BBR (Bottleneck Bandwidth and RTT) - Default. Model-based congestion
+    /// control that tolerates packet loss, sustaining throughput on
+    /// high-bandwidth links and when UDP buffers drop packets.
+    /// May not be fair to Cubic/NewReno flows.
+    #[default]
     Bbr,
     /// NewReno - Classic TCP-like congestion control.
     /// Most conservative, good for compatibility.
@@ -270,7 +274,7 @@ pub const DEFAULT_SEND_WINDOW: u32 = 32 * 1024 * 1024;
 /// These settings affect performance and memory usage of the QUIC transport layer.
 #[derive(Deserialize, Default, Clone, Debug, PartialEq)]
 pub struct TransportTuning {
-    /// Congestion controller algorithm (default: cubic).
+    /// Congestion controller algorithm (default: bbr).
     /// Options: cubic, bbr, newreno
     #[serde(default)]
     pub congestion_controller: CongestionController,
@@ -840,5 +844,28 @@ mod tests {
         };
         let err = iroh.decrypt_secrets(None).unwrap_err();
         assert!(err.to_string().contains("no encryption key file"));
+    }
+
+    #[test]
+    fn default_congestion_controller_is_bbr() {
+        assert_eq!(CongestionController::default(), CongestionController::Bbr);
+        assert_eq!(
+            TransportTuning::default().congestion_controller,
+            CongestionController::Bbr
+        );
+    }
+
+    #[test]
+    fn congestion_controller_parses_all_variants() {
+        for (input, expected) in [
+            ("cubic", CongestionController::Cubic),
+            ("bbr", CongestionController::Bbr),
+            ("newreno", CongestionController::NewReno),
+            ("new_reno", CongestionController::NewReno),
+        ] {
+            let tuning: TransportTuning =
+                toml::from_str(&format!("congestion_controller = \"{}\"", input)).unwrap();
+            assert_eq!(tuning.congestion_controller, expected);
+        }
     }
 }

@@ -228,6 +228,16 @@ auth_token_file = "~/.config/tunnel-rs/token.txt"
 
 For custom relay servers, DNS discovery, or fully independent operation without public infrastructure, see [docs/SELF-HOSTING.md](docs/SELF-HOSTING.md).
 
+## Performance Tuning
+
+On Linux hosts, raise the UDP socket buffer limits or throughput collapses under load (Linux clamps the 7 MB buffers iroh requests down to ~212 KB by default):
+
+```bash
+sudo sysctl -w net.core.rmem_max=26214400 net.core.wmem_max=26214400
+```
+
+See [docs/PERFORMANCE.md](docs/PERFORMANCE.md) for persistence, macOS notes, built-in transport tuning, and benchmarking.
+
 ---
 
 # Usage

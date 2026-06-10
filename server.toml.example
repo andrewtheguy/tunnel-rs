@@ -108,13 +108,20 @@ udp = [
 # ============================================================================
 # Fine-tune QUIC transport layer for performance optimization.
 # All values have sensible defaults - only configure if needed.
+#
+# On Linux servers, raise the UDP socket buffer limits or throughput
+# collapses under load (see docs/PERFORMANCE.md):
+#   sudo sysctl -w net.core.rmem_max=26214400 net.core.wmem_max=26214400
 
 [iroh.transport]
-# Congestion controller algorithm (default: cubic)
-# - cubic: Loss-based, widely deployed, best for general internet
-# - bbr: Model-based, may perform better on high-bandwidth/high-latency links
+# See docs/PERFORMANCE.md for OS-level tuning (UDP buffer sysctls).
+
+# Congestion controller algorithm (default: bbr)
+# - bbr: Model-based, tolerates packet loss, sustains throughput on
+#   high-bandwidth links and when UDP buffers drop packets
+# - cubic: Loss-based, widely deployed; pick for strict loss-based fairness
 # - newreno: Classic TCP-like, most conservative
-# congestion_controller = "cubic"
+# congestion_controller = "bbr"
 
 # QUIC receive window in bytes (default: 16777216 = 16MB)
 # Controls flow control - larger values allow more in-flight data

@@ -6,7 +6,10 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use futures::StreamExt;
 use iroh::{
     address_lookup::{DnsAddressLookup, PkarrPublisher, PkarrResolver},
-    endpoint::{presets, Builder as EndpointBuilder, ControllerFactory, PathList, QuicTransportConfig},
+    endpoint::{
+        presets, AckFrequencyConfig, Builder as EndpointBuilder, ControllerFactory,
+        MtuDiscoveryConfig, PathList, QuicTransportConfig, VarInt,
+    },
     Endpoint, EndpointAddr, EndpointId, RelayMap, RelayMode, RelayUrl, SecretKey, TransportAddr,
 };
 use iroh_mdns_address_lookup::MdnsAddressLookup;
@@ -58,6 +61,23 @@ pub const QUIC_KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(15);
 /// 5 minutes is generous for tunnels where the underlying TCP/UDP connection
 /// may have long idle periods between bursts of activity.
 pub const QUIC_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
+
+/// Ack-eliciting threshold for the QUIC ACK frequency extension.
+///
+/// Without the extension, peers ACK every 2nd packet. Enabling it with this
+/// threshold lets a peer receive up to 10 ack-eliciting packets before sending
+/// an ACK (~5x fewer ACK packets). This matters most on platforms without
+/// GSO/GRO (macOS), where every packet costs a syscall.
+pub const ACK_ELICITING_THRESHOLD: u32 = 10;
+
+/// Upper bound for QUIC MTU discovery (the maximum UDP payload size).
+///
+/// The default upper bound is 1452 (Ethernet). Raising it lets discovery
+/// binary-search the real path MTU: jumbo-frame LANs and loopback paths gain
+/// substantially, while ordinary 1500-MTU paths still settle at ~1452.
+/// Black-hole detection falls back to the 1200-byte minimum on failure, so a
+/// high bound is safe regardless of the actual path MTU.
+pub const MTU_DISCOVERY_UPPER_BOUND: u16 = 65527;
 
 /// Create a congestion controller factory based on the selected algorithm.
 fn create_congestion_controller_factory(
@@ -164,6 +184,16 @@ pub fn create_endpoint_builder(
         .context("converting QUIC_IDLE_TIMEOUT to IdleTimeout")?;
     transport_config = transport_config.max_idle_timeout(Some(idle_timeout));
     transport_config = transport_config.keep_alive_interval(QUIC_KEEP_ALIVE_INTERVAL);
+
+    // Enable the QUIC ACK frequency extension (disabled by default).
+    let mut ack_frequency = AckFrequencyConfig::default();
+    ack_frequency.ack_eliciting_threshold(VarInt::from_u32(ACK_ELICITING_THRESHOLD));
+    transport_config = transport_config.ack_frequency_config(Some(ack_frequency));
+
+    // Let MTU discovery probe beyond the 1452-byte default.
+    let mut mtu_discovery = MtuDiscoveryConfig::default();
+    mtu_discovery.upper_bound(MTU_DISCOVERY_UPPER_BOUND);
+    transport_config = transport_config.mtu_discovery_config(Some(mtu_discovery));
 
     // Apply transport tuning if provided
     if let Some(tuning) = transport_tuning {
@@ -472,4 +502,23 @@ pub fn watch_connection_paths(conn: &iroh::endpoint::Connection) -> PathWatcherG
             }
         }
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn create_endpoint_builder_with_default_tuning() {
+        let tuning = TransportTuning::default();
+        assert!(
+            create_endpoint_builder(RelayMode::Default, false, Some("none"), None, Some(&tuning))
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn create_endpoint_builder_without_tuning() {
+        assert!(create_endpoint_builder(RelayMode::Default, false, Some("none"), None, None).is_ok());
+    }
 }
