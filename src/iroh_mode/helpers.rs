@@ -11,7 +11,7 @@ use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
-use tokio::net::{tcp::OwnedReadHalf, TcpStream, UdpSocket};
+use tokio::net::{TcpStream, UdpSocket};
 use tokio::sync::Mutex;
 
 use crate::buffer::uninitialized_vec;
@@ -95,40 +95,17 @@ pub(super) async fn bridge_streams(
 }
 
 const TCP_TO_QUIC_CHUNK_SIZE: usize = 256 * 1024;
-const TCP_TO_QUIC_CHUNKS: usize = 16;
 const QUIC_TO_TCP_CHUNKS: usize = 64;
 
-/// Default number of 256KB chunks to coalesce per QUIC write on the TCP->QUIC
-/// path. `1` matches main's single-write-per-read behavior.
-///
-/// Measured to give the lowest iperf3 retransmit count: larger batches make the
-/// QUIC sender burstier, which causes more loss at the bottleneck. Larger values
-/// remain available as an opt-in via `TUNNEL_TCP_TO_QUIC_BATCH` (clamped to
-/// [1, 16]) for throughput/CPU experiments.
-const DEFAULT_TCP_TO_QUIC_BATCH: usize = 1;
-
-fn tcp_to_quic_batch() -> usize {
-    use std::sync::OnceLock;
-    static BATCH: OnceLock<usize> = OnceLock::new();
-    *BATCH.get_or_init(|| {
-        let batch = std::env::var("TUNNEL_TCP_TO_QUIC_BATCH")
-            .ok()
-            .and_then(|v| v.parse::<usize>().ok())
-            .map(|v| v.clamp(1, TCP_TO_QUIC_CHUNKS))
-            .unwrap_or(DEFAULT_TCP_TO_QUIC_BATCH);
-        log::info!("TCP->QUIC coalescing batch = {} chunk(s)", batch);
-        batch
-    })
-}
-
-async fn copy_tcp_to_quic(
-    reader: &mut OwnedReadHalf,
+async fn copy_tcp_to_quic<R>(
+    reader: &mut R,
     writer: &mut iroh::endpoint::SendStream,
 ) -> Result<()>
+where
+    R: AsyncRead + Unpin,
 {
-    let batch = tcp_to_quic_batch();
-    let mut chunks: [Bytes; TCP_TO_QUIC_CHUNKS] = std::array::from_fn(|_| Bytes::new());
-
+    // Single-write-per-read: coalescing multiple reads into one large QUIC write
+    // was measured to increase iperf3 retransmits by making the sender bursty.
     loop {
         let mut buf = BytesMut::with_capacity(TCP_TO_QUIC_CHUNK_SIZE);
         let read_len = reader
@@ -138,34 +115,11 @@ async fn copy_tcp_to_quic(
         if read_len == 0 {
             break;
         }
-        chunks[0] = buf.freeze();
-
-        let mut chunk_count = 1;
-        let mut reached_eof = false;
-        while chunk_count < batch {
-            let mut buf = BytesMut::with_capacity(TCP_TO_QUIC_CHUNK_SIZE);
-            match reader.try_read_buf(&mut buf) {
-                Ok(0) => {
-                    reached_eof = true;
-                    break;
-                }
-                Ok(_) => {
-                    chunks[chunk_count] = buf.freeze();
-                    chunk_count += 1;
-                }
-                Err(err) if err.kind() == io::ErrorKind::WouldBlock => break,
-                Err(err) => return Err(err).context("Failed to read from TCP stream"),
-            }
-        }
 
         writer
-            .write_all_chunks(&mut chunks[..chunk_count])
+            .write_chunk(buf.freeze())
             .await
             .context("Failed to write to QUIC stream")?;
-
-        if reached_eof {
-            break;
-        }
     }
 
     Ok(())
