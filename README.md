@@ -462,13 +462,13 @@ QUIC transport parameters can be tuned via an optional `[iroh.transport]` sectio
 [iroh.transport]
 # Congestion controller: "cubic" (default), "bbr", or "newreno"
 congestion_controller = "cubic"
-# QUIC receive window in bytes (default: 16777216 = 16MB; range 1024–67108864)
-receive_window = 16777216
-# QUIC send window in bytes (default: 33554432 = 32MB; range 1024–67108864)
-send_window = 33554432
+# QUIC per-stream receive window in bytes (default: 67108864 = 64MB; range 1024-67108864)
+receive_window = 67108864
+# QUIC send window in bytes (default: 67108864 = 64MB; range 1024-67108864)
+send_window = 67108864
 ```
 
-If `send_window` is omitted but `receive_window` is set, the send window defaults to twice the receive window. See [`server.toml.example`](server.toml.example) and [`client.toml.example`](client.toml.example) for the annotated reference.
+The connection-level receive window uses iroh's default. If `send_window` is omitted but `receive_window` is set, the send window defaults to twice the stream receive window, capped at the 64MB default. See [`server.toml.example`](server.toml.example) and [`client.toml.example`](client.toml.example) for the annotated reference.
 
 ### Server Config Example
 

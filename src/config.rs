@@ -258,12 +258,11 @@ pub enum CongestionController {
     NewReno,
 }
 
-/// Default QUIC receive window size (16 MB).
-pub const DEFAULT_RECEIVE_WINDOW: u32 = 16 * 1024 * 1024;
+/// Default QUIC stream receive window size (64 MB).
+pub const DEFAULT_STREAM_RECEIVE_WINDOW: u32 = 64 * 1024 * 1024;
 
-/// Default QUIC send window size (32 MB).
-pub const DEFAULT_SEND_WINDOW: u32 = 32 * 1024 * 1024;
-
+/// Default QUIC send window size (64 MB).
+pub const DEFAULT_SEND_WINDOW: u32 = 64 * 1024 * 1024;
 
 /// Transport tuning configuration for QUIC connections.
 ///
@@ -275,12 +274,12 @@ pub struct TransportTuning {
     #[serde(default)]
     pub congestion_controller: CongestionController,
 
-    /// QUIC receive window size in bytes (default: 16777216 = 16MB).
-    /// Controls flow control - larger values allow more in-flight data.
+    /// QUIC stream receive window size in bytes (default: 67108864 = 64MB).
+    /// Controls per-stream flow control. The connection receive window uses iroh's default.
     /// Valid range: 1024 to 67108864 (64MB).
     pub receive_window: Option<u32>,
 
-    /// QUIC send window size in bytes (default: 33554432 = 32MB).
+    /// QUIC send window size in bytes (default: 67108864 = 64MB).
     /// Controls how much data can be sent before acknowledgment.
     /// Valid range: 1024 to 67108864 (64MB).
     pub send_window: Option<u32>,

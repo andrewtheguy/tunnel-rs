@@ -6,7 +6,10 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use futures::StreamExt;
 use iroh::{
     address_lookup::{DnsAddressLookup, PkarrPublisher, PkarrResolver},
-    endpoint::{presets, Builder as EndpointBuilder, ControllerFactory, PathList, QuicTransportConfig},
+    endpoint::{
+        presets, AckFrequencyConfig, Builder as EndpointBuilder, ControllerFactory, PathList,
+        QuicTransportConfig,
+    },
     Endpoint, EndpointAddr, EndpointId, RelayMap, RelayMode, RelayUrl, SecretKey, TransportAddr,
 };
 use iroh_mdns_address_lookup::MdnsAddressLookup;
@@ -17,7 +20,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use crate::config::{
-    CongestionController, TransportTuning, DEFAULT_RECEIVE_WINDOW, DEFAULT_SEND_WINDOW,
+    CongestionController, TransportTuning, DEFAULT_SEND_WINDOW, DEFAULT_STREAM_RECEIVE_WINDOW,
 };
 use url::Url;
 
@@ -164,6 +167,11 @@ pub fn create_endpoint_builder(
         .context("converting QUIC_IDLE_TIMEOUT to IdleTimeout")?;
     transport_config = transport_config.max_idle_timeout(Some(idle_timeout));
     transport_config = transport_config.keep_alive_interval(QUIC_KEEP_ALIVE_INTERVAL);
+    transport_config = transport_config.send_fairness(false);
+
+    let mut ack_frequency = AckFrequencyConfig::default();
+    ack_frequency.ack_eliciting_threshold(8u32.into());
+    transport_config = transport_config.ack_frequency_config(Some(ack_frequency));
 
     // Apply transport tuning if provided
     if let Some(tuning) = transport_tuning {
@@ -171,16 +179,20 @@ pub fn create_endpoint_builder(
         let factory = create_congestion_controller_factory(tuning.congestion_controller);
         transport_config = transport_config.congestion_controller_factory(factory);
 
-        // Set receive window (flow control) for connection + streams
-        let receive_window = tuning.receive_window.unwrap_or(DEFAULT_RECEIVE_WINDOW);
-        transport_config = transport_config.receive_window(receive_window.into());
-        transport_config = transport_config.stream_receive_window(receive_window.into());
+        // Set the per-stream receive window. Keep iroh's connection-level receive
+        // window default, which is effectively unlimited.
+        let stream_receive_window = tuning
+            .receive_window
+            .unwrap_or(DEFAULT_STREAM_RECEIVE_WINDOW);
+        transport_config = transport_config.stream_receive_window(stream_receive_window.into());
 
-        // Set send window (defaults to 2x the stream receive window for bulk transfers)
+        // Set the local send window for bulk transfers.
         let send_window = match tuning.send_window {
             Some(send_window) => send_window,
             None if tuning.receive_window.is_none() => DEFAULT_SEND_WINDOW,
-            None => receive_window.saturating_mul(2),
+            None => stream_receive_window
+                .saturating_mul(2)
+                .min(DEFAULT_SEND_WINDOW),
         };
         transport_config = transport_config.send_window(send_window.into());
 
@@ -191,9 +203,9 @@ pub fn create_endpoint_builder(
             "config"
         };
         info!(
-            "Transport: cc={:?}, stream/receive={}KB ({}), send={}KB ({})",
+            "Transport: cc={:?}, stream_receive={}KB ({}), send={}KB ({}), connection_receive=iroh-default",
             tuning.congestion_controller,
-            receive_window / 1024,
+            stream_receive_window / 1024,
             recv_source,
             send_window / 1024,
             send_source

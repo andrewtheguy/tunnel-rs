@@ -100,12 +100,12 @@ alpn_token_file = "~/.config/tunnel-rs/alpn_token.txt"
 # - newreno: Classic TCP-like, most conservative
 # congestion_controller = "cubic"
 
-# QUIC receive window in bytes (default: 16777216 = 16MB)
-# Controls flow control - larger values allow more in-flight data
+# QUIC per-stream receive window in bytes (default: 67108864 = 64MB)
+# Controls per-stream flow control. The connection receive window uses iroh's default.
 # Valid range: 1024 (1KB) to 67108864 (64MB)
-# receive_window = 16777216
+# receive_window = 67108864
 
-# QUIC send window in bytes (default: 33554432 = 32MB)
+# QUIC send window in bytes (default: 67108864 = 64MB)
 # Controls how much data can be sent before acknowledgment
 # Valid range: 1024 (1KB) to 67108864 (64MB)
-# send_window = 33554432
+# send_window = 67108864

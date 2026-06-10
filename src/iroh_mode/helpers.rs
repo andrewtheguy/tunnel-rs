@@ -11,7 +11,7 @@ use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
-use tokio::net::{TcpStream, UdpSocket};
+use tokio::net::{tcp::OwnedReadHalf, TcpStream, UdpSocket};
 use tokio::sync::Mutex;
 
 use crate::buffer::uninitialized_vec;
@@ -95,15 +95,16 @@ pub(super) async fn bridge_streams(
 }
 
 const TCP_TO_QUIC_CHUNK_SIZE: usize = 256 * 1024;
+const TCP_TO_QUIC_CHUNKS: usize = 16;
 const QUIC_TO_TCP_CHUNKS: usize = 64;
 
-async fn copy_tcp_to_quic<R>(
-    reader: &mut R,
+async fn copy_tcp_to_quic(
+    reader: &mut OwnedReadHalf,
     writer: &mut iroh::endpoint::SendStream,
 ) -> Result<()>
-where
-    R: AsyncRead + Unpin,
 {
+    let mut chunks: [Bytes; TCP_TO_QUIC_CHUNKS] = std::array::from_fn(|_| Bytes::new());
+
     loop {
         let mut buf = BytesMut::with_capacity(TCP_TO_QUIC_CHUNK_SIZE);
         let read_len = reader
@@ -113,11 +114,34 @@ where
         if read_len == 0 {
             break;
         }
+        chunks[0] = buf.freeze();
+
+        let mut chunk_count = 1;
+        let mut reached_eof = false;
+        while chunk_count < TCP_TO_QUIC_CHUNKS {
+            let mut buf = BytesMut::with_capacity(TCP_TO_QUIC_CHUNK_SIZE);
+            match reader.try_read_buf(&mut buf) {
+                Ok(0) => {
+                    reached_eof = true;
+                    break;
+                }
+                Ok(_) => {
+                    chunks[chunk_count] = buf.freeze();
+                    chunk_count += 1;
+                }
+                Err(err) if err.kind() == io::ErrorKind::WouldBlock => break,
+                Err(err) => return Err(err).context("Failed to read from TCP stream"),
+            }
+        }
 
         writer
-            .write_chunk(buf.freeze())
+            .write_all_chunks(&mut chunks[..chunk_count])
             .await
             .context("Failed to write to QUIC stream")?;
+
+        if reached_eof {
+            break;
+        }
     }
 
     Ok(())
