@@ -98,11 +98,32 @@ const TCP_TO_QUIC_CHUNK_SIZE: usize = 256 * 1024;
 const TCP_TO_QUIC_CHUNKS: usize = 16;
 const QUIC_TO_TCP_CHUNKS: usize = 64;
 
+/// Number of 256KB chunks to coalesce per QUIC write on the TCP->QUIC path.
+///
+/// EXPERIMENTAL (tuning2): overridable via `TUNNEL_TCP_TO_QUIC_BATCH` so the
+/// sender batching can be bisected against retransmit counts without a rebuild.
+/// `1` reproduces main's single-write-per-read behavior; clamped to [1, 16].
+/// Defaults to `TCP_TO_QUIC_CHUNKS`.
+fn tcp_to_quic_batch() -> usize {
+    use std::sync::OnceLock;
+    static BATCH: OnceLock<usize> = OnceLock::new();
+    *BATCH.get_or_init(|| {
+        let batch = std::env::var("TUNNEL_TCP_TO_QUIC_BATCH")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .map(|v| v.clamp(1, TCP_TO_QUIC_CHUNKS))
+            .unwrap_or(TCP_TO_QUIC_CHUNKS);
+        log::info!("TCP->QUIC coalescing batch = {} chunk(s)", batch);
+        batch
+    })
+}
+
 async fn copy_tcp_to_quic(
     reader: &mut OwnedReadHalf,
     writer: &mut iroh::endpoint::SendStream,
 ) -> Result<()>
 {
+    let batch = tcp_to_quic_batch();
     let mut chunks: [Bytes; TCP_TO_QUIC_CHUNKS] = std::array::from_fn(|_| Bytes::new());
 
     loop {
@@ -118,7 +139,7 @@ async fn copy_tcp_to_quic(
 
         let mut chunk_count = 1;
         let mut reached_eof = false;
-        while chunk_count < TCP_TO_QUIC_CHUNKS {
+        while chunk_count < batch {
             let mut buf = BytesMut::with_capacity(TCP_TO_QUIC_CHUNK_SIZE);
             match reader.try_read_buf(&mut buf) {
                 Ok(0) => {
