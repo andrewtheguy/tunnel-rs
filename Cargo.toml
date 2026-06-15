@@ -1,13 +1,13 @@
 [package]
 name = "tunnel-rs"
-version = "0.3.7"
+version = "0.3.8"
 edition = "2024"
 description = "TCP/UDP port forwarding through iroh P2P connections"
 
 [dependencies]
-iroh = "1.0.0-rc.1"
-iroh-mdns-address-lookup = "0.3.0"
-noq-proto = "1.0.0-rc.1"
+iroh = "1.0.0"
+iroh-mdns-address-lookup = "0.4.0"
+noq-proto = "1.0.0"
 futures = "0.3"
 bytes = "1"
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
