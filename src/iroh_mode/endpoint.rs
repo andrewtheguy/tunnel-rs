@@ -224,10 +224,12 @@ pub fn create_endpoint_builder(
 
     let transport_config = transport_config.build();
     // iroh 1.0 requires the crypto provider to be set explicitly on the builder
-    // when starting from the `Empty` preset — the `tls-ring` feature only makes
-    // the ring backend available, it does not wire it in, and rustls' global
-    // `install_default()` is not consulted.
-    let crypto_provider = Arc::new(rustls::crypto::ring::default_provider());
+    // when starting from the `Empty` preset — the `tls-aws-lc-rs` feature only makes
+    // the aws-lc-rs backend available, it does not wire it in, and rustls' global
+    // `install_default()` is not consulted. aws-lc-rs gives hardware-accelerated
+    // AES-GCM (AES-NI/VAES) on the hot 1-RTT AEAD path; its default_provider already
+    // orders AES-GCM suites ahead of ChaCha20-Poly1305, which we want given AES-NI.
+    let crypto_provider = Arc::new(rustls::crypto::aws_lc_rs::default_provider());
     let mut builder = Endpoint::builder(presets::Empty)
         .relay_mode(relay_mode)
         .transport_config(transport_config)
