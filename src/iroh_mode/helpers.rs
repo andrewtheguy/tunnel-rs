@@ -106,8 +106,16 @@ where
 {
     // Single-write-per-read: coalescing multiple reads into one large QUIC write
     // was measured to increase iperf3 retransmits by making the sender bursty.
+    //
+    // Reuse one BytesMut across iterations instead of allocating a fresh chunk
+    // per read. `split()` hands the filled region to QUIC as `Bytes`, and the
+    // following `reserve()` reclaims that storage in place once QUIC has released
+    // the previous chunk — cutting allocator pressure at multi-Gbps without
+    // changing the one-write-per-read behavior (still exactly one read + one
+    // write per iteration).
+    let mut buf = BytesMut::with_capacity(TCP_TO_QUIC_CHUNK_SIZE);
     loop {
-        let mut buf = BytesMut::with_capacity(TCP_TO_QUIC_CHUNK_SIZE);
+        buf.reserve(TCP_TO_QUIC_CHUNK_SIZE);
         let read_len = reader
             .read_buf(&mut buf)
             .await
@@ -117,7 +125,7 @@ where
         }
 
         writer
-            .write_chunk(buf.freeze())
+            .write_chunk(buf.split().freeze())
             .await
             .context("Failed to write to QUIC stream")?;
     }

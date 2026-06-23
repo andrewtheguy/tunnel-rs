@@ -168,6 +168,11 @@ pub fn create_endpoint_builder(
     transport_config = transport_config.max_idle_timeout(Some(idle_timeout));
     transport_config = transport_config.keep_alive_interval(QUIC_KEEP_ALIVE_INTERVAL);
     transport_config = transport_config.send_fairness(send_fairness_enabled());
+    // GSO/GRO segmentation offload is already iroh's default; set it explicitly to
+    // pin the behavior (and document intent) so a future default change can't
+    // silently disable batched UDP sends on the forwarding hot path. GRO on
+    // receive is handled by the UDP layer and needs no configuration here.
+    transport_config = transport_config.enable_segmentation_offload(true);
 
     // Apply transport tuning if provided
     if let Some(tuning) = transport_tuning {

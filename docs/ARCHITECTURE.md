@@ -850,6 +850,14 @@ graph LR
 - **Relay Mode**: Higher latency, potentially lower throughput
 - **Direct Mode**: Near-native performance with encryption overhead
 
+> **Linux tuning note:** The QUIC transport uses UDP segmentation offload
+> (GSO/GRO), which is enabled by default. At multi-Gbps it additionally benefits
+> from larger kernel UDP socket buffers (`net.core.rmem_max` /
+> `net.core.wmem_max`). These are OS-level limits owned by the kernel — iroh
+> exposes no `SO_SNDBUF`/`SO_RCVBUF` API, so they are tuned via `sysctl` rather
+> than by tunnel-rs. See the **Transport Tuning** section of the README for the
+> exact commands.
+
 ---
 
 ## Error Handling

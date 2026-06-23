@@ -470,6 +470,25 @@ send_window = 67108864
 
 The connection-level receive window uses iroh's default. If `send_window` is omitted but `receive_window` is set, the send window defaults to twice the stream receive window, capped at the 64MB default. See [`server.toml.example`](server.toml.example) and [`client.toml.example`](client.toml.example) for the annotated reference.
 
+#### OS-level UDP buffers (Linux)
+
+The settings above are **userspace** QUIC parameters. Separately, the transport
+runs over UDP with segmentation offload (GSO/GRO) enabled, and at high
+throughput it benefits from larger **kernel** UDP socket buffers. iroh owns the
+UDP socket and does not expose `SO_SNDBUF`/`SO_RCVBUF`, so unlike the 4MB
+userspace TCP buffer that tunnel-rs sets itself (`tune_tcp_stream` in
+`src/net.rs`), these limits must be raised at the OS level:
+
+```sh
+# Raise the kernel UDP socket buffer ceilings (applies until reboot)
+sudo sysctl -w net.core.rmem_max=8388608
+sudo sysctl -w net.core.wmem_max=8388608
+# To persist, add the same keys to a file under /etc/sysctl.d/ (e.g. 99-tunnel-rs.conf)
+```
+
+These are OS-level knobs distinct from the `[iroh.transport]` defaults above and
+are only worth touching when pushing multi-Gbps traffic.
+
 ### Server Config Example
 
 ```toml
