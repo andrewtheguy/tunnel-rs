@@ -38,22 +38,16 @@ tunnel-rs generate-server-key --output server.key
 AUTH_TOKEN=$(tunnel-rs generate-auth-token)
 echo $AUTH_TOKEN  # Share this with authorized clients
 
-# 3. Create an ALPN token (shared between server and all clients)
-ALPN_TOKEN=$(tunnel-rs generate-alpn-token)
-echo $ALPN_TOKEN
-
-# 4. Server: allow connections with token authentication
+# 3. Server: allow connections with token authentication
 export TUNNEL_RS_AUTH_TOKENS="$AUTH_TOKEN"
-export TUNNEL_RS_ALPN_TOKEN="$ALPN_TOKEN"
 tunnel-rs server \
   --secret-file ./server.key \
   --allowed-tcp 127.0.0.0/8 \
   --allowed-tcp 192.168.0.0/16
 # Output: EndpointId: <SERVER_NODE_ID>
 
-# 5. Client: connect and request a service
+# 4. Client: connect and request a service
 export TUNNEL_RS_AUTH_TOKEN="$AUTH_TOKEN"
-export TUNNEL_RS_ALPN_TOKEN="$ALPN_TOKEN"
 tunnel-rs client \
   --server-node-id <SERVER_NODE_ID> \
   --source tcp://127.0.0.1:22 \
@@ -78,26 +72,21 @@ docker run --rm ghcr.io/andrewtheguy/tunnel-rs:latest \
 AUTH_TOKEN=$(docker run --rm ghcr.io/andrewtheguy/tunnel-rs:latest generate-auth-token)
 echo "$AUTH_TOKEN" > tokens.txt
 
-# 3. Create an ALPN token (shared between server and all clients)
-docker run --rm ghcr.io/andrewtheguy/tunnel-rs:latest generate-alpn-token > alpn_token.txt
-ALPN_TOKEN=$(cat alpn_token.txt)
-
-# 4. Start services
+# 3. Start services
 docker compose up -d
 
-# 5. Get server EndpointId
+# 4. Get server EndpointId
 docker compose logs tunnel-server | grep EndpointId
 # EndpointId: <SERVER_NODE_ID>
 
-# 6. On remote machine - connect to web service
+# 5. On remote machine - connect to web service
 export TUNNEL_RS_AUTH_TOKEN="$AUTH_TOKEN"
-export TUNNEL_RS_ALPN_TOKEN="$ALPN_TOKEN"
 tunnel-rs client \
   --server-node-id <SERVER_NODE_ID> \
   --source tcp://web:80 \
   --target 127.0.0.1:8080
 
-# 7. Or connect to database
+# 6. Or connect to database
 tunnel-rs client \
   --server-node-id <SERVER_NODE_ID> \
   --source tcp://db:5432 \
@@ -117,20 +106,15 @@ tunnel-rs generate-server-key --output server.key
 # 2. Create an authentication token
 AUTH_TOKEN=$(tunnel-rs generate-auth-token)
 
-# 3. Create an ALPN token (shared between server and all clients)
-tunnel-rs generate-alpn-token > alpn_token.txt
-ALPN_TOKEN=$(cat alpn_token.txt)
-
-# 4. Create secrets
+# 3. Create secrets
 kubectl create secret generic tunnel-server-secrets \
   --from-file=server.key=./server.key \
-  --from-literal=tokens.txt="$AUTH_TOKEN" \
-  --from-file=alpn-token=./alpn_token.txt
+  --from-literal=tokens.txt="$AUTH_TOKEN"
 
-# 5. Deploy
+# 4. Deploy
 kubectl apply -f kubernetes/tunnel-deployment.yaml
 
-# 6. Get server EndpointId
+# 5. Get server EndpointId
 kubectl logs -l app=tunnel-server | grep EndpointId
 ```
 
@@ -138,7 +122,6 @@ kubectl logs -l app=tunnel-server | grep EndpointId
 
 ```bash
 export TUNNEL_RS_AUTH_TOKEN="$AUTH_TOKEN"
-export TUNNEL_RS_ALPN_TOKEN="$ALPN_TOKEN"
 
 # Tunnel to PostgreSQL
 tunnel-rs client \
@@ -173,7 +156,6 @@ Tunnel UDP services like DNS (something `kubectl port-forward` can't do):
 ```bash
 # Expose cluster DNS
 export TUNNEL_RS_AUTH_TOKEN="$AUTH_TOKEN"
-export TUNNEL_RS_ALPN_TOKEN="$ALPN_TOKEN"
 tunnel-rs client \
   --server-node-id <SERVER_NODE_ID> \
   --source udp://kube-dns.kube-system.svc.cluster.local:53 \

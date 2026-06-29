@@ -59,11 +59,6 @@ pub struct IrohConfig {
     /// Local address to listen on (client only).
     /// Format: host:port
     pub target: Option<String>,
-    /// ALPN token for QUIC handshake-level filtering.
-    /// Both server and client must use the same token.
-    pub alpn_token: Option<String>,
-    /// Path to file containing the ALPN token.
-    pub alpn_token_file: Option<PathBuf>,
     /// Path to age identity (private key) file for decrypting age-encrypted values.
     pub encryption_key_file: Option<PathBuf>,
     /// Age public key (recipient) for encrypting values in this config.
@@ -79,8 +74,8 @@ pub struct IrohConfig {
 impl IrohConfig {
     /// Reject plaintext sensitive fields when config is loaded from a file.
     ///
-    /// Client fields: `auth_token`, `alpn_token`
-    /// Server fields: `auth_tokens`, `alpn_token`, `secret`
+    /// Client fields: `auth_token`
+    /// Server fields: `auth_tokens`, `secret`
     ///
     /// Age-encrypted values (detected by `ageenc:` prefix) are allowed through;
     /// they will be decrypted later via `decrypt_secrets()`.
@@ -95,13 +90,6 @@ impl IrohConfig {
                          or use an age-encrypted value. See: tunnel-rs config-encryption encrypt-value --help"
                     );
                 }
-                if self.alpn_token.as_ref().is_some_and(|v| !is_age_encrypted(v)) {
-                    anyhow::bail!(
-                        "[iroh] Plaintext 'alpn_token' is not allowed in config files. \
-                         Use 'alpn_token_file', set TUNNEL_RS_ALPN_TOKEN env var, \
-                         or use an age-encrypted value. See: tunnel-rs config-encryption encrypt-value --help"
-                    );
-                }
             }
             Role::Server => {
                 if self
@@ -113,13 +101,6 @@ impl IrohConfig {
                         "[iroh] Plaintext 'auth_tokens' is not allowed in config files. \
                          Use 'auth_tokens_file', set TUNNEL_RS_AUTH_TOKENS env var, \
                          or use age-encrypted values. See: tunnel-rs config-encryption encrypt-value --help"
-                    );
-                }
-                if self.alpn_token.as_ref().is_some_and(|v| !is_age_encrypted(v)) {
-                    anyhow::bail!(
-                        "[iroh] Plaintext 'alpn_token' is not allowed in config files. \
-                         Use 'alpn_token_file', set TUNNEL_RS_ALPN_TOKEN env var, \
-                         or use an age-encrypted value. See: tunnel-rs config-encryption encrypt-value --help"
                     );
                 }
                 if self.secret.as_ref().is_some_and(|v| !is_age_encrypted(v)) {
@@ -145,10 +126,6 @@ impl IrohConfig {
             .auth_token
             .as_ref()
             .is_some_and(|v| is_age_encrypted(v))
-            || self
-                .alpn_token
-                .as_ref()
-                .is_some_and(|v| is_age_encrypted(v))
             || self.secret.as_ref().is_some_and(|v| is_age_encrypted(v))
             || self
                 .auth_tokens
@@ -171,11 +148,6 @@ impl IrohConfig {
             && is_age_encrypted(v) {
                 self.auth_token =
                     Some(decrypt_value(v, key_path).context("Failed to decrypt auth_token")?);
-            }
-        if let Some(ref v) = self.alpn_token
-            && is_age_encrypted(v) {
-                self.alpn_token =
-                    Some(decrypt_value(v, key_path).context("Failed to decrypt alpn_token")?);
             }
         if let Some(ref v) = self.secret
             && is_age_encrypted(v) {
@@ -499,9 +471,6 @@ impl ServerConfig {
             if iroh.auth_tokens.is_some() && iroh.auth_tokens_file.is_some() {
                 anyhow::bail!("[iroh] Use only one of 'auth_tokens' or 'auth_tokens_file'.");
             }
-            if iroh.alpn_token.is_some() && iroh.alpn_token_file.is_some() {
-                anyhow::bail!("[iroh] Use only one of 'alpn_token' or 'alpn_token_file'.");
-            }
             if iroh.auth_token.is_some() || iroh.auth_token_file.is_some() {
                 anyhow::bail!(
                     "[iroh] 'auth_token' and 'auth_token_file' are client-only fields."
@@ -557,9 +526,6 @@ impl ClientConfig {
             }
             if iroh.auth_token.is_some() && iroh.auth_token_file.is_some() {
                 anyhow::bail!("[iroh] Use only one of 'auth_token' or 'auth_token_file'.");
-            }
-            if iroh.alpn_token.is_some() && iroh.alpn_token_file.is_some() {
-                anyhow::bail!("[iroh] Use only one of 'alpn_token' or 'alpn_token_file'.");
             }
             if iroh.allowed_sources.is_some() {
                 anyhow::bail!(
@@ -726,25 +692,6 @@ mod tests {
     }
 
     #[test]
-    fn client_rejects_plaintext_alpn_token_from_file() {
-        let cfg = client_config_with_iroh(IrohConfig {
-            alpn_token: Some("alpn123".into()),
-            ..Default::default()
-        });
-        let err = cfg.validate(ConfigSource::File).unwrap_err();
-        assert!(err.to_string().contains("Plaintext 'alpn_token'"));
-    }
-
-    #[test]
-    fn client_allows_plaintext_alpn_token_from_stdin() {
-        let cfg = client_config_with_iroh(IrohConfig {
-            alpn_token: Some("alpn123".into()),
-            ..Default::default()
-        });
-        assert!(cfg.validate(ConfigSource::Stdin).is_ok());
-    }
-
-    #[test]
     fn server_rejects_plaintext_auth_tokens_from_file() {
         let cfg = server_config_with_iroh(IrohConfig {
             auth_tokens: Some(vec!["tok1".into()]),
@@ -758,25 +705,6 @@ mod tests {
     fn server_allows_plaintext_auth_tokens_from_stdin() {
         let cfg = server_config_with_iroh(IrohConfig {
             auth_tokens: Some(vec!["tok1".into()]),
-            ..Default::default()
-        });
-        assert!(cfg.validate(ConfigSource::Stdin).is_ok());
-    }
-
-    #[test]
-    fn server_rejects_plaintext_alpn_token_from_file() {
-        let cfg = server_config_with_iroh(IrohConfig {
-            alpn_token: Some("alpn123".into()),
-            ..Default::default()
-        });
-        let err = cfg.validate(ConfigSource::File).unwrap_err();
-        assert!(err.to_string().contains("Plaintext 'alpn_token'"));
-    }
-
-    #[test]
-    fn server_allows_plaintext_alpn_token_from_stdin() {
-        let cfg = server_config_with_iroh(IrohConfig {
-            alpn_token: Some("alpn123".into()),
             ..Default::default()
         });
         assert!(cfg.validate(ConfigSource::Stdin).is_ok());
@@ -813,15 +741,6 @@ mod tests {
     }
 
     #[test]
-    fn client_allows_age_encrypted_alpn_token_from_file() {
-        let cfg = client_config_with_iroh(IrohConfig {
-            alpn_token: Some(FAKE_AGE_ENCRYPTED.into()),
-            ..Default::default()
-        });
-        assert!(cfg.validate(ConfigSource::File).is_ok());
-    }
-
-    #[test]
     fn server_allows_age_encrypted_auth_tokens_from_file() {
         let cfg = server_config_with_iroh(IrohConfig {
             auth_tokens: Some(vec![FAKE_AGE_ENCRYPTED.into()]),
@@ -844,15 +763,6 @@ mod tests {
     fn server_allows_age_encrypted_secret_from_file() {
         let cfg = server_config_with_iroh(IrohConfig {
             secret: Some(FAKE_AGE_ENCRYPTED.into()),
-            ..Default::default()
-        });
-        assert!(cfg.validate(ConfigSource::File).is_ok());
-    }
-
-    #[test]
-    fn server_allows_age_encrypted_alpn_token_from_file() {
-        let cfg = server_config_with_iroh(IrohConfig {
-            alpn_token: Some(FAKE_AGE_ENCRYPTED.into()),
             ..Default::default()
         });
         assert!(cfg.validate(ConfigSource::File).is_ok());
