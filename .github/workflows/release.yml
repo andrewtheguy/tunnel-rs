@@ -190,7 +190,7 @@ jobs:
         run: gh release edit "${{ needs.setup.outputs.release_tag }}" --draft=false
 
   docker-build:
-    needs: [setup, build-linux]
+    needs: [setup, build-linux, publish-release]
     strategy:
       matrix:
         include:
@@ -230,7 +230,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=docker-${{ matrix.arch }}
 
   docker-manifest:
-    needs: [setup, docker-build]
+    needs: [setup, publish-release, docker-build]
     runs-on: ubuntu-latest
 
     steps:
