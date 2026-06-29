@@ -355,7 +355,7 @@ graph TB
         G[auth_token* / auth_tokens*]
         H[encryption_key_file]
         I[relay_urls / dns_server]
-        J[transport<br/>cc + window sizes]
+        J[transport<br/>cc + window sizes + ACK threshold]
     end
 
     A --> S[Validation]
@@ -826,7 +826,7 @@ graph LR
 
 ### Throughput Characteristics
 
-- **TCP Tunneling**: Limited by QUIC stream flow control and congestion control
+- **TCP Tunneling**: Limited by QUIC stream flow control, congestion control, and optional ACK frequency tuning
 - **UDP Tunneling**: Additional framing overhead (2 bytes per packet)
 - **Relay Mode**: Higher latency, potentially lower throughput
 - **Direct Mode**: Near-native performance with encryption overhead

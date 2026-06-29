@@ -19,9 +19,6 @@ generate_keys() {
     # Generate auth token
     AUTH_TOKEN=$("$TUNNEL_BIN" generate-auth-token)
 
-    # Generate ALPN token
-    ALPN_TOKEN=$("$TUNNEL_BIN" generate-alpn-token)
-
     # Save to config file
     cat > "$KEYS_FILE" << EOF
 # Tunnel test keys - generated $(date)
@@ -29,7 +26,6 @@ SERVER_KEY_FILE=$SERVER_KEY_FILE
 SERVER_NODE_ID=$SERVER_NODE_ID
 TUNNEL_RS_AUTH_TOKEN=$AUTH_TOKEN
 TUNNEL_RS_AUTH_TOKENS=$AUTH_TOKEN
-TUNNEL_RS_ALPN_TOKEN=$ALPN_TOKEN
 EOF
 
     echo "Keys saved to $KEYS_DIR/"
@@ -42,7 +38,7 @@ load_keys() {
         generate_keys
     fi
     source "$KEYS_FILE"
-    export SERVER_KEY_FILE SERVER_NODE_ID TUNNEL_RS_AUTH_TOKEN TUNNEL_RS_AUTH_TOKENS TUNNEL_RS_ALPN_TOKEN
+    export SERVER_KEY_FILE SERVER_NODE_ID TUNNEL_RS_AUTH_TOKEN TUNNEL_RS_AUTH_TOKENS
 }
 
 show_keys() {
@@ -51,7 +47,6 @@ show_keys() {
     echo "Server Key:   $SERVER_KEY_FILE"
     echo "Server ID:    $SERVER_NODE_ID"
     echo "Auth Token:   $TUNNEL_RS_AUTH_TOKEN"
-    echo "ALPN Token:   $TUNNEL_RS_ALPN_TOKEN"
 }
 
 # Auto-load keys when sourced

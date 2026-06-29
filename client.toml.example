@@ -30,17 +30,6 @@ server_node_id = "2xnbkpbc7izsilvewd7c62w7wnwziacmpfwvhcrya5nt76dqkpga"
 # Use 'auth_token_file' here (recommended). For containers/automation, set TUNNEL_RS_AUTH_TOKEN environment variable instead.
 auth_token_file = "~/.config/tunnel-rs/token.txt"
 
-# ============================================================================
-# ALPN Token (REQUIRED)
-# ============================================================================
-# Pre-shared token embedded in the QUIC ALPN protocol identifier.
-# Must match the server's alpn_token value.
-# Generate with: tunnel-rs generate-alpn-token
-#
-# SECURITY: Plaintext 'alpn_token' is not allowed in config files.
-# Use 'alpn_token_file' here (recommended). For containers/automation, set TUNNEL_RS_ALPN_TOKEN environment variable instead.
-alpn_token_file = "~/.config/tunnel-rs/alpn_token.txt"
-
 # Source address to request from server (required if not specified via CLI --source)
 # Must be in server's allowed_sources list (--allowed-tcp or --allowed-udp)
 # request_source = "tcp://127.0.0.1:22"
@@ -85,7 +74,6 @@ alpn_token_file = "~/.config/tunnel-rs/alpn_token.txt"
 # encryption_recipient = "age1..."
 #
 # auth_token = "ageenc:YWdlLWVuY3J5cHRpb24ub3Jn..."
-# alpn_token = "ageenc:YWdlLWVuY3J5cHRpb24ub3Jn..."
 
 # ============================================================================
 # Transport Tuning (Optional)

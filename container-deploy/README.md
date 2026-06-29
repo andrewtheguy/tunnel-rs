@@ -6,7 +6,7 @@ Docker and Kubernetes configurations for running tunnel-rs in containerized envi
 > **Project Goal:** This tool provides a convenient way to connect to different networks for **development or homelab purposes**, conveniently forwarding both **TCP and UDP ports** without the hassle and security risk of opening a port on a public firewall. It is **not** meant for production setups or designed to be performant at scale.
 
 > [!WARNING]
-> **No Backward Compatibility (Pre-1.0):** During initial development before version 1.0, no backward compatibility or migration path is provided between minor versions (e.g., 0.1.x to 0.2.x). Expect to regenerate server keys and rebuild client/server configurations when upgrading between minor versions. To avoid unexpected breakage, pin the container image to a specific patch version (e.g., `ghcr.io/andrewtheguy/tunnel-rs:0.2.0`) or minor version (e.g., `ghcr.io/andrewtheguy/tunnel-rs:0.2`).
+> **No Backward Compatibility (Pre-1.0):** During initial development before version 1.0, no backward compatibility or migration path is provided between minor versions (e.g., 0.1.x to 0.2.x). Expect to regenerate server keys and rebuild client/server configurations when upgrading between minor versions. To avoid unexpected breakage, pin the container image to a specific release tag (e.g., `ghcr.io/andrewtheguy/tunnel-rs:v0.4.0`) or minor version tag (e.g., `ghcr.io/andrewtheguy/tunnel-rs:0.4`).
 
 ## How It Works
 
@@ -145,7 +145,7 @@ tunnel-rs client \
 **Advantages over `kubectl port-forward`:**
 - Supports UDP (kubectl doesn't)
 - Works across NAT without kubectl access
-- QUIC keepalive and stream retry logic
+- QUIC keepalive and QUIC stream-open retry logic
 - No need for cluster credentials on client
 - Multiple clients can connect simultaneously
 

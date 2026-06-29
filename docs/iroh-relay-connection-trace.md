@@ -27,10 +27,10 @@ pub async fn connect(&self) -> Result<Client, ConnectError> {
     let stream = MaybeTlsStreamBuilder::new(dial_url.clone(), self.dns_resolver.clone())
         .connect().await?;
 
-    // 3. WebSocket upgrade with iroh-relay protocol
+    // 3. WebSocket upgrade with iroh-relay protocol negotiation
     let (conn, response) = tokio_websockets::ClientBuilder::new()
         .uri(dial_url.as_str())?
-        .add_header(SEC_WEBSOCKET_PROTOCOL, "iroh-relay-v1")?
+        .add_header(SEC_WEBSOCKET_PROTOCOL, "iroh-relay-v2, iroh-relay-v1")?
         .connect_on(stream).await?;
 
     // 4. Verify 101 Switching Protocols response
@@ -60,7 +60,7 @@ Connection: Upgrade
 Upgrade: websocket
 Sec-WebSocket-Key: <random-base64>
 Sec-WebSocket-Version: 13
-Sec-WebSocket-Protocol: iroh-relay-v1
+Sec-WebSocket-Protocol: iroh-relay-v2, iroh-relay-v1
 ```
 
 ### Expected Response
@@ -70,7 +70,7 @@ HTTP/1.1 101 Switching Protocols
 Upgrade: websocket
 Connection: Upgrade
 Sec-WebSocket-Accept: <computed-hash>
-Sec-WebSocket-Protocol: iroh-relay-v1
+Sec-WebSocket-Protocol: iroh-relay-v2
 ```
 
 ## Cloudflare Tunnel Issue
@@ -93,6 +93,6 @@ curl -v --http1.1 \
   -H "Upgrade: websocket" \
   -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" \
   -H "Sec-WebSocket-Version: 13" \
-  -H "Sec-WebSocket-Protocol: iroh-relay-v1" \
+  -H "Sec-WebSocket-Protocol: iroh-relay-v2, iroh-relay-v1" \
   https://your-named-tunnel.example.com/relay
 ```

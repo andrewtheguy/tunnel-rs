@@ -449,6 +449,9 @@ congestion_controller = "cubic"
 receive_window = 67108864
 # QUIC send window in bytes (default: 67108864 = 64MB; range 1024-67108864)
 send_window = 67108864
+# QUIC ACK-eliciting threshold (default: unset = iroh/quinn default cadence; range 0-65535)
+# Leave unset unless you have measured a benefit. 0 requests ACKs for every packet.
+# ack_eliciting_threshold = 2
 ```
 
 The connection-level receive window uses iroh's default. If `send_window` is omitted but `receive_window` is set, the send window defaults to twice the stream receive window, capped at the 64MB default. See [`server.toml.example`](server.toml.example) and [`client.toml.example`](client.toml.example) for the annotated reference.
