@@ -26,14 +26,11 @@ use url::Url;
 
 pub const RELAY_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Build the ALPN protocol identifier with an embedded pre-shared token.
+/// Fixed ALPN protocol identifier for tunnel connections.
 ///
-/// The ALPN acts as a lightweight "port knock" — connections from clients that
-/// don't know the token fail at the QUIC handshake level before any application
-/// streams are opened.
-pub fn build_multi_alpn(alpn_token: &str) -> Vec<u8> {
-    format!("mf/2/{}", alpn_token).into_bytes()
-}
+/// Both server and client must agree on this exact value for the QUIC handshake
+/// to succeed. Access control is enforced separately via auth tokens.
+pub const TUNNEL_ALPN: &[u8] = b"mf/4";
 
 /// QUIC keep-alive interval for tunnel connections.
 ///

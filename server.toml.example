@@ -57,18 +57,6 @@ max_sessions = 100
 auth_tokens_file = "/etc/tunnel-rs/auth_tokens.txt"
 
 # ============================================================================
-# ALPN Token (REQUIRED)
-# ============================================================================
-# Pre-shared token embedded in the QUIC ALPN protocol identifier.
-# Rejects unknown clients at the QUIC handshake level (before any streams open).
-# Both server and all clients must use the same ALPN token.
-# Generate with: tunnel-rs generate-alpn-token
-#
-# SECURITY: Plaintext 'alpn_token' is not allowed in config files.
-# Use 'alpn_token_file' here (recommended). For containers/automation, set TUNNEL_RS_ALPN_TOKEN environment variable instead.
-alpn_token_file = "/etc/tunnel-rs/alpn_token.txt"
-
-# ============================================================================
 # Allowed source networks that clients can request (CIDR notation)
 # Clients MUST specify --source which must match one of these networks
 # Separate lists for TCP and UDP protocols
@@ -101,7 +89,6 @@ udp = [
 # encryption_recipient = "age1..."
 #
 # auth_tokens = ["ageenc:YWdlLWVuY3J5cHRpb24ub3Jn..."]
-# alpn_token = "ageenc:YWdlLWVuY3J5cHRpb24ub3Jn..."
 
 # ============================================================================
 # Transport Tuning (Optional)

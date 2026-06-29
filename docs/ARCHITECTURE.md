@@ -59,7 +59,7 @@ graph LR
         C2[net.rs<br/>Address parsing & ACL checks]
         D[endpoint.rs<br/>iroh endpoint setup]
         E[secret.rs<br/>Identity management]
-        E2[auth.rs<br/>Auth + ALPN tokens]
+        E2[auth.rs<br/>Auth tokens]
         F[signaling/codec.rs<br/>Handshake messages]
     end
 
@@ -193,15 +193,12 @@ sequenceDiagram
     C->>RS: Connect to relay
 
     alt Direct Connection Possible
-        C->>S: Direct QUIC connection (ALPN: mf/2/<token>)
-        S-->>C: Accept connection (ALPN match)
-    else ALPN Mismatch
-        C->>S: QUIC connection (wrong ALPN)
-        S-->>C: Handshake rejected (no matching ALPN)
+        C->>S: Direct QUIC connection (ALPN: mf/4)
+        S-->>C: Accept connection
     else NAT Traversal Failed
         C->>RS: Connect via relay
         RS->>S: Forward connection
-        S-->>RS: Accept via relay (ALPN match)
+        S-->>RS: Accept via relay
         RS-->>C: Relay established
     end
 
@@ -356,9 +353,9 @@ graph TB
         E[allowed_sources / max_sessions<br/>server only]
         F[secret_file / secret<br/>server only]
         G[auth_token* / auth_tokens*]
-        H[alpn_token* / encryption_key_file]
+        H[encryption_key_file]
         I[relay_urls / dns_server]
-        J[transport<br/>cc + window sizes]
+        J[transport<br/>cc + window sizes + ACK threshold]
     end
 
     A --> S[Validation]
@@ -377,36 +374,32 @@ graph TB
 
 ### iroh Credential Mapping
 
-`iroh` mode uses two distinct credential types:
+`iroh` mode authenticates clients with auth tokens. The QUIC ALPN is a fixed value (`mf/4`) shared by all peers and is not configurable; access control is handled by auth tokens.
 
 | Credential | Env Vars / CLI Flags | Config Keys (TOML: use `_file` variants or age-encrypted inline) | Expected Usage |
 |------------|-----------|-------------|----------------|
-| **ALPN Token** | `TUNNEL_RS_ALPN_TOKEN` or `--alpn-token-file` | Server/Client: `[iroh].alpn_token_file` or age-encrypted `[iroh].alpn_token` | Pre-handshake QUIC ALPN filter (`mf/2/<token>`). Typically one shared value for a server and all its clients. |
 | **Auth Token** | Server: `TUNNEL_RS_AUTH_TOKENS` or `--auth-tokens-file`<br>Client: `TUNNEL_RS_AUTH_TOKEN` or `--auth-token-file` | Server: `[iroh].auth_tokens_file` or age-encrypted `[iroh].auth_tokens`<br>Client: `[iroh].auth_token_file` or age-encrypted `[iroh].auth_token` | Per-client credential checked on the auth stream after handshake. Use separate values per client for revocation/rotation. |
 
 Example usage with files (recommended):
 
 ```bash
 # Server — save tokens to files with restricted permissions
-echo "$ALPN_TOKEN" > alpn_token.txt && chmod 600 alpn_token.txt
 printf '%s\n' "$ALICE_AUTH_TOKEN" "$BOB_AUTH_TOKEN" > auth_tokens.txt && chmod 600 auth_tokens.txt
-tunnel-rs server --alpn-token-file ./alpn_token.txt --auth-tokens-file ./auth_tokens.txt ...
+tunnel-rs server --auth-tokens-file ./auth_tokens.txt ...
 
 # Alice's client
 echo "$ALICE_AUTH_TOKEN" > auth_token.txt && chmod 600 auth_token.txt
-tunnel-rs client --alpn-token-file ./alpn_token.txt --auth-token-file ./auth_token.txt ...
+tunnel-rs client --auth-token-file ./auth_token.txt ...
 ```
 
 Example usage with environment variables (for containers/automation):
 
 ```bash
 # Server
-export TUNNEL_RS_ALPN_TOKEN="$ALPN_TOKEN"
 export TUNNEL_RS_AUTH_TOKENS="$ALICE_AUTH_TOKEN,$BOB_AUTH_TOKEN"
 tunnel-rs server ...
 
 # Alice's client
-export TUNNEL_RS_ALPN_TOKEN="$ALPN_TOKEN"
 export TUNNEL_RS_AUTH_TOKEN="$ALICE_AUTH_TOKEN"
 tunnel-rs client ...
 ```
@@ -416,12 +409,10 @@ Example config usage (plaintext tokens are not allowed in TOML config files — 
 ```toml
 # server.toml — using _file variants
 [iroh]
-alpn_token_file = "/etc/tunnel-rs/alpn_token.txt"
 auth_tokens_file = "/etc/tunnel-rs/auth_tokens.txt"
 
 # client.toml — using _file variants
 [iroh]
-alpn_token_file = "~/.config/tunnel-rs/alpn_token.txt"
 auth_token_file = "~/.config/tunnel-rs/token.txt"
 ```
 
@@ -431,7 +422,6 @@ auth_token_file = "~/.config/tunnel-rs/token.txt"
 encryption_key_file = "~/.config/tunnel-rs/age.key"
 
 auth_token = "ageenc:YWdlLWVuY3J5cHRpb24ub3JnL3Yx..."
-alpn_token = "ageenc:YWdlLWVuY3J5cHRpb24ub3JnL3Yx..."
 ```
 
 ### Configuration Loading Flow
@@ -541,8 +531,7 @@ graph TB
         A[Server Secret Key] --> B[Ed25519 Private Key]
         B --> C[EndpointId - Public Key]
         C --> D[Client Connects]
-        D --> D2[ALPN Token Validation]
-        D2 --> E[Auth Token Validation]
+        D --> E[Auth Token Validation]
         E --> F{Valid Token?}
         F -->|Yes| G[Authenticated]
         F -->|No| H[Rejected]
@@ -556,22 +545,19 @@ graph TB
 
 ### Token Authentication (iroh Mode)
 
-Iroh mode uses two layers of authentication. First, a pre-shared ALPN token is embedded in the QUIC protocol identifier (`mf/2/<token>`), rejecting unknown clients at the TLS handshake level before any application streams are opened. Second, clients must provide a valid auth token via a dedicated auth stream within a 10-second timeout. **Both layers are mandatory.**
+Iroh mode authenticates clients with auth tokens. The QUIC ALPN is a fixed value (`mf/4`) shared by all peers; access control is handled by auth tokens. Clients must provide a valid auth token via a dedicated auth stream within a 10-second timeout.
 
-#### ALPN Token vs Auth Token
+#### Auth Token
 
-- **ALPN Token** (`TUNNEL_RS_ALPN_TOKEN` env var / `--alpn-token-file` / `[iroh].alpn_token_file`): Pre-handshake shared value used for QUIC ALPN filtering.
-- **Auth Token** (server: `TUNNEL_RS_AUTH_TOKENS` env var / `--auth-tokens-file` / `[iroh].auth_tokens_file`; client: `TUNNEL_RS_AUTH_TOKEN` env var / `--auth-token-file` / `[iroh].auth_token_file`): Per-client token validated on the auth stream.
-- **Mapping**: These are **distinct tokens**, not the same value. In code, ALPN tokens are 14-char Base64URL values, while auth tokens are 47-char `i...` tokens. Typical setup is one shared ALPN token plus per-client auth tokens for revocation.
+- **Auth Token** (server: `TUNNEL_RS_AUTH_TOKENS` env var / `--auth-tokens-file` / `[iroh].auth_tokens_file`; client: `TUNNEL_RS_AUTH_TOKEN` env var / `--auth-token-file` / `[iroh].auth_token_file`): Per-client token validated on the auth stream. In code, auth tokens are 47-char `i...` tokens. Use separate values per client for revocation.
 
-1. **ALPN Filtering**: Both server and client set `TUNNEL_RS_ALPN_TOKEN`. The token is embedded in the QUIC ALPN identifier (`mf/2/<token>`). Connections from clients without a matching ALPN are rejected at the handshake level — acting as a lightweight "port knock".
-2. **Server Configuration**: Server sets `TUNNEL_RS_AUTH_TOKENS` with one or more pre-shared tokens (comma-separated)
-3. **Client Configuration**: Client sets `TUNNEL_RS_AUTH_TOKEN` with the token received from the server admin
-4. **Protocol Flow**: Client opens a dedicated auth stream immediately after connection and sends an `AuthRequest`. **No source requests are accepted until authentication succeeds.**
-5. **Validation**: Server validates the token using `is_token_valid()` within a 10-second timeout
-6. **Rejection**: Invalid tokens are rejected with an `AuthResponse` containing the rejection reason, and the connection is closed with an error code.
+1. **Server Configuration**: Server sets `TUNNEL_RS_AUTH_TOKENS` with one or more pre-shared tokens (comma-separated)
+2. **Client Configuration**: Client sets `TUNNEL_RS_AUTH_TOKEN` with the token received from the server admin
+3. **Protocol Flow**: Client opens a dedicated auth stream immediately after connection and sends an `AuthRequest`. **No source requests are accepted until authentication succeeds.**
+4. **Validation**: Server validates the token using `is_token_valid()` within a 10-second timeout
+5. **Rejection**: Invalid tokens are rejected with an `AuthResponse` containing the rejection reason, and the connection is closed with an error code.
 
-This layered validation prevents unauthorized clients from holding open connections or attempting source requests.
+This validation prevents unauthorized clients from holding open connections or attempting source requests.
 
 ```mermaid
 sequenceDiagram
@@ -579,13 +565,8 @@ sequenceDiagram
     participant S as Server
     participant A as Auth Module
 
-    C->>S: Connect (QUIC TLS handshake, ALPN: mf/2/<token>)
-    alt ALPN matches
-        S->>C: Accept connection
-    else ALPN mismatch
-        S-->>C: Handshake rejected
-        Note over S,C: Connection rejected at handshake level
-    end
+    C->>S: Connect (QUIC TLS handshake, ALPN: mf/4)
+    S->>C: Accept connection
 
     Note over C,S: Auth Phase (10s timeout)
     C->>S: Open auth stream
@@ -620,7 +601,7 @@ sequenceDiagram
 - Tokens are sent only **after** the QUIC/TLS 1.3 handshake, so the auth stream is encrypted in transit.
 - The CRC16-CCITT-FALSE checksum is **for typo detection only**, not cryptographic security.
 - Tokens are Base64URL-encoded and validated as ASCII.
-- The **ALPN token** acts as a pre-handshake filter (lightweight "port knock"). It is embedded in the TLS ClientHello and therefore **visible in cleartext** on the wire — it is not a secret, but prevents casual scanners from completing a QUIC handshake.
+- The QUIC ALPN is a fixed value (`mf/4`) shared by all peers and is not a secret; access control is handled by auth tokens.
 - Avoid logging or sharing tokens; the `AuthToken` wrapper redacts values in Debug output, but treat them like passwords.
 - Prefer token files with restricted permissions (e.g., `0600`) and rotate tokens if exposure is suspected.
 
@@ -845,7 +826,7 @@ graph LR
 
 ### Throughput Characteristics
 
-- **TCP Tunneling**: Limited by QUIC stream flow control and congestion control
+- **TCP Tunneling**: Limited by QUIC stream flow control, congestion control, and optional ACK frequency tuning
 - **UDP Tunneling**: Additional framing overhead (2 bytes per packet)
 - **Relay Mode**: Higher latency, potentially lower throughput
 - **Direct Mode**: Near-native performance with encryption overhead
@@ -881,7 +862,7 @@ transient failures (retry) from permanent errors (stop):
 |------|----------|---------|
 | 0 | Success | Normal termination |
 | 1 | General error | Unexpected/uncategorized failures |
-| 2 | Configuration | Missing `--source`, invalid token format, bad ALPN |
+| 2 | Configuration | Missing `--source`, invalid token format |
 | 3 | Authentication | Token rejected by server, auth response timeout |
 | 10 | Connection failed | Relay timeout, endpoint offline, server unreachable |
 | 11 | Connection lost | QUIC connection closed after tunnel was established |

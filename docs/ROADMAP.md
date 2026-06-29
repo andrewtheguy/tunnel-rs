@@ -30,7 +30,7 @@ mode = "iroh"
 
 [iroh]
 server_node_id = "..."
-auth_token = "..."
+auth_token_file = "~/.config/tunnel-rs/token.txt"
 
 [[iroh.tunnels]]
 source = "tcp://127.0.0.1:22"
@@ -62,7 +62,7 @@ target = "127.0.0.1:5353"
 
 **Status:** Idea
 
-Allow the server to fetch valid auth tokens from an external HTTP REST service at runtime, instead of only loading them from static files or CLI arguments at startup. This enables centralized token management where tokens can be added or revoked without restarting the server.
+Allow the server to fetch valid auth tokens from an external HTTP REST service at runtime, instead of only loading them from static files or environment variables at startup. This enables centralized token management where tokens can be added or revoked without restarting the server.
 
 **Proposed Features:**
 - **Remote token endpoint**: Server periodically queries a configurable HTTP endpoint (e.g., `--auth-tokens-url https://auth.example.com/tokens`) to retrieve the current set of valid tokens
@@ -75,7 +75,6 @@ Allow the server to fetch valid auth tokens from an external HTTP REST service a
 tunnel-rs server \
   --secret-file ./server.key \
   --allowed-tcp 127.0.0.0/8 \
-  --alpn-token-file ./alpn_token.txt \
   --auth-tokens-url https://auth.example.com/api/tokens
 ```
 
@@ -209,7 +208,6 @@ tunnel-rs server \
   --secret-file ./server.key \
   --allowed-tcp 10.0.0.0/8 \
   --auth-tokens-file ./auth_tokens.txt \
-  --alpn-token-file ./alpn_token.txt \
   --external-address 203.0.113.5:30000
 ```
 

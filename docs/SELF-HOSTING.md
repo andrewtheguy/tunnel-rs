@@ -15,27 +15,24 @@ Use a custom relay server instead of the public iroh relay infrastructure.
 tunnel-rs server \
   --relay-url https://relay.example.com \
   --allowed-tcp 127.0.0.0/8 \
-  --auth-tokens-file ./auth_tokens.txt \
-  --alpn-token-file ./alpn_token.txt
+  --auth-tokens-file ./auth_tokens.txt
 
 tunnel-rs client \
   --relay-url https://relay.example.com \
   --server-node-id <ID> \
   --source tcp://127.0.0.1:22 \
   --target 127.0.0.1:2222 \
-  --auth-token-file ./auth_token.txt \
-  --alpn-token-file ./alpn_token.txt
+  --auth-token-file ./auth_token.txt
 
 # Force relay-only (no direct P2P) - CLI-only flag (not supported in config files)
 tunnel-rs server \
   --relay-url https://relay.example.com \
   --relay-only \
   --allowed-tcp 127.0.0.0/8 \
-  --auth-tokens-file ./auth_tokens.txt \
-  --alpn-token-file ./alpn_token.txt
+  --auth-tokens-file ./auth_tokens.txt
 ```
 
-> **Tip:** For container deployments, use environment variables instead of files: `TUNNEL_RS_AUTH_TOKENS`, `TUNNEL_RS_ALPN_TOKEN`, `TUNNEL_RS_SECRET` (server); `TUNNEL_RS_AUTH_TOKEN`, `TUNNEL_RS_ALPN_TOKEN` (client).
+> **Tip:** For container deployments, use environment variables instead of files: `TUNNEL_RS_AUTH_TOKENS`, `TUNNEL_RS_SECRET` (server); `TUNNEL_RS_AUTH_TOKEN` (client).
 
 ### Running iroh-relay (Quick Start)
 
@@ -59,16 +56,14 @@ tunnel-rs server \
   --dns-server https://dns.example.com/pkarr \
   --secret-file ./server.key \
   --allowed-tcp 127.0.0.0/8 \
-  --auth-tokens-file ./auth_tokens.txt \
-  --alpn-token-file ./alpn_token.txt
+  --auth-tokens-file ./auth_tokens.txt
 
 tunnel-rs client \
   --dns-server https://dns.example.com/pkarr \
   --server-node-id <ID> \
   --source tcp://127.0.0.1:22 \
   --target 127.0.0.1:2222 \
-  --auth-token-file ./auth_token.txt \
-  --alpn-token-file ./alpn_token.txt
+  --auth-token-file ./auth_token.txt
 ```
 
 ## Disabling DNS Discovery
@@ -83,8 +78,7 @@ tunnel-rs server \
   --dns-server none \
   --relay-url https://relay.example.com \
   --allowed-tcp 127.0.0.0/8 \
-  --auth-tokens-file ./auth_tokens.txt \
-  --alpn-token-file ./alpn_token.txt
+  --auth-tokens-file ./auth_tokens.txt
 
 tunnel-rs client \
   --dns-server none \
@@ -92,8 +86,7 @@ tunnel-rs client \
   --server-node-id <ID> \
   --source tcp://127.0.0.1:22 \
   --target 127.0.0.1:2222 \
-  --auth-token-file ./auth_token.txt \
-  --alpn-token-file ./alpn_token.txt
+  --auth-token-file ./auth_token.txt
 ```
 
 When DNS discovery is disabled, clients and server must connect using one of these methods:
@@ -181,8 +174,7 @@ tunnel-rs server \
   --dns-server https://dns.example.com/pkarr \
   --secret-file ./server.key \
   --allowed-tcp 127.0.0.0/8 \
-  --auth-tokens-file ./auth_tokens.txt \
-  --alpn-token-file ./alpn_token.txt
+  --auth-tokens-file ./auth_tokens.txt
 
 # Client (tokens via files — recommended)
 tunnel-rs client \
@@ -191,11 +183,10 @@ tunnel-rs client \
   --server-node-id <ID> \
   --source tcp://127.0.0.1:22 \
   --target 127.0.0.1:2222 \
-  --auth-token-file ./auth_token.txt \
-  --alpn-token-file ./alpn_token.txt
+  --auth-token-file ./auth_token.txt
 ```
 
-> **Tip:** For container deployments, use environment variables (`TUNNEL_RS_AUTH_TOKENS`, `TUNNEL_RS_AUTH_TOKEN`, `TUNNEL_RS_ALPN_TOKEN`) instead of files.
+> **Tip:** For container deployments, use environment variables (`TUNNEL_RS_AUTH_TOKENS`, `TUNNEL_RS_AUTH_TOKEN`) instead of files.
 
 ## Relay Behavior
 

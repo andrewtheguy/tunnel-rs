@@ -50,7 +50,7 @@ python3 test-scripts/test_tunnel.py -n 3 --stream 10 --loop  # Stream 10s repeat
 
 Keys are auto-generated on first run:
 - Server key saved to `test-scripts/.keys/server.key`
-- Auth and ALPN tokens saved to `test-scripts/.tunnel_keys`
+- Auth token saved to `test-scripts/.tunnel_keys`
 
 ```bash
 # View current keys
@@ -61,7 +61,7 @@ source test-scripts/keys.sh && generate_keys
 
 # Use keys in custom commands
 source test-scripts/keys.sh
-echo $SERVER_KEY_FILE $SERVER_NODE_ID $TUNNEL_RS_AUTH_TOKEN $TUNNEL_RS_ALPN_TOKEN
+echo $SERVER_KEY_FILE $SERVER_NODE_ID $TUNNEL_RS_AUTH_TOKEN
 ```
 
 ## Test Modes

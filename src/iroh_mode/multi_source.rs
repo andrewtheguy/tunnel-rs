@@ -37,8 +37,6 @@ pub struct MultiSourceServerConfig {
     pub dns_server: Option<String>,
     /// Set of valid authentication tokens. **Sensitive field - redacted in Debug output.**
     pub auth_tokens: HashSet<String>,
-    /// ALPN token for QUIC handshake-level filtering. **Sensitive field - redacted in Debug output.**
-    pub alpn_token: String,
     /// Transport layer tuning (congestion control, buffer sizes).
     pub transport: TransportTuning,
 }
@@ -57,7 +55,6 @@ impl std::fmt::Debug for MultiSourceServerConfig {
                 "auth_tokens",
                 &format!("[{} tokens]", self.auth_tokens.len()),
             )
-            .field("alpn_token", &"[REDACTED]")
             .field("transport", &self.transport)
             .finish()
     }
@@ -80,8 +77,6 @@ pub struct MultiSourceClientConfig {
     pub dns_server: Option<String>,
     /// Authentication token for server access. **Sensitive field - redacted in Debug output.**
     pub auth_token: String,
-    /// ALPN token for QUIC handshake-level filtering. **Sensitive field - redacted in Debug output.**
-    pub alpn_token: String,
     /// Transport layer tuning (congestion control, buffer sizes).
     pub transport: TransportTuning,
 }
@@ -96,7 +91,6 @@ impl std::fmt::Debug for MultiSourceClientConfig {
             .field("relay_only", &self.relay_only)
             .field("dns_server", &self.dns_server)
             .field("auth_token", &"[REDACTED]")
-            .field("alpn_token", &"[REDACTED]")
             .field("transport", &self.transport)
             .finish()
     }
@@ -105,7 +99,7 @@ impl std::fmt::Debug for MultiSourceClientConfig {
 use crate::auth::is_token_valid;
 
 use crate::iroh_mode::endpoint::{
-    build_multi_alpn, connect_to_server, create_client_endpoint, create_server_endpoint,
+    TUNNEL_ALPN, connect_to_server, create_client_endpoint, create_server_endpoint,
     validate_relay_only, watch_connection_paths,
 };
 use crate::iroh_mode::helpers::{
@@ -171,13 +165,12 @@ pub async fn run_multi_source_server(config: MultiSourceServerConfig) -> Result<
     log::info!("==================================");
     log::info!("Creating iroh endpoint...");
 
-    let alpn = build_multi_alpn(&config.alpn_token);
     let endpoint = create_server_endpoint(
         &config.relay_urls,
         relay_only,
         config.secret,
         config.dns_server.as_deref(),
-        &alpn,
+        TUNNEL_ALPN,
         Some(&config.transport),
     )
     .await?;
@@ -198,10 +191,10 @@ pub async fn run_multi_source_server(config: MultiSourceServerConfig) -> Result<
 
     log::info!("\nOn the client side, run:");
     log::info!(
-        "  TUNNEL_RS_AUTH_TOKEN=<token> TUNNEL_RS_ALPN_TOKEN=<alpn-token> tunnel-rs client --server-node-id {} --source tcp://target:port --target 127.0.0.1:port\n",
+        "  TUNNEL_RS_AUTH_TOKEN=<token> tunnel-rs client --server-node-id {} --source tcp://target:port --target 127.0.0.1:port\n",
         endpoint_id
     );
-    log::info!("Note: Both TUNNEL_RS_AUTH_TOKEN (or --auth-token-file) and TUNNEL_RS_ALPN_TOKEN (or --alpn-token-file) are required to connect");
+    log::info!("Note: TUNNEL_RS_AUTH_TOKEN (or --auth-token-file) is required to connect");
     log::info!("Waiting for clients to connect...");
 
     // Session management with semaphore for concurrency limit
@@ -572,13 +565,12 @@ pub async fn run_multi_source_client(config: MultiSourceClientConfig) -> Result<
     )
     .await?;
 
-    let alpn = build_multi_alpn(&config.alpn_token);
     let conn = connect_to_server(
         &endpoint,
         server_id,
         &config.relay_urls,
         relay_only,
-        &alpn,
+        TUNNEL_ALPN,
     )
     .await?;
 
