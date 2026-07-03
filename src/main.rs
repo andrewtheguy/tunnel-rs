@@ -26,6 +26,11 @@ use crate::iroh_mode::endpoint::{
     load_secret, load_secret_from_string, secret_to_endpoint_id,
 };
 
+/// Default `env_logger` filter: tunnel-rs's own code at `info`, the noisy
+/// transport deps (iroh and its tracing bridge) at `warn`. Fully overridable at
+/// runtime via `RUST_LOG`.
+const DEFAULT_LOG_FILTER: &str = "info,iroh=warn,tracing=warn";
+
 #[derive(Parser)]
 #[command(name = "tunnel-rs")]
 #[command(version)]
@@ -38,6 +43,7 @@ struct Args {
 #[derive(Subcommand)]
 enum Command {
     /// Run as server (accepts connections and forwards to source)
+    #[command(arg_required_else_help = true)]
     Server {
         /// Path to config file
         #[arg(short, long)]
@@ -91,6 +97,7 @@ enum Command {
         encryption_key_file: Option<PathBuf>,
     },
     /// Run as client (connects to server and exposes local port)
+    #[command(arg_required_else_help = true)]
     Client {
         /// Path to config file
         #[arg(short, long)]
@@ -463,9 +470,10 @@ async fn run() -> i32 {
 }
 
 async fn run_inner() -> Result<()> {
-    let _ = env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn"))
-        .filter_module("tunnel_rs", log::LevelFilter::Info)
-        .try_init();
+    let _ = env_logger::Builder::from_env(
+        env_logger::Env::default().default_filter_or(DEFAULT_LOG_FILTER),
+    )
+    .try_init();
 
     let args = Args::parse();
     let command = args.command;
