@@ -61,10 +61,10 @@ For fully independent operation, self-host an iroh relay. Point both sides at it
 
 ```bash
 cargo install iroh-relay
-iroh-relay --config relay.toml --dev  # --dev for local testing
+iroh-relay --config relay.toml  # production; use --dev (no config) for local testing
 ```
 
-Example `relay.toml`:
+Example `relay.toml` (production, with TLS):
 ```toml
 # Enable QUIC address discovery
 enable_quic_addr_discovery = true
@@ -81,7 +81,13 @@ manual_key_path = "/etc/letsencrypt/live/relay.example.com/privkey.pem"
 # hostname = "relay.example.com"
 ```
 
-> **Note:** With `--dev`, the relay runs HTTP on port 3340 and QUIC on port 7824. For production, configure TLS and use a reverse proxy or direct HTTPS binding.
+> **Note:** `--dev` runs the relay over plain HTTP on port **3340** and starts a
+> Prometheus **metrics** server on **9090**; it does **not** start STUN or a QUIC
+> endpoint (QUIC address discovery requires TLS, which `--dev` ignores). If port
+> 9090 is already in use (e.g. by Cockpit), move it with `metrics_bind_addr =
+> "127.0.0.1:9099"` in the config file — `--dev` still honors non-TLS config
+> fields. For production, configure TLS (HTTPS relay on 443, optional STUN on
+> 3478/udp) and use a reverse proxy or direct HTTPS binding.
 
 ### Using Your Infrastructure
 
