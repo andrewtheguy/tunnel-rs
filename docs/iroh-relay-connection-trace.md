@@ -2,11 +2,25 @@
 
 This document traces the API calls made when `endpoint.online()` is called in iroh. Useful for troubleshooting relay connectivity issues.
 
-## Problem Context
+## Status: Cloudflare Tunnel works
 
-When using iroh-relay behind Cloudflare Tunnel:
-- **Quick tunnels** (`*.trycloudflare.com`) work correctly
-- **Named tunnels** (custom domains) may fail due to HTTP/2 not supporting WebSocket upgrades
+Verified 2026-07-19 with iroh-relay 1.0.2 and cloudflared 2026.7.2 — iroh-relay
+behind Cloudflare Tunnel works with **both** quick tunnels (`*.trycloudflare.com`)
+and named tunnels (custom domains). The relay-only e2e test passes end to end:
+
+```bash
+./test-scripts/run_e2e.sh --relay-url https://relay.example.com --relay-only
+```
+
+An earlier version of this document claimed named tunnels fail because HTTP/2
+does not support the `Upgrade` header mechanism. That is no longer the case
+with the versions above; no paid Cloudflare plan or HTTP/1.1 override is needed.
+
+Note: the relay may still log occasional
+`ERROR iroh_relay::server::http_server: failed to handle connection
+error=Connection did not reach established state within timeout` lines while
+running behind cloudflared. These are harmless — traffic passes and the e2e
+test succeeds despite them.
 
 ## Connection Flow
 
@@ -73,26 +87,18 @@ Sec-WebSocket-Accept: <computed-hash>
 Sec-WebSocket-Protocol: iroh-relay-v2
 ```
 
-## Cloudflare Tunnel Issue
+## Manual verification
 
-**Quick tunnels work** because they automatically detect WebSocket traffic and use HTTP/1.1.
-
-**Named tunnels may fail** because they use HTTP/2 by default, which doesn't support the `Upgrade` header mechanism.
-
-**Recommendation:** For self-hosted iroh-relay, open a port directly instead of using Cloudflare Tunnel. The HTTP/2 issue with named tunnels requires a paid Cloudflare plan to force HTTP/1.1 to resolve.
-
-### Verification
+To check that a relay URL accepts the WebSocket upgrade without running the
+full e2e test:
 
 ```bash
-# HTTP/2 (may fail) - returns 400 Bad Request
-curl -v https://your-named-tunnel.example.com/relay
-
-# HTTP/1.1 (should work) - returns 101 Switching Protocols
+# Should return 101 Switching Protocols
 curl -v --http1.1 \
   -H "Connection: Upgrade" \
   -H "Upgrade: websocket" \
   -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" \
   -H "Sec-WebSocket-Version: 13" \
   -H "Sec-WebSocket-Protocol: iroh-relay-v2, iroh-relay-v1" \
-  https://your-named-tunnel.example.com/relay
+  https://relay.example.com/relay
 ```
