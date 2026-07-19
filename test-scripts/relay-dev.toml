@@ -1,0 +1,26 @@
+# Example iroh-relay config for LOCAL DEV / testing (use with `--dev`).
+#
+#   iroh-relay --dev -c test-scripts/relay-dev.toml
+#
+# In `--dev` mode the relay serves plain HTTP on port 3340 (no TLS, no QUIC),
+# which is what the relay-only end-to-end test points at:
+#
+#   ./test-scripts/run_e2e.sh --relay-url http://localhost:3340 --relay-only
+#
+# Verified against iroh-relay 1.0.2. `--dev` ignores TLS-related fields but
+# honors the non-TLS fields below.
+
+# Turn the Prometheus metrics server OFF. By default the relay binds metrics on
+# port 9090, which frequently collides with other services (e.g. Cockpit's web
+# console), producing "Error starting metrics server: Address already in use".
+# The tunnel test does not need metrics, so disabling it avoids the conflict.
+enable_metrics = false
+
+# --- Alternative: keep metrics but move it off 9090 ---
+# Comment out `enable_metrics` above and use this instead if you want metrics:
+# metrics_bind_addr = "127.0.0.1:9099"
+
+# --- Optional overrides ---
+# The dev HTTP relay port defaults to 3340; uncomment to change it.
+# Remember to update the --relay-url you pass to run_e2e.sh to match.
+# http_bind_addr = "[::]:3340"

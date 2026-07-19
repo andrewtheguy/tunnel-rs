@@ -48,6 +48,9 @@ When a custom relay is in use, clients and server find each other via:
 ```bash
 cargo install iroh-relay
 iroh-relay --dev  # Local testing on http://localhost:3340
+
+# Or with the bundled dev config (metrics disabled, avoids the port-9090 clash):
+iroh-relay --dev -c test-scripts/relay-dev.toml
 ```
 
 > [!NOTE]
@@ -85,8 +88,10 @@ manual_key_path = "/etc/letsencrypt/live/relay.example.com/privkey.pem"
 > over plain HTTP on port **3340** (`http_bind_addr`) and starts a Prometheus
 > **metrics** server on **9090** (`metrics_bind_addr`); it does **not** start a
 > QUIC endpoint, because QUIC address discovery requires TLS, which `--dev`
-> ignores. If port 9090 is already in use (e.g. by Cockpit), move it with
-> `metrics_bind_addr = "127.0.0.1:9099"` in the config file — `--dev` still
+> ignores. If port 9090 is already in use (e.g. by Cockpit), the simplest fix is
+> to turn the metrics server off with `enable_metrics = false` in the config file
+> (the E2E tunnel test does not need metrics); or, to keep metrics, move it with
+> `metrics_bind_addr = "127.0.0.1:9099"`. Either works because `--dev` still
 > honors non-TLS config fields. For production, configure TLS: the relay serves
 > HTTP on **80** and HTTPS on **443** by default, plus QUIC address discovery on
 > **7842** (`quic_bind_addr`) when `enable_quic_addr_discovery = true`.

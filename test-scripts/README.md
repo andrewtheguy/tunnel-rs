@@ -73,6 +73,24 @@ Examples:
 
 Exit code is `0` when both TCP and UDP round trips pass, non-zero otherwise.
 
+### Running a local relay for offline relay-only tests
+
+`--relay-only` needs a reachable relay. To run fully offline, start a local
+`iroh-relay` in dev mode using the bundled config (`relay-dev.toml`, which
+disables the metrics server so it won't collide with port 9090):
+
+```bash
+# terminal 1: local dev relay on http://localhost:3340
+iroh-relay --dev -c test-scripts/relay-dev.toml
+
+# terminal 2: relay-only e2e against it
+./test-scripts/run_e2e.sh --relay-url http://localhost:3340 --relay-only
+```
+
+Install the relay with `cargo install iroh-relay` if you don't have it. See
+[`../docs/SELF-HOSTING.md`](../docs/SELF-HOSTING.md) for relay ports and config
+details.
+
 ### Environment overrides
 
 | Variable | Default | Meaning |
