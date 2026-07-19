@@ -13,8 +13,29 @@ and named tunnels (custom domains). The relay-only e2e test passes end to end:
 ```
 
 An earlier version of this document claimed named tunnels fail because HTTP/2
-does not support the `Upgrade` header mechanism. That is no longer the case
-with the versions above; no paid Cloudflare plan or HTTP/1.1 override is needed.
+does not support the `Upgrade` header mechanism. Inspection of the iroh-relay
+client source (checked at v0.95.1, v0.98.0, v1.0.0, v1.0.2) shows that claim
+never applied to the iroh client: the relay client builds its rustls config
+without any `alpn_protocols`, so no ALPN extension is sent, Cloudflare's edge
+falls back to HTTP/1.1, and the connection is a plain HTTP/1.1 WebSocket
+upgrade (`hyper::client::conn::http1` + `tokio_websockets`) in every version.
+The HTTP/2 failure mode belongs to `curl` (which offers `h2` via ALPN by
+default) — hence the misleading `400 Bad Request` from a bare
+`curl -v https://.../relay`. No paid Cloudflare plan or HTTP/1.1 override is
+needed.
+
+Related iroh changes that improved relay-only operation behind an HTTP-only
+proxy between 0.95.x and 1.0.x:
+
+- 0.97.0 ([#3926](https://github.com/n0-computer/iroh/pull/3926)): QAD (QUIC
+  address discovery) probes are skipped when no IP transports are configured,
+  instead of failing repeatedly.
+- 0.98.0 ([#3955](https://github.com/n0-computer/iroh/pull/3955)): relay
+  protocol updated to `iroh-relay-v2`, still negotiated via the standard
+  `Sec-WebSocket-Protocol` header (proxy-friendly).
+- 0.98.0 ([#4115](https://github.com/n0-computer/iroh/pull/4115)):
+  `Endpoint::online()` now returns only once actually connected to the home
+  relay, instead of when net_report merely selected it.
 
 Note: the relay may still log occasional
 `ERROR iroh_relay::server::http_server: failed to handle connection
@@ -90,11 +111,16 @@ Sec-WebSocket-Protocol: iroh-relay-v2
 ## Manual verification
 
 To check that a relay URL accepts the WebSocket upgrade without running the
-full e2e test:
+full e2e test. `--no-alpn` is a curl flag that disables the TLS ALPN extension
+on the HTTPS connection, matching what the iroh relay client sends. This TLS
+ALPN (h2 vs http/1.1 negotiation with the proxy/edge) is unrelated to
+tunnel-rs's fixed QUIC ALPN `mf/4`, which identifies the peer-to-peer protocol
+inside the end-to-end encrypted QUIC connection and is never seen by the relay
+or Cloudflare:
 
 ```bash
 # Should return 101 Switching Protocols
-curl -v --http1.1 \
+curl -v --no-alpn \
   -H "Connection: Upgrade" \
   -H "Upgrade: websocket" \
   -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" \
@@ -102,3 +128,15 @@ curl -v --http1.1 \
   -H "Sec-WebSocket-Protocol: iroh-relay-v2, iroh-relay-v1" \
   https://relay.example.com/relay
 ```
+
+Caveats confirmed against a live named tunnel (2026-07-19):
+
+- A bare `curl -v https://relay.example.com/relay` returns `400 Bad Request`.
+  This is NOT a Cloudflare or HTTP/2 problem — the relay server itself returns
+  400 for any non-WebSocket request (the same 400 comes back from
+  `curl http://localhost:3340/relay` with no proxy involved). Only the full
+  upgrade request above is a meaningful health check.
+- With the upgrade headers, the request succeeds (101) over HTTP/1.1 both with
+  `--http1.1` and with `--no-alpn`; Cloudflare's edge falls back to HTTP/1.1
+  whenever the client doesn't offer `h2` via ALPN, which the iroh client never
+  does.
