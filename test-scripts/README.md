@@ -36,7 +36,7 @@ third-party dependencies).
 - A built `tunnel-rs` binary (the script builds the debug binary if missing)
 - **Internet access** for the default run (uses the public iroh relay + the
   default iroh discovery server). Not needed when you point at your own relay
-  (see `RELAY_URL` below).
+  with `--relay-url` (see below).
 
 ## Usage
 
@@ -44,29 +44,48 @@ third-party dependencies).
 ./test-scripts/run_e2e.sh
 ```
 
+With no flags it runs the default test: the public iroh relay plus the default
+iroh discovery server (no relay override).
+
+### CLI options
+
+| Flag | Meaning |
+|------|---------|
+| `--relay-url URL` | Custom relay URL for both sides (**repeatable**). When set, iroh discovery is **disabled automatically** and both sides rendezvous via the relay. Also accepts `--relay-url=URL`. |
+| `--relay-only` | Force all traffic through the relay, disabling direct P2P. Requires at least one `--relay-url`. |
+| `-h`, `--help` | Show help and exit. |
+
+Examples:
+
+```bash
+# Default: public relay + iroh discovery server (needs internet), no override
+./test-scripts/run_e2e.sh
+
+# Custom relay -> iroh discovery disabled path
+./test-scripts/run_e2e.sh --relay-url https://relay.example.com
+
+# Multiple relays (failover)
+./test-scripts/run_e2e.sh --relay-url https://r1.example.com --relay-url https://r2.example.com
+
+# Relay-only e2e (no direct P2P; requires a custom relay)
+./test-scripts/run_e2e.sh --relay-url https://relay.example.com --relay-only
+```
+
+Exit code is `0` when both TCP and UDP round trips pass, non-zero otherwise.
+
 ### Environment overrides
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
 | `TUNNEL_RS_BIN` | `target/debug/tunnel-rs` | Path to the tunnel-rs binary |
-| `RELAY_URL` | _(unset)_ | Custom relay URL for both sides. When set, iroh discovery is **disabled automatically** and both sides rendezvous via this relay. Exercises the custom-relay code path. |
 | `READY_TIMEOUT` | `60` | Seconds to wait for each process to become ready |
 | `KEEP_LOGS` | `0` | Set to `1` to keep the temp working dir (configs + logs) for inspection |
-
-Examples:
+| `RELAY_URL` | _(unset)_ | Fallback single custom relay, used **only** when no `--relay-url` flag is given (prefer the flag) |
 
 ```bash
-# Default: public relay + iroh discovery server (needs internet)
-./test-scripts/run_e2e.sh
-
-# Custom relay -> iroh discovery disabled path
-RELAY_URL=https://relay.example.com ./test-scripts/run_e2e.sh
-
 # Keep the generated JSON configs and per-process logs for debugging
 KEEP_LOGS=1 ./test-scripts/run_e2e.sh
 ```
-
-Exit code is `0` when both TCP and UDP round trips pass, non-zero otherwise.
 
 ## Running the pieces by hand
 

@@ -34,6 +34,71 @@ REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 READY_TIMEOUT="${READY_TIMEOUT:-60}"
 
 # ---------------------------------------------------------------------------
+# CLI arguments
+# ---------------------------------------------------------------------------
+declare -a RELAY_URLS=()
+RELAY_ONLY=0
+
+usage() {
+    cat <<'USAGE'
+Usage: run_e2e.sh [OPTIONS]
+
+Run the tunnel-rs TCP/UDP end-to-end test on localhost.
+
+With no options it runs the default test: the public iroh relay plus the
+default iroh discovery server (requires internet access), no relay override.
+
+Options:
+  --relay-url URL   Custom relay URL for both sides (repeatable). When set,
+                    iroh discovery is disabled automatically and both sides
+                    rendezvous through the relay. May also be given as
+                    --relay-url=URL.
+  --relay-only      Force all traffic through the relay, disabling direct P2P.
+                    Requires at least one --relay-url.
+  -h, --help        Show this help and exit.
+
+Environment overrides: TUNNEL_RS_BIN, READY_TIMEOUT, KEEP_LOGS, RELAY_URL
+(RELAY_URL is a fallback used only when no --relay-url flag is given).
+USAGE
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --relay-url)
+            shift
+            [[ $# -gt 0 ]] || { echo "ERROR: --relay-url requires a value" >&2; exit 2; }
+            RELAY_URLS+=("$1")
+            ;;
+        --relay-url=*)
+            RELAY_URLS+=("${1#*=}")
+            ;;
+        --relay-only)
+            RELAY_ONLY=1
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "ERROR: unknown argument: $1" >&2
+            usage >&2
+            exit 2
+            ;;
+    esac
+    shift
+done
+
+# Back-compat: honor the RELAY_URL env var only when no --relay-url flag given.
+if [[ ${#RELAY_URLS[@]} -eq 0 && -n "${RELAY_URL:-}" ]]; then
+    RELAY_URLS+=("$RELAY_URL")
+fi
+
+if [[ "$RELAY_ONLY" == "1" && ${#RELAY_URLS[@]} -eq 0 ]]; then
+    echo "ERROR: --relay-only requires at least one --relay-url" >&2
+    exit 2
+fi
+
+# ---------------------------------------------------------------------------
 # Locate / build the binary
 # ---------------------------------------------------------------------------
 if [[ -n "${TUNNEL_RS_BIN:-}" ]]; then
@@ -128,13 +193,24 @@ fi
 TOKEN="$("$BIN" generate-auth-token)"
 log "EndpointId: $ENDPOINT_ID"
 
-# Optional custom-relay JSON fragment (exercises the discovery-disabled path).
+# Optional custom-relay JSON fragment (exercises the discovery-disabled path)
+# and the matching --relay-only CLI args (relay_only is CLI-only, not config).
 RELAY_FRAGMENT=""
-if [[ -n "${RELAY_URL:-}" ]]; then
-    RELAY_FRAGMENT=",\"relay_urls\":[\"$RELAY_URL\"]"
-    log "Using custom relay: $RELAY_URL (iroh discovery disabled)"
+declare -a RELAY_ONLY_ARGS=()
+if [[ ${#RELAY_URLS[@]} -gt 0 ]]; then
+    joined=""
+    for u in "${RELAY_URLS[@]}"; do
+        [[ -n "$joined" ]] && joined+=","
+        joined+="\"$u\""
+    done
+    RELAY_FRAGMENT=",\"relay_urls\":[$joined]"
+    log "Using custom relay(s): ${RELAY_URLS[*]} (iroh discovery disabled)"
 else
     log "Using default relay + iroh discovery server (needs internet)"
+fi
+if [[ "$RELAY_ONLY" == "1" ]]; then
+    RELAY_ONLY_ARGS+=(--relay-only)
+    log "Relay-only mode: direct P2P disabled, all traffic via relay"
 fi
 
 # ---------------------------------------------------------------------------
@@ -164,7 +240,7 @@ cat >"$WORK/server.json" <<EOF
 EOF
 
 log "Starting tunnel-rs server..."
-setsid "$BIN" server --config-stdin <"$WORK/server.json" >"$WORK/server.log" 2>&1 &
+setsid "$BIN" server --config-stdin "${RELAY_ONLY_ARGS[@]}" <"$WORK/server.json" >"$WORK/server.log" 2>&1 &
 PIDS+=("$!")
 wait_for_log "$WORK/server.log" "Waiting for clients to connect" "$READY_TIMEOUT"
 
@@ -198,10 +274,10 @@ cat >"$WORK/client_udp.json" <<EOF
 EOF
 
 log "Starting tunnel-rs TCP client..."
-setsid "$BIN" client --config-stdin <"$WORK/client_tcp.json" >"$WORK/client_tcp.log" 2>&1 &
+setsid "$BIN" client --config-stdin "${RELAY_ONLY_ARGS[@]}" <"$WORK/client_tcp.json" >"$WORK/client_tcp.log" 2>&1 &
 PIDS+=("$!")
 log "Starting tunnel-rs UDP client..."
-setsid "$BIN" client --config-stdin <"$WORK/client_udp.json" >"$WORK/client_udp.log" 2>&1 &
+setsid "$BIN" client --config-stdin "${RELAY_ONLY_ARGS[@]}" <"$WORK/client_udp.json" >"$WORK/client_udp.log" 2>&1 &
 PIDS+=("$!")
 
 wait_for_log "$WORK/client_tcp.log" "Listening on TCP" "$READY_TIMEOUT"
