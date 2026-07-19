@@ -354,7 +354,7 @@ graph TB
         F[secret_file / secret<br/>server only]
         G[auth_token* / auth_tokens*]
         H[encryption_key_file]
-        I[relay_urls / dns_server]
+        I[relay_urls]
         J[transport<br/>cc + window sizes + ACK threshold]
     end
 

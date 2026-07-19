@@ -23,23 +23,17 @@ mode = "iroh"
 secret_file = "./server.key"
 
 # Custom relay server URL(s) for failover
-# If not provided, uses iroh's default public relays
+# If not provided, uses iroh's default public relays.
+#
+# Peer discovery is automatic and not configurable:
+#   - Default relays: the default iroh discovery server is used (pkarr + DNS lookup).
+#   - Custom relay (relay_urls set): discovery is disabled automatically; the
+#     relay doubles as the rendezvous point. mDNS remains enabled for local
+#     network discovery.
 # relay_urls = [
 #     "https://relay1.example.com",
 #     "https://relay2.example.com",
 # ]
-
-# Custom DNS server URL for iroh endpoint discovery (pkarr), or "none" to disable DNS discovery.
-# Used with self-hosted iroh-dns-server for fully independent operation.
-# This is NOT system DNS routing and does not affect client DNS resolution.
-# NOTE: URL must include the /pkarr path
-# dns_server = "https://dns.example.com/pkarr"
-#
-# Set to "none" to disable DNS-based peer discovery entirely.
-# When disabled, clients and server must use one of these methods to connect:
-#   1. Common relay server - both specify the same relay_urls
-#   2. mDNS - automatic discovery on the same local network
-# dns_server = "none"
 
 # Maximum concurrent sessions (default: 100)
 max_sessions = 100

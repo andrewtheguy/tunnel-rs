@@ -83,11 +83,6 @@ enum Command {
         #[arg(long)]
         relay_only: bool,
 
-        /// Custom DNS server URL for peer discovery, or "none" to disable DNS discovery.
-        /// mDNS for local network discovery is unaffected.
-        #[arg(long)]
-        dns_server: Option<String>,
-
         /// Path to file containing authentication tokens (one per line, # comments allowed).
         #[arg(long, value_name = "FILE")]
         auth_tokens_file: Option<PathBuf>,
@@ -131,11 +126,6 @@ enum Command {
         /// Force all connections through the relay server (disables direct P2P).
         #[arg(long)]
         relay_only: bool,
-
-        /// Custom DNS server URL for peer discovery, or "none" to disable DNS discovery.
-        /// mDNS for local network discovery is unaffected.
-        #[arg(long)]
-        dns_server: Option<String>,
 
         /// Path to file containing authentication token
         #[arg(long)]
@@ -229,7 +219,6 @@ struct ServerIrohParams {
     secret: Option<String>,
     secret_file: Option<PathBuf>,
     relay_urls: Vec<String>,
-    dns_server: Option<String>,
     auth_tokens: Vec<String>,
     auth_tokens_file: Option<PathBuf>,
     transport: TransportTuning,
@@ -250,7 +239,6 @@ fn resolve_server_iroh_params(
         max_sessions,
         secret_file,
         relay_urls,
-        dns_server,
         auth_tokens_file,
         encryption_key_file: _,
         ..
@@ -289,7 +277,6 @@ fn resolve_server_iroh_params(
         } else {
             relay_urls.clone()
         },
-        dns_server: dns_server.clone().or(cfg.dns_server.clone()),
         auth_tokens: if !env_auth_tokens.is_empty() {
             env_auth_tokens
         } else {
@@ -307,7 +294,6 @@ struct ClientIrohParams {
     source: Option<String>,
     target: Option<String>,
     relay_urls: Vec<String>,
-    dns_server: Option<String>,
     auth_token: Option<String>,
     auth_token_file: Option<PathBuf>,
     transport: TransportTuning,
@@ -326,7 +312,6 @@ fn resolve_client_iroh_params(
         source,
         target,
         relay_urls,
-        dns_server,
         auth_token_file,
         encryption_key_file: _,
         ..
@@ -352,7 +337,6 @@ fn resolve_client_iroh_params(
         } else {
             relay_urls.clone()
         },
-        dns_server: dns_server.clone().or(cfg.dns_server.clone()),
         auth_token,
         auth_token_file,
         transport: cfg.transport.clone(),
@@ -516,7 +500,6 @@ async fn run_inner() -> Result<()> {
                 secret,
                 secret_file,
                 relay_urls,
-                dns_server,
                 auth_tokens,
                 auth_tokens_file,
                 transport,
@@ -550,7 +533,6 @@ async fn run_inner() -> Result<()> {
                 secret: Some(secret),
                 relay_urls,
                 relay_only,
-                dns_server,
                 auth_tokens,
                 transport,
             })
@@ -591,7 +573,6 @@ async fn run_inner() -> Result<()> {
                 source,
                 target,
                 relay_urls,
-                dns_server,
                 auth_token,
                 auth_token_file,
                 transport,
@@ -644,7 +625,6 @@ async fn run_inner() -> Result<()> {
                 target,
                 relay_urls,
                 relay_only,
-                dns_server,
                 auth_token,
                 transport,
             })

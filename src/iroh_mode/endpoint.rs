@@ -5,7 +5,7 @@ use crate::error::TunnelError;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use futures::StreamExt;
 use iroh::{
-    address_lookup::{DnsAddressLookup, PkarrPublisher, PkarrResolver},
+    address_lookup::{DnsAddressLookup, PkarrPublisher},
     endpoint::{
         presets, AckFrequencyConfig, Builder as EndpointBuilder, ControllerFactory, PathList,
         QuicTransportConfig,
@@ -22,7 +22,6 @@ use std::time::Duration;
 use crate::config::{
     CongestionController, TransportTuning, DEFAULT_SEND_WINDOW, DEFAULT_STREAM_RECEIVE_WINDOW,
 };
-use url::Url;
 
 pub const RELAY_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -143,16 +142,21 @@ pub fn print_relay_status(relay_urls: &[String], relay_only: bool, using_custom_
 
 /// Create a base endpoint builder with common configuration.
 ///
+/// The iroh discovery server (the n0 discovery service — pkarr publishing plus
+/// DNS-based lookup) is used only with the default relays. A custom relay
+/// doubles as the rendezvous point, so discovery is disabled automatically
+/// whenever one is configured. This is not customizable.
+///
 /// # Arguments
 /// * `relay_mode` - The relay mode to use
 /// * `relay_only` - If true, only use relay connections (no direct P2P).
-/// * `dns_server` - Optional custom DNS server URL (e.g., "https://dns.example.com"), or "none" to disable DNS discovery
-/// * `secret_key` - Optional secret key (required for publishing to custom DNS server)
+/// * `secret_key` - When present (a persistent identity), the endpoint also
+///   publishes itself to the default iroh discovery server; an ephemeral
+///   endpoint (no secret) only resolves and never advertises itself.
 /// * `transport_tuning` - Optional transport layer tuning (congestion control, buffer sizes)
 pub fn create_endpoint_builder(
     relay_mode: RelayMode,
     relay_only: bool,
-    dns_server: Option<&str>,
     secret_key: Option<&SecretKey>,
     transport_tuning: Option<&TransportTuning>,
 ) -> Result<EndpointBuilder> {
@@ -225,6 +229,8 @@ pub fn create_endpoint_builder(
     // the ring backend available, it does not wire it in, and rustls' global
     // `install_default()` is not consulted.
     let crypto_provider = Arc::new(rustls::crypto::ring::default_provider());
+    // Check before `relay_mode` is moved into the builder below.
+    let using_custom_relay = !matches!(relay_mode, RelayMode::Default);
     let mut builder = Endpoint::builder(presets::Empty)
         .relay_mode(relay_mode)
         .transport_config(transport_config)
@@ -235,32 +241,19 @@ pub fn create_endpoint_builder(
     }
 
     if !relay_only {
-        // DNS-based peer discovery (can be disabled via dns_server="none")
-        match dns_server {
-            Some("none") => {
-                // Explicitly disabled
-                info!("DNS discovery disabled (dns_server=none)");
+        // The iroh discovery server is used only with the default relays. A
+        // custom relay doubles as the rendezvous point, so discovery is
+        // disabled automatically whenever one is configured.
+        if using_custom_relay {
+            info!("Iroh discovery disabled (custom relay in use)");
+        } else {
+            // Default iroh discovery server: always resolve, but only publish
+            // when we have a persistent identity. An ephemeral endpoint (no
+            // secret) shouldn't advertise itself.
+            if secret_key.is_some() {
+                builder = builder.address_lookup(PkarrPublisher::n0_dns());
             }
-            Some(dns_url) => {
-                // Custom DNS server with publishing and resolving via HTTP (pkarr)
-                let pkarr_url: Url = dns_url.parse().context("Invalid DNS server URL")?;
-                if secret_key.is_some() {
-                    info!("Using custom DNS server: {}", dns_url);
-                    builder = builder
-                        .address_lookup(PkarrPublisher::builder(pkarr_url.clone()))
-                        .address_lookup(PkarrResolver::builder(pkarr_url));
-                } else {
-                    // Custom DNS server, resolve only via HTTP (no secret = can't publish)
-                    info!("Using custom DNS server (resolve only): {}", dns_url);
-                    builder = builder.address_lookup(PkarrResolver::builder(pkarr_url));
-                }
-            }
-            None => {
-                // Default n0 DNS
-                builder = builder
-                    .address_lookup(PkarrPublisher::n0_dns())
-                    .address_lookup(DnsAddressLookup::n0_dns());
-            }
+            builder = builder.address_lookup(DnsAddressLookup::n0_dns());
         }
         // mDNS always enabled for local network discovery
         builder = builder.address_lookup(MdnsAddressLookup::builder());
@@ -308,7 +301,6 @@ pub async fn create_server_endpoint(
     relay_urls: &[String],
     relay_only: bool,
     secret: Option<SecretKey>,
-    dns_server: Option<&str>,
     alpn: &[u8],
     transport_tuning: Option<&TransportTuning>,
 ) -> Result<Endpoint> {
@@ -317,7 +309,7 @@ pub async fn create_server_endpoint(
     print_relay_status(relay_urls, relay_only, using_custom_relay);
 
     let mut builder =
-        create_endpoint_builder(relay_mode, relay_only, dns_server, secret.as_ref(), transport_tuning)?
+        create_endpoint_builder(relay_mode, relay_only, secret.as_ref(), transport_tuning)?
             .alpns(vec![alpn.to_vec()]);
 
     if let Some(secret) = secret {
@@ -339,7 +331,6 @@ pub async fn create_server_endpoint(
 pub async fn create_client_endpoint(
     relay_urls: &[String],
     relay_only: bool,
-    dns_server: Option<&str>,
     secret_key: Option<&SecretKey>,
     transport_tuning: Option<&TransportTuning>,
 ) -> Result<Endpoint> {
@@ -347,7 +338,7 @@ pub async fn create_client_endpoint(
     let using_custom_relay = !matches!(relay_mode, RelayMode::Default);
     print_relay_status(relay_urls, relay_only, using_custom_relay);
 
-    let mut builder = create_endpoint_builder(relay_mode, relay_only, dns_server, secret_key, transport_tuning)?;
+    let mut builder = create_endpoint_builder(relay_mode, relay_only, secret_key, transport_tuning)?;
 
     // Set the secret key for persistent identity (used for authentication)
     if let Some(secret) = secret_key {
@@ -409,7 +400,7 @@ pub async fn connect_to_server(
         )).into())
     } else {
         // Include relay URLs in EndpointAddr if available, allowing iroh to use
-        // the relay for initial connection when DNS discovery is disabled.
+        // the relay for initial connection when iroh discovery is disabled.
         // Iroh will still attempt hole punching for direct P2P connections.
         let endpoint_addr = if !relay_urls.is_empty() {
             let mut addr = EndpointAddr::new(server_id);
