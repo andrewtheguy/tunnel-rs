@@ -81,13 +81,15 @@ manual_key_path = "/etc/letsencrypt/live/relay.example.com/privkey.pem"
 # hostname = "relay.example.com"
 ```
 
-> **Note:** `--dev` runs the relay over plain HTTP on port **3340** and starts a
-> Prometheus **metrics** server on **9090**; it does **not** start STUN or a QUIC
-> endpoint (QUIC address discovery requires TLS, which `--dev` ignores). If port
-> 9090 is already in use (e.g. by Cockpit), move it with `metrics_bind_addr =
-> "127.0.0.1:9099"` in the config file — `--dev` still honors non-TLS config
-> fields. For production, configure TLS (HTTPS relay on 443, optional STUN on
-> 3478/udp) and use a reverse proxy or direct HTTPS binding.
+> **Note (ports, verified against iroh-relay 1.0.2):** `--dev` runs the relay
+> over plain HTTP on port **3340** (`http_bind_addr`) and starts a Prometheus
+> **metrics** server on **9090** (`metrics_bind_addr`); it does **not** start a
+> QUIC endpoint, because QUIC address discovery requires TLS, which `--dev`
+> ignores. If port 9090 is already in use (e.g. by Cockpit), move it with
+> `metrics_bind_addr = "127.0.0.1:9099"` in the config file — `--dev` still
+> honors non-TLS config fields. For production, configure TLS: the relay serves
+> HTTP on **80** and HTTPS on **443** by default, plus QUIC address discovery on
+> **7842** (`quic_bind_addr`) when `enable_quic_addr_discovery = true`.
 
 ### Using Your Infrastructure
 
