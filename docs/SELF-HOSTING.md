@@ -26,7 +26,9 @@ rendezvous occurs solely through the explicitly configured relay.
 Relay hints make discovery unnecessary with custom relays, including more than
 one: the client includes every configured relay in the server's address, and
 iroh sends the QUIC handshake packets to all of them, so the connection is
-established via whichever relay the server is currently homed on.
+established via whichever relay the server is currently homed on. See
+[relay-discovery-findings.md](relay-discovery-findings.md) for the full
+analysis (iroh internals, failure-mode caveats, and e2e verification).
 
 > [!WARNING]
 > Configure clients with the **full** relay list. An iroh endpoint has one home
