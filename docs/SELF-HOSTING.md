@@ -96,6 +96,85 @@ manual_key_path = "/etc/letsencrypt/live/relay.example.com/privkey.pem"
 > HTTP on **80** and HTTPS on **443** by default, plus QUIC address discovery on
 > **7842** (`quic_bind_addr`) when `enable_quic_addr_discovery = true`.
 
+### Simple production setup: relay behind Cloudflare Tunnel (single TCP port)
+
+If you don't want to manage TLS certificates or open inbound ports, run the
+relay over **plain HTTP on a single TCP port** and let Cloudflare Tunnel
+terminate TLS at the edge and forward decrypted HTTP to it. Only outbound
+connectivity is needed on the relay host — no public IP, no 443, no QUIC/UDP.
+
+**How it works:** omitting the `[tls]` section makes iroh-relay serve *all*
+services (the `/relay` WebSocket and the `healthz` routes) over plain HTTP on
+`http_bind_addr`. QUIC address discovery defaults to off, so no TLS is required
+and the relay starts cleanly without `--dev`. This is the non-`--dev`
+equivalent of the local dev config — verified against iroh-relay 1.0.2.
+
+Copy the bundled template [`../relay-prod.toml.example`](../relay-prod.toml.example) to `relay-prod.toml` and adjust as needed:
+
+```toml
+# Plain-HTTP relay on 3340 (the non-dev default is port 80). Must match the
+# cloudflared ingress service and the --relay-url the clients use.
+http_bind_addr = "[::]:3340"
+
+# Metrics server defaults to port 9090 and often collides with other services;
+# turn it off (or move it to a private address you do NOT expose via the tunnel).
+enable_metrics = false
+# metrics_bind_addr = "127.0.0.1:9099"
+
+# Recommended for a publicly reachable relay: require a bearer token. Clients
+# then use --relay-url https://relay.example.com/?token=<secret>
+# access.shared_token = ["change-me-to-a-long-random-secret"]
+```
+
+**1. Run the relay** (no `--dev`):
+
+```bash
+cp relay-prod.toml.example relay-prod.toml
+iroh-relay -c relay-prod.toml
+```
+
+**2. Point cloudflared at it.** The tunnel's ingress must forward the hostname
+to `http://localhost:3340`. With a token-based (dashboard-managed) tunnel this
+is one line in the dashboard; for a locally-managed tunnel, `config.yml`:
+
+```yaml
+tunnel: <tunnel-uuid>
+credentials-file: /root/.cloudflared/<tunnel-uuid>.json
+
+ingress:
+  - hostname: relay.example.com
+    service: http://localhost:3340
+  - service: http_status:404
+```
+
+```bash
+# Locally-managed tunnel:
+cloudflared tunnel run <tunnel-name>
+# Or dashboard/token-managed tunnel:
+cloudflared tunnel run --token <token>
+```
+
+**3. Verify** end to end:
+
+```bash
+./test-scripts/run_e2e.sh --relay-url https://relay.example.com --relay-only
+```
+
+> [!NOTE]
+> No paid Cloudflare plan or HTTP/1.1 override is needed — the iroh relay
+> client sends no TLS ALPN, so Cloudflare's edge negotiates HTTP/1.1 and the
+> WebSocket upgrade works through both quick and named tunnels. A bare
+> `curl https://relay.example.com/relay` returning `400` is expected (the relay
+> answers 400 to any non-WebSocket request); it is not a tunnel problem. See
+> [`iroh-relay-connection-trace.md`](iroh-relay-connection-trace.md) for the
+> full trace.
+
+> **Trade-off:** this routes all relayed traffic through Cloudflare and, because
+> there is no QUIC endpoint, disables QUIC address discovery (one of the signals
+> iroh uses to help peers hole-punch to a direct connection). For a relay whose
+> job is a pure relay-only fallback this is fine; if you want to maximize direct
+> P2P success, use the TLS + QUIC production config above instead.
+
 ### Using Your Infrastructure
 
 ```bash

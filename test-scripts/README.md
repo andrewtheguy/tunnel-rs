@@ -89,7 +89,8 @@ iroh-relay --dev -c test-scripts/relay-dev.toml
 
 Install the relay with `cargo install iroh-relay` if you don't have it. See
 [`../docs/SELF-HOSTING.md`](../docs/SELF-HOSTING.md) for relay ports and config
-details.
+details, including a production `relay-prod.toml.example` + Cloudflare Tunnel
+setup that serves the relay over a single TCP port.
 
 ### Environment overrides
 
