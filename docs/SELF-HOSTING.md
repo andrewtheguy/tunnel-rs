@@ -9,7 +9,9 @@ Peer discovery is **not configurable** — tunnel-rs picks the right behavior au
 - **Default relays** (no `--relay-url`): the default iroh discovery server is used (pkarr publishing + DNS-based lookup). The server (persistent identity) publishes its address; the client (ephemeral identity) only resolves.
 - **Custom relay** (`--relay-url`): discovery is **disabled automatically**. A custom relay doubles as the rendezvous point, so the discovery server is unnecessary.
 
-mDNS for local-network discovery is always enabled (unless `--relay-only` clears direct transports).
+mDNS for local-network discovery is otherwise always enabled.
+
+The one exception is **`--relay-only`**: when enabled, all peer discovery is skipped — default-relay DNS and pkarr lookups *and* mDNS. Peers rendezvous solely through the relay, so no discovery is performed.
 
 ## Custom Relay Server
 
