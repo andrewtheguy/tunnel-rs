@@ -170,9 +170,13 @@ wait_for_log() {
 # ---------------------------------------------------------------------------
 read -r TCP_BACKEND UDP_BACKEND TCP_TARGET UDP_TARGET < <(python3 - <<'PY'
 import socket
+# One socket per port, matching the protocol each port will actually serve, so
+# the ephemeral port is guaranteed free in the right (TCP vs UDP) namespace.
+# Order: TCP_BACKEND, UDP_BACKEND, TCP_TARGET, UDP_TARGET.
+kinds = [socket.SOCK_STREAM, socket.SOCK_DGRAM, socket.SOCK_STREAM, socket.SOCK_DGRAM]
 socks = []
-for _ in range(4):
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+for kind in kinds:
+    s = socket.socket(socket.AF_INET, kind)
     s.bind(("127.0.0.1", 0))
     socks.append(s)
 print(" ".join(str(s.getsockname()[1]) for s in socks))
