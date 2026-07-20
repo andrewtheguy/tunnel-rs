@@ -18,10 +18,11 @@
 #     refuse to start without [tls] — and QUIC needs a UDP port, which defeats
 #     the single-TCP-port goal, so leave it off behind Cloudflare Tunnel.)
 #
-# The ONLY behavioral difference from `--dev` is that `--dev` also force-
-# disables HTTPS even when a [tls] section exists and defaults the port to
-# 3340. Here we get the same plain-HTTP result by not configuring TLS and
-# setting the port explicitly (the non-dev default is port 80).
+# On HTTPS/port behavior: `--dev` force-disables HTTPS even when a [tls]
+# section exists and defaults the port to 3340. Here we get the same plain-HTTP
+# result by not configuring TLS and setting the port explicitly (the non-dev
+# default is port 80). Note the metrics behavior differs too: `--dev` starts the
+# Prometheus metrics server on port 9090, whereas this config disables it below.
 #
 # Verified against iroh-relay 1.0.2.
 
