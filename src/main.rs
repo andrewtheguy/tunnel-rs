@@ -151,12 +151,16 @@ enum Command {
     /// Use show-server-id to display the public EndpointId derived from this key.
     GenerateServerKey {
         /// Path where to save the private key file
-        #[arg(short, long)]
-        output: PathBuf,
+        #[arg(short, long, required_unless_present = "json", conflicts_with = "json")]
+        output: Option<PathBuf>,
 
         /// Overwrite existing file if it exists
-        #[arg(long)]
+        #[arg(long, requires = "output")]
         force: bool,
+
+        /// Print the public and private keys as JSON instead of saving a file
+        #[arg(long)]
+        json: bool,
     },
     /// Show the server's public EndpointId derived from a private key
     ///
@@ -174,6 +178,10 @@ enum Command {
         /// Number of tokens to generate (default: 1)
         #[arg(short, long, default_value = "1")]
         count: usize,
+
+        /// Print the generated token(s) as JSON
+        #[arg(long)]
+        json: bool,
     },
     /// Age encryption commands for config file secrets
     ConfigEncryption {
@@ -650,13 +658,31 @@ async fn run_inner() -> Result<()> {
             })
             .await
         }
-        Command::GenerateServerKey { output, force } => {
-            secret::generate_secret(expand_tilde(output), *force)
+        Command::GenerateServerKey {
+            output,
+            force,
+            json,
+        } => {
+            if *json {
+                secret::generate_secret_json()
+            } else {
+                secret::generate_secret(expand_tilde(
+                    output.as_ref().expect("clap requires --output without --json"),
+                ), *force)
+            }
         }
         Command::ShowServerId { secret_file } => secret::show_id(expand_tilde(secret_file)),
-        Command::GenerateAuthToken { count } => {
-            for _ in 0..*count {
-                println!("{}", auth::generate_token());
+        Command::GenerateAuthToken { count, json } => {
+            let tokens: Vec<String> = (0..*count).map(|_| auth::generate_token()).collect();
+            if *json {
+                println!(
+                    "{}",
+                    serde_json::to_string(&serde_json::json!({ "auth_tokens": tokens }))?
+                );
+            } else {
+                for token in tokens {
+                    println!("{}", token);
+                }
             }
             Ok(())
         }

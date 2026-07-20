@@ -579,6 +579,10 @@ tunnel-rs generate-auth-token
 
 # Generate multiple auth tokens
 tunnel-rs generate-auth-token -c 5
+
+# Emit JSON (always uses an auth_tokens array)
+tunnel-rs generate-auth-token --json
+# Output: {"auth_tokens":["i..."]}
 ```
 
 Auth token format: `i` + Base64URL-encoded(32 random bytes + CRC16 checksum) = 47 characters total.
@@ -590,6 +594,10 @@ Auth token format: `i` + Base64URL-encoded(32 random bytes + CRC16 checksum) = 4
 ```bash
 tunnel-rs generate-server-key --output ./server.key
 
+# Emit a new keypair as JSON without writing a file
+tunnel-rs generate-server-key --json
+# Output: {"public_key":"...","private_key":"..."}
+
 # Write the key to stdout instead of a file (e.g. to capture it in a script)
 tunnel-rs generate-server-key --output -
 
@@ -597,7 +605,7 @@ tunnel-rs generate-server-key --output -
 tunnel-rs generate-server-key --output ./server.key --force
 ```
 
-The secret key is written to the `--output` target (created with `0600` permissions on Unix), and the EndpointId is printed to stdout. Use `-` as the output to write the key to stdout instead — in that case the EndpointId is printed to stderr so it stays off the key stream. Existing files are not overwritten unless `--force` is passed.
+Without `--json`, the secret key is written to the required `--output` target (created with `0600` permissions on Unix), and the EndpointId is printed to stdout. Use `-` as the output to write the key to stdout instead — in that case the EndpointId is printed to stderr so it stays off the key stream. Existing files are not overwritten unless `--force` is passed. With `--json`, no file is written and both keys are emitted to stdout.
 
 ## show-server-id
 
