@@ -5,7 +5,7 @@ use crate::error::TunnelError;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use futures::StreamExt;
 use iroh::{
-    address_lookup::{DnsAddressLookup, PkarrPublisher, PkarrResolver},
+    address_lookup::{DnsAddressLookup, PkarrPublisher},
     endpoint::{
         presets, AckFrequencyConfig, Builder as EndpointBuilder, ControllerFactory, PathList,
         QuicTransportConfig,
@@ -19,7 +19,6 @@ use tokio::task::JoinHandle;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
-use url::Url;
 use crate::config::{
     CongestionController, TransportTuning, DEFAULT_SEND_WINDOW, DEFAULT_STREAM_RECEIVE_WINDOW,
 };
@@ -143,20 +142,24 @@ pub fn print_relay_status(relay_urls: &[String], relay_only: bool, using_custom_
 
 /// Create a base endpoint builder with common configuration.
 ///
-/// Internet address discovery is configured independently from the relay map.
+/// Internet discovery is not configurable: it follows the relay mode. With the
+/// default relay infrastructure, iroh's public discovery service is used. With
+/// custom relays ([`RelayMode::Custom`]), internet discovery (n0 DNS lookup +
+/// pkarr publishing) is always disabled — the client reaches the server through
+/// relay hints instead: iroh sends QUIC Initial packets to every known relay
+/// path, so the handshake succeeds via whichever configured relay the server is
+/// homed on, and no public iroh infrastructure is contacted.
 ///
 /// # Arguments
 /// * `relay_mode` - The relay mode to use
 /// * `relay_only` - If true, only use relay connections (no direct P2P).
-/// * `discovery` - Optional custom Pkarr server URL, or "none" to disable internet discovery.
 /// * `secret_key` - When present (a persistent identity), the endpoint also
-///   publishes itself to the selected discovery server; an ephemeral endpoint
-///   (no secret) only resolves and never advertises itself.
+///   publishes itself to the public discovery service (default relays only);
+///   an ephemeral endpoint (no secret) only resolves and never advertises itself.
 /// * `transport_tuning` - Optional transport layer tuning (congestion control, buffer sizes)
 pub fn create_endpoint_builder(
     relay_mode: RelayMode,
     relay_only: bool,
-    discovery: Option<&str>,
     secret_key: Option<&SecretKey>,
     transport_tuning: Option<&TransportTuning>,
 ) -> Result<EndpointBuilder> {
@@ -223,6 +226,7 @@ pub fn create_endpoint_builder(
         );
     }
 
+    let using_custom_relay = matches!(relay_mode, RelayMode::Custom(_));
     let transport_config = transport_config.build();
     // iroh 1.0 requires the crypto provider to be set explicitly on the builder
     // when starting from the `Empty` preset — the `tls-ring` feature only makes
@@ -239,33 +243,13 @@ pub fn create_endpoint_builder(
     }
 
     if !relay_only {
-        match discovery {
-            Some("none") => {
-                info!("Internet discovery disabled (discovery=none)");
+        if using_custom_relay {
+            info!("Internet discovery disabled (custom relays configured)");
+        } else {
+            if secret_key.is_some() {
+                builder = builder.address_lookup(PkarrPublisher::n0_dns());
             }
-            Some(discovery_url) => {
-                let pkarr_url: Url = discovery_url
-                    .parse()
-                    .context("Invalid discovery server URL")?;
-                if secret_key.is_some() {
-                    info!("Using custom discovery server: {}", discovery_url);
-                    builder = builder
-                        .address_lookup(PkarrPublisher::builder(pkarr_url.clone()))
-                        .address_lookup(PkarrResolver::builder(pkarr_url));
-                } else {
-                    info!(
-                        "Using custom discovery server (resolve only): {}",
-                        discovery_url
-                    );
-                    builder = builder.address_lookup(PkarrResolver::builder(pkarr_url));
-                }
-            }
-            None => {
-                if secret_key.is_some() {
-                    builder = builder.address_lookup(PkarrPublisher::n0_dns());
-                }
-                builder = builder.address_lookup(DnsAddressLookup::n0_dns());
-            }
+            builder = builder.address_lookup(DnsAddressLookup::n0_dns());
         }
         // mDNS always enabled for local network discovery
         builder = builder.address_lookup(MdnsAddressLookup::builder());
@@ -313,7 +297,6 @@ pub async fn create_server_endpoint(
     relay_urls: &[String],
     relay_only: bool,
     secret: Option<SecretKey>,
-    discovery: Option<&str>,
     alpn: &[u8],
     transport_tuning: Option<&TransportTuning>,
 ) -> Result<Endpoint> {
@@ -322,7 +305,7 @@ pub async fn create_server_endpoint(
     print_relay_status(relay_urls, relay_only, using_custom_relay);
 
     let mut builder =
-        create_endpoint_builder(relay_mode, relay_only, discovery, secret.as_ref(), transport_tuning)?
+        create_endpoint_builder(relay_mode, relay_only, secret.as_ref(), transport_tuning)?
             .alpns(vec![alpn.to_vec()]);
 
     if let Some(secret) = secret {
@@ -344,7 +327,6 @@ pub async fn create_server_endpoint(
 pub async fn create_client_endpoint(
     relay_urls: &[String],
     relay_only: bool,
-    discovery: Option<&str>,
     secret_key: Option<&SecretKey>,
     transport_tuning: Option<&TransportTuning>,
 ) -> Result<Endpoint> {
@@ -353,7 +335,7 @@ pub async fn create_client_endpoint(
     print_relay_status(relay_urls, relay_only, using_custom_relay);
 
     let mut builder =
-        create_endpoint_builder(relay_mode, relay_only, discovery, secret_key, transport_tuning)?;
+        create_endpoint_builder(relay_mode, relay_only, secret_key, transport_tuning)?;
 
     // Set the secret key for persistent identity (used for authentication)
     if let Some(secret) = secret_key {

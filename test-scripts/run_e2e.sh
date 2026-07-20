@@ -20,9 +20,9 @@
 #
 # Environment overrides:
 #   TUNNEL_RS_BIN   path to the tunnel-rs binary (default: cargo-built debug binary)
-#   RELAY_URL       custom relay URL for both sides. A single custom relay uses
-#                   discovery="none"; multiple relays retain public discovery
-#                   because lookup is needed to identify the server's home relay.
+#   RELAY_URL       custom relay URL for both sides. Custom relays disable
+#                   internet discovery automatically (the binary handles it),
+#                   so custom-relay runs need no public iroh infrastructure.
 #                   When unset, the default public relay + discovery server are
 #                   used (requires internet access).
 #   KEEP_LOGS       set to 1 to keep the temp working directory after the run.
@@ -50,8 +50,8 @@ With no options it runs the default test: the public iroh relay plus the
 default iroh discovery server (requires internet access), no relay override.
 
 Options:
-  --relay-url URL   Custom relay URL for both sides (repeatable). One relay uses
-                    discovery="none"; multiple relays keep public discovery.
+  --relay-url URL   Custom relay URL for both sides (repeatable). Custom relays
+                    disable internet discovery automatically.
                     May also be given as --relay-url=URL.
   --relay-only      Force all traffic through the relay, disabling direct P2P.
                     Requires at least one --relay-url.
@@ -215,15 +215,7 @@ if [[ ${#RELAY_URLS[@]} -gt 0 ]]; then
         printf '%s\0' "${RELAY_URLS[@]}" |
             python3 -c 'import json, sys; urls = [value.decode() for value in sys.stdin.buffer.read().split(b"\0") if value]; print(json.dumps({"relay_urls": urls}))'
     )"
-    if [[ ${#RELAY_URLS[@]} -eq 1 ]]; then
-        RELAY_CONFIG="$(
-            printf '%s\n' "$RELAY_CONFIG" |
-                python3 -c 'import json, sys; value = json.load(sys.stdin); value["discovery"] = "none"; print(json.dumps(value))'
-        )"
-        log "Using one custom relay with discovery=none: ${RELAY_URLS[*]}"
-    else
-        log "Using custom relays with public discovery: ${RELAY_URLS[*]}"
-    fi
+    log "Using custom relay(s) (internet discovery auto-disabled): ${RELAY_URLS[*]}"
 else
     log "Using default relay + iroh discovery server (needs internet)"
 fi

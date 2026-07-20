@@ -354,7 +354,7 @@ graph TB
         F[secret_file / secret<br/>server only]
         G[auth_token* / auth_tokens*]
         H[encryption_key_file]
-        I[relay_urls / discovery]
+        I[relay_urls]
         J[transport<br/>cc + window sizes + ACK threshold]
     end
 
@@ -800,7 +800,9 @@ graph LR
 
 The `iroh::Endpoint` provides:
 
-- **Discovery**: Automatic peer discovery via Pkarr/DNS/mDNS
+- **Discovery**: Automatic peer discovery via Pkarr/DNS/mDNS (internet
+  discovery is disabled automatically when custom relays are configured;
+  clients then reach the server through relay hints)
 - **Relay**: Fallback relay servers for NAT traversal
 - **QUIC**: Built-in QUIC transport with hole punching
 - **Identity**: Ed25519-based peer identity and authentication
