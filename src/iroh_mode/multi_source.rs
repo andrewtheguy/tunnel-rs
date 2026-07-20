@@ -32,10 +32,6 @@ pub struct MultiSourceServerConfig {
     pub relay_urls: Vec<String>,
     /// Whether to use relay-only mode (disables direct P2P).
     pub relay_only: bool,
-    /// Pkarr discovery server URL, or "none" to disable internet discovery.
-    /// With custom relay URLs configured, internet discovery is disabled
-    /// automatically unless a discovery server is set explicitly.
-    pub discovery: Option<String>,
     /// Set of valid authentication tokens. **Sensitive field - redacted in Debug output.**
     pub auth_tokens: HashSet<String>,
     /// Transport layer tuning (congestion control, buffer sizes).
@@ -51,7 +47,6 @@ impl std::fmt::Debug for MultiSourceServerConfig {
             .field("secret", &self.secret.as_ref().map(|_| "[REDACTED]"))
             .field("relay_urls", &self.relay_urls)
             .field("relay_only", &self.relay_only)
-            .field("discovery", &self.discovery)
             .field(
                 "auth_tokens",
                 &format!("[{} tokens]", self.auth_tokens.len()),
@@ -73,10 +68,6 @@ pub struct MultiSourceClientConfig {
     pub relay_urls: Vec<String>,
     /// Whether to use relay-only mode (disables direct P2P).
     pub relay_only: bool,
-    /// Pkarr discovery server URL, or "none" to disable internet discovery.
-    /// With custom relay URLs configured, internet discovery is disabled
-    /// automatically unless a discovery server is set explicitly.
-    pub discovery: Option<String>,
     /// Authentication token for server access. **Sensitive field - redacted in Debug output.**
     pub auth_token: String,
     /// Transport layer tuning (congestion control, buffer sizes).
@@ -91,7 +82,6 @@ impl std::fmt::Debug for MultiSourceClientConfig {
             .field("target", &self.target)
             .field("relay_urls", &self.relay_urls)
             .field("relay_only", &self.relay_only)
-            .field("discovery", &self.discovery)
             .field("auth_token", &"[REDACTED]")
             .field("transport", &self.transport)
             .finish()
@@ -171,7 +161,6 @@ pub async fn run_multi_source_server(config: MultiSourceServerConfig) -> Result<
         &config.relay_urls,
         relay_only,
         config.secret,
-        config.discovery.as_deref(),
         TUNNEL_ALPN,
         Some(&config.transport),
     )
@@ -561,7 +550,6 @@ pub async fn run_multi_source_client(config: MultiSourceClientConfig) -> Result<
     let endpoint = create_client_endpoint(
         &config.relay_urls,
         relay_only,
-        config.discovery.as_deref(),
         None,
         Some(&config.transport),
     )

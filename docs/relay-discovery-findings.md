@@ -1,9 +1,12 @@
 # Why internet discovery is disabled automatically with custom relays
 
-Analysis behind the change that auto-disables iroh internet discovery (n0 DNS
-lookup + pkarr publishing) whenever custom `relay_urls` are configured
-(`src/iroh_mode/endpoint.rs`, `create_endpoint_builder`). Verified against
-iroh **1.0.2** source and the e2e suites in `test-scripts/` (2026-07-20).
+Analysis behind making internet discovery non-configurable: iroh internet
+discovery (n0 DNS lookup + pkarr publishing) is enabled with the default relay
+infrastructure and always disabled when custom `relay_urls` are configured
+(`src/iroh_mode/endpoint.rs`, `create_endpoint_builder`). The former
+`--discovery` option (custom Pkarr URL / `"none"`) was removed. Verified
+against iroh **1.0.2** source and the e2e suites in `test-scripts/`
+(2026-07-20).
 
 ## Question
 
@@ -63,9 +66,7 @@ relays can reach the server only while the server's current home relay is in
 that subset. Public discovery was the mechanism that could rescue that case
 (the client would learn the server's current home relay). Hence the guidance
 in [SELF-HOSTING.md](SELF-HOSTING.md): configure clients with the full relay
-list, or set an explicit shared `--discovery` server if partial lists are
-required. An explicitly configured discovery URL is still honored even with
-custom relays.
+list.
 
 ## Empirical verification
 

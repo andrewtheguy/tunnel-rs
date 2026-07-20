@@ -1,25 +1,20 @@
 # Self-Hosting Iroh Infrastructure
 
-This document covers how to self-host iroh's relay and Pkarr discovery services for fully independent operation in port forwarding mode (`tunnel-rs`).
+This document covers how to self-host iroh's relay servers for fully independent operation in port forwarding mode (`tunnel-rs`).
 
 ## Peer Discovery
 
-The `--discovery` option (or `[iroh].discovery` in a config file) controls
-internet address discovery independently from the relay configuration:
+Internet address discovery is not configurable; it follows the relay
+configuration:
 
-- **Omitted (default):** with no custom relays, use iroh's public discovery
-  service (the server publishes its home relay and addresses; clients resolve
-  them). With custom `--relay-url`s configured, internet discovery is disabled
-  automatically — clients reach the server through relay hints, and nothing is
+- **Default relays (no `--relay-url`):** iroh's public discovery service is
+  used. The server publishes its home relay and addresses; clients resolve
+  them.
+- **Custom relays (any `--relay-url`):** internet discovery is always
+  disabled — clients reach the server through relay hints, and nothing is
   published to public iroh infrastructure.
-- **Custom URL:** publish and resolve through that Pkarr HTTP endpoint, for
-  example `--discovery https://dns.example.com/pkarr`. Configure the same URL
-  on the server and clients. An explicit URL is honored even when custom
-  relays are configured.
-- **`none`:** disable internet discovery. The client then relies on relay hints
-  supplied by `--relay-url`, or on mDNS when both peers share a local network.
 
-mDNS for local-network discovery remains enabled for all three settings.
+mDNS for local-network discovery remains enabled in both cases.
 `--relay-only` is the exception: it skips Pkarr, DNS, and mDNS discovery and
 rendezvous occurs solely through the explicitly configured relay.
 
@@ -37,14 +32,12 @@ analysis (iroh internals, failure-mode caveats, and e2e verification).
 > configured with only a subset of the server's relays can reach the server only
 > while the server's current home relay is in that subset. (After its home relay
 > goes offline, the server re-homes onto another configured relay within
-> ~30 seconds.) If clients must work with partial relay lists, configure an
-> explicit shared discovery server instead.
+> ~30 seconds.)
 
 ## Custom Relay Server
 
 Use a custom relay server instead of the public iroh relay infrastructure.
-Configuring any custom relay disables internet discovery automatically; set
-`--discovery` explicitly only to point at a self-hosted Pkarr service.
+Configuring any custom relay disables internet discovery automatically.
 
 ```bash
 # Both sides must use the same relay(s) (tokens via files — recommended)
@@ -91,9 +84,7 @@ iroh-relay --dev -c test-scripts/relay-dev.toml
 
 For fully independent operation, self-host one or more iroh relays; with custom
 relays configured on both sides, internet discovery is disabled automatically
-and no discovery service is needed. Optionally self-host a Pkarr discovery
-service instead (e.g. to support clients configured with only part of the relay
-list).
+and no discovery service is needed.
 
 ### Running iroh-relay
 
@@ -216,7 +207,6 @@ cloudflared tunnel run --token <token>
 # Server (tokens via files — recommended)
 tunnel-rs server \
   --relay-url https://relay.example.com \
-  --discovery https://dns.example.com/pkarr \
   --secret-file ./server.key \
   --allowed-tcp 127.0.0.0/8 \
   --auth-tokens-file ./auth_tokens.txt
@@ -224,7 +214,6 @@ tunnel-rs server \
 # Client (tokens via files — recommended)
 tunnel-rs client \
   --relay-url https://relay.example.com \
-  --discovery https://dns.example.com/pkarr \
   --server-node-id <ID> \
   --source tcp://127.0.0.1:22 \
   --target 127.0.0.1:2222 \

@@ -31,10 +31,6 @@ pub struct IrohConfig {
     /// special cases due to VCS/log exposure risk. Secret files should be 0600 on Unix.
     pub secret: Option<String>,
     pub relay_urls: Option<Vec<String>>,
-    /// Pkarr discovery server URL, or "none" to disable internet discovery.
-    /// With custom relay URLs configured, internet discovery is disabled
-    /// automatically unless a discovery server is set explicitly.
-    pub discovery: Option<String>,
     /// NodeId of the server to connect to (client only)
     pub server_node_id: Option<String>,
     /// Allowed source networks in CIDR notation (server only).
@@ -673,25 +669,6 @@ mod tests {
             source: None,
             iroh: Some(iroh),
         }
-    }
-
-    #[test]
-    fn parses_discovery_setting() {
-        let cfg: ClientConfig = toml::from_str(
-            r#"
-role = "client"
-mode = "iroh"
-
-[iroh]
-discovery = "https://dns.example.com/pkarr"
-"#,
-        )
-        .unwrap();
-
-        assert_eq!(
-            cfg.iroh().and_then(|iroh| iroh.discovery.as_deref()),
-            Some("https://dns.example.com/pkarr")
-        );
     }
 
     #[test]

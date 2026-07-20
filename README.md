@@ -224,7 +224,7 @@ auth_token_file = "~/.config/tunnel-rs/token.txt"
 
 ## Self-Hosting
 
-For custom relay or discovery servers, or fully independent operation without public infrastructure, see [docs/SELF-HOSTING.md](docs/SELF-HOSTING.md).
+For custom relay servers and fully independent operation without public infrastructure, see [docs/SELF-HOSTING.md](docs/SELF-HOSTING.md). Configuring custom relays disables internet discovery automatically.
 
 ---
 
@@ -338,7 +338,6 @@ tunnel-rs client \
 | `--secret-file` | - | Path to secret key file for persistent server identity |
 | `--relay-url` | public | Custom relay server URL(s), repeatable |
 | `--relay-only` | false | Force all traffic through relay (CLI-only; not supported in config files) |
-| `--discovery` | public | Custom Pkarr discovery URL, or `none` to disable internet discovery |
 | `--encryption-key-file` | - | Path to age identity file for decrypting age-encrypted config values |
 
 **Environment variables** (for containers and automation scripts):
@@ -369,7 +368,6 @@ tunnel-rs client \
 | `--auth-token-file` | - | Path to file containing authentication token |
 | `--relay-url` | public | Custom relay server URL(s), repeatable |
 | `--relay-only` | false | Force all traffic through relay (CLI-only; not supported in config files) |
-| `--discovery` | public | Custom Pkarr discovery URL, or `none` to disable internet discovery |
 | `--encryption-key-file` | - | Path to age identity file for decrypting age-encrypted config values |
 
 **Environment variables** (for containers and automation scripts):
@@ -468,7 +466,6 @@ mode = "iroh"
 [iroh]
 secret_file = "./server.key"
 # relay_urls = ["https://relay.example.com"]
-# discovery = "https://dns.example.com/pkarr"
 max_sessions = 100
 
 # Authentication tokens file (one token per line, # comments allowed)
@@ -506,7 +503,6 @@ server_node_id = "2xnbkpbc7izsilvewd7c62w7wnwziacmpfwvhcrya5nt76dqkpga"
 request_source = "tcp://127.0.0.1:22"
 target = "127.0.0.1:2222"
 # relay_urls = ["https://relay.example.com"]
-# discovery = "https://dns.example.com/pkarr"
 
 # Authentication token file (get token from server admin, 47 chars)
 auth_token_file = "~/.config/tunnel-rs/token.txt"
@@ -696,9 +692,9 @@ done
 ## How It Works
 
 ### iroh Mode
-1. Server creates an iroh endpoint with discovery services
-2. Server publishes its address via Pkarr/DNS
-3. Client resolves the server via discovery
+1. Server creates an iroh endpoint (with internet discovery on default relays; custom relays disable it and clients use relay hints instead)
+2. Server publishes its address via Pkarr/DNS (default relays only)
+3. Client resolves the server via discovery, or reaches it directly through the configured relays
 4. **QUIC handshake:** Connection uses the fixed ALPN `mf/4` shared by all peers
 5. **Authentication phase:** Client opens dedicated auth stream and sends `AuthRequest` with token
 6. **Server validates token** (10s timeout) — invalid tokens are rejected with an error response
