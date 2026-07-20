@@ -1,0 +1,54 @@
+# iroh-relay config for PRODUCTION behind Cloudflare Tunnel (single TCP port).
+#
+#   cp relay-prod.toml.example relay-prod.toml
+#   iroh-relay -c relay-prod.toml                    # NOTE: no --dev flag
+#
+# This is the non-`--dev` equivalent of test-scripts/relay-dev.toml. The relay
+# serves plain HTTP on port 3340 and nothing else; TLS is terminated at the
+# Cloudflare edge, and cloudflared forwards the decrypted HTTP to
+# http://localhost:3340. Only
+# TCP 3340 needs to be reachable by cloudflared — no 443, no QUIC/UDP.
+#
+# Why this works without --dev:
+#   * Omitting the [tls] section makes iroh-relay serve ALL services (the
+#     /relay WebSocket and the healthz routes) over plain HTTP on
+#     `http_bind_addr`. TLS is only enabled when a [tls] section is present.
+#   * `enable_quic_addr_discovery` defaults to false, so no QUIC endpoint is
+#     spawned and no TLS is required. (If you ever set it true, the relay will
+#     refuse to start without [tls] — and QUIC needs a UDP port, which defeats
+#     the single-TCP-port goal, so leave it off behind Cloudflare Tunnel.)
+#
+# On HTTPS/port behavior: `--dev` force-disables HTTPS even when a [tls]
+# section exists and defaults the port to 3340. Here we get the same plain-HTTP
+# result by not configuring TLS and setting the port explicitly (the non-dev
+# default is port 80). Note the metrics behavior differs too: `--dev` starts the
+# Prometheus metrics server on port 9090, whereas this config disables it below.
+#
+# Verified against iroh-relay 1.0.2.
+
+# Bind the plain-HTTP relay on 3340 (the non-dev default is 80). Must match the
+# cloudflared ingress service (http://localhost:3340) and the --relay-url the
+# clients use.
+http_bind_addr = "[::]:3340"
+
+# Turn the Prometheus metrics server OFF. By default the relay binds metrics on
+# port 9090, which frequently collides with other services. If you want metrics
+# in production, comment this out and set `metrics_bind_addr` to a private
+# address instead (do NOT expose it through the tunnel).
+enable_metrics = false
+# metrics_bind_addr = "127.0.0.1:9099"
+
+# --- Access control (recommended for a publicly reachable relay) ---
+# With no `access` section the relay allows everyone (same as the dev config).
+# Because the tunnel URL is public, consider restricting who may relay:
+#
+#   # Only clients presenting one of these bearer tokens (or ?token=... / the
+#   # IROH_RELAY_ACCESS_TOKEN env var) may use the relay:
+#   access.shared_token = ["change-me-to-a-long-random-secret"]
+#
+#   # ...or restrict to specific endpoint ids:
+#   # access.allowlist = ["<endpoint-id-hex>", "..."]
+#
+# If you set a shared_token, the tunnel-rs clients must be pointed at a relay
+# URL that carries the token as a query parameter, e.g.
+#   --relay-url https://relay.example.com/?token=change-me-to-a-long-random-secret

@@ -1,68 +1,81 @@
-#!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.11"
+# dependencies = []
+# ///
+"""Minimal TCP/UDP echo server used as the backend service for tunnel-rs E2E tests.
+
+It binds a single host:port and echoes back whatever it receives. When the socket
+is bound it prints a `READY <proto> <host>:<port>` line to stderr so an orchestrator
+can wait for it deterministically instead of sleeping.
+
+Run via uv:
+    uv run echo_server.py --proto tcp --host 127.0.0.1 --port 9000
+    uv run echo_server.py --proto udp --host 127.0.0.1 --port 9001
 """
-Simple multi-connection TCP echo server for testing tunnels.
 
-This is the source service that the sender forwards traffic to.
-In receiver-initiated mode, traffic flows:
-  Test Client -> Receiver -> Sender -> Echo Server
+from __future__ import annotations
 
-Usage:
-    python3 echo_server.py [PORT]
-
-Each connection gets a unique ID and echoes back data.
-"""
-
+import argparse
+import signal
 import socket
-import threading
 import sys
-from datetime import datetime
+import threading
 
-PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 19999
-connection_count = 0
-lock = threading.Lock()
 
-def handle_client(conn, addr, conn_id):
-    """Handle a single client connection."""
-    print(f"[{conn_id}] Connected from {addr}")
+def log(msg: str) -> None:
+    print(msg, file=sys.stderr, flush=True)
+
+
+def serve_tcp(host: str, port: int) -> None:
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind((host, port))
+    srv.listen(128)
+    log(f"READY tcp {host}:{port}")
+
+    def handle(conn: socket.socket, peer) -> None:
+        with conn:
+            while True:
+                data = conn.recv(65536)
+                if not data:
+                    break
+                conn.sendall(data)
+
+    while True:
+        conn, peer = srv.accept()
+        threading.Thread(target=handle, args=(conn, peer), daemon=True).start()
+
+
+def serve_udp(host: str, port: int) -> None:
+    srv = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind((host, port))
+    log(f"READY udp {host}:{port}")
+
+    while True:
+        data, peer = srv.recvfrom(65536)
+        srv.sendto(data, peer)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="TCP/UDP echo server")
+    parser.add_argument("--proto", choices=["tcp", "udp"], required=True)
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, required=True)
+    args = parser.parse_args()
+
+    # Exit cleanly on SIGTERM so the orchestrator's teardown is quiet.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+
     try:
-        while True:
-            data = conn.recv(4096)
-            if not data:
-                break
-            conn.sendall(data)
-            msg = data.decode('utf-8', errors='replace').strip()
-            print(f"[{conn_id}] Echoed: {msg[:50]}{'...' if len(msg) > 50 else ''}")
-    except Exception as e:
-        print(f"[{conn_id}] Error: {e}")
-    finally:
-        print(f"[{conn_id}] Disconnected")
-        conn.close()
-
-def main():
-    global connection_count
-    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server.bind(('0.0.0.0', PORT))
-    server.listen(100)
-
-    print(f"Echo server listening on port {PORT}")
-    print("Press Ctrl+C to stop")
-    print("-" * 40)
-
-    try:
-        while True:
-            conn, addr = server.accept()
-            with lock:
-                connection_count += 1
-                conn_id = f"C{connection_count:03d}"
-
-            thread = threading.Thread(target=handle_client, args=(conn, addr, conn_id))
-            thread.daemon = True
-            thread.start()
+        if args.proto == "tcp":
+            serve_tcp(args.host, args.port)
+        else:
+            serve_udp(args.host, args.port)
     except KeyboardInterrupt:
-        print("\nShutting down...")
-    finally:
-        server.close()
+        return 0
+    return 0
 
-if __name__ == '__main__':
-    main()
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,14 +1,21 @@
 # Self-Hosting Iroh Infrastructure
 
-This document covers how to self-host iroh's relay and DNS servers for fully independent operation in port forwarding mode (`tunnel-rs`).
+This document covers how to self-host iroh's relay server for fully independent operation in port forwarding mode (`tunnel-rs`).
+
+## Peer Discovery
+
+Peer discovery is **not configurable** — tunnel-rs picks the right behavior automatically based on the relay in use:
+
+- **Default relays** (no `--relay-url`): the default iroh discovery server is used (pkarr publishing + DNS-based lookup). The server (persistent identity) publishes its address; the client (ephemeral identity) only resolves.
+- **Custom relay** (`--relay-url`): discovery is **disabled automatically**. A custom relay doubles as the rendezvous point, so the discovery server is unnecessary.
+
+mDNS for local-network discovery is otherwise always enabled.
+
+The one exception is **`--relay-only`**: when enabled, all peer discovery is skipped — default-relay DNS and pkarr lookups *and* mDNS. Peers rendezvous solely through the relay, so no discovery is performed.
 
 ## Custom Relay Server
 
-Use a custom relay server instead of the public iroh relay infrastructure.
-
-> **Note:** When using `--relay-url`, you only need a custom relay server. The `--dns-server` option is **not required** — DNS discovery is only needed if you also want to avoid the public iroh DNS infrastructure (see [Self-Hosted DNS Discovery](#self-hosted-dns-discovery)).
-
-> **Note:** The public iroh DNS endpoint is now dual-stack (IPv4 + IPv6). IPv6-only environments no longer need a custom DNS server just to reach the default discovery service.
+Use a custom relay server instead of the public iroh relay infrastructure. When you specify `--relay-url`, the iroh discovery server is disabled automatically — both sides find each other through the shared relay.
 
 ```bash
 # Both sides must use the same relay (tokens via files — recommended)
@@ -32,6 +39,10 @@ tunnel-rs server \
   --auth-tokens-file ./auth_tokens.txt
 ```
 
+When a custom relay is in use, clients and server find each other via:
+1. **The shared relay server** — Both specify the same `--relay-url`
+2. **mDNS** — Automatic discovery on the same local network (always enabled)
+
 > **Tip:** For container deployments, use environment variables instead of files: `TUNNEL_RS_AUTH_TOKENS`, `TUNNEL_RS_SECRET` (server); `TUNNEL_RS_AUTH_TOKEN` (client).
 
 ### Running iroh-relay (Quick Start)
@@ -39,74 +50,26 @@ tunnel-rs server \
 ```bash
 cargo install iroh-relay
 iroh-relay --dev  # Local testing on http://localhost:3340
+
+# Or with the bundled dev config (metrics disabled, avoids the port-9090 clash):
+iroh-relay --dev -c test-scripts/relay-dev.toml
 ```
 
 > [!NOTE]
 > **No relay-level client whitelisting:** The self-hosted relay server must allow all client IDs (like the public iroh relay) because tunnel-rs clients use ephemeral EndpointIds that change on each run. Rely on tunnel-rs auth tokens for access control instead. See [Dynamic Client Whitelisting](ROADMAP.md#dynamic-client-whitelisting-for-self-hosted-relay) for a planned enhancement.
 
-The `--dns-server` flag (e.g., `https://dns.example.com/pkarr`) is a **pkarr peer-discovery service**, not a general-purpose DNS resolver.
-
-## Self-Hosted DNS Discovery
-
-For fully independent operation without public infrastructure. Note that `--dns-server` is for iroh node discovery via pkarr and does **not** provide ordinary DNS name resolution:
-
-```bash
-# Both sides use custom DNS server (tokens via files — recommended)
-tunnel-rs server \
-  --dns-server https://dns.example.com/pkarr \
-  --secret-file ./server.key \
-  --allowed-tcp 127.0.0.0/8 \
-  --auth-tokens-file ./auth_tokens.txt
-
-tunnel-rs client \
-  --dns-server https://dns.example.com/pkarr \
-  --server-node-id <ID> \
-  --source tcp://127.0.0.1:22 \
-  --target 127.0.0.1:2222 \
-  --auth-token-file ./auth_token.txt
-```
-
-## Disabling DNS Discovery
-
-You can disable DNS-based peer discovery entirely by setting `--dns-server none`:
-
-> **Note:** This used to be a common workaround for IPv6-only networks when the public iroh DNS endpoint was IPv4-only. Since it is now dual-stack, only use `--dns-server none` if you intentionally want to disable DNS discovery.
-
-```bash
-# Both sides disable DNS discovery (tokens via files — recommended)
-tunnel-rs server \
-  --dns-server none \
-  --relay-url https://relay.example.com \
-  --allowed-tcp 127.0.0.0/8 \
-  --auth-tokens-file ./auth_tokens.txt
-
-tunnel-rs client \
-  --dns-server none \
-  --relay-url https://relay.example.com \
-  --server-node-id <ID> \
-  --source tcp://127.0.0.1:22 \
-  --target 127.0.0.1:2222 \
-  --auth-token-file ./auth_token.txt
-```
-
-When DNS discovery is disabled, clients and server must connect using one of these methods:
-1. **Common relay server** — Both specify the same `--relay-url`
-2. **mDNS** — Automatic discovery on the same local network (always enabled)
-
-> **Note:** mDNS discovery is unaffected by the `--dns-server none` setting and remains active for local network discovery.
-
 ## Full Self-Hosted Infrastructure
 
-For fully independent operation, you can self-host both iroh's relay and DNS servers.
+For fully independent operation, self-host an iroh relay. Point both sides at it with `--relay-url`; discovery is handled through the relay automatically (the iroh discovery server is disabled when a custom relay is set).
 
 ### Running iroh-relay
 
 ```bash
 cargo install iroh-relay
-iroh-relay --config relay.toml --dev  # --dev for local testing
+iroh-relay --config relay.toml  # production; use --dev (no config) for local testing
 ```
 
-Example `relay.toml`:
+Example `relay.toml` (production, with TLS):
 ```toml
 # Enable QUIC address discovery
 enable_quic_addr_discovery = true
@@ -123,47 +86,96 @@ manual_key_path = "/etc/letsencrypt/live/relay.example.com/privkey.pem"
 # hostname = "relay.example.com"
 ```
 
-> **Note:** With `--dev`, the relay runs HTTP on port 3340 and QUIC on port 7824. For production, configure TLS and use a reverse proxy or direct HTTPS binding.
+> **Note (ports, verified against iroh-relay 1.0.2):** `--dev` runs the relay
+> over plain HTTP on port **3340** (`http_bind_addr`) and starts a Prometheus
+> **metrics** server on **9090** (`metrics_bind_addr`); it does **not** start a
+> QUIC endpoint, because QUIC address discovery requires TLS, which `--dev`
+> ignores. If port 9090 is already in use (e.g. by Cockpit), the simplest fix is
+> to turn the metrics server off with `enable_metrics = false` in the config file
+> (the E2E tunnel test does not need metrics); or, to keep metrics, move it with
+> `metrics_bind_addr = "127.0.0.1:9099"`. Either works because `--dev` still
+> honors non-TLS config fields. For production, configure TLS: the relay serves
+> HTTP on **80** and HTTPS on **443** by default, plus QUIC address discovery on
+> **7842** (`quic_bind_addr`) when `enable_quic_addr_discovery = true`.
 
-### Running iroh-dns-server
+### Simple production setup: relay behind Cloudflare Tunnel (single TCP port)
+
+If you don't want to manage TLS certificates or open inbound ports, run the
+relay over **plain HTTP on a single TCP port** and let Cloudflare Tunnel
+terminate TLS at the edge and forward decrypted HTTP to it. Only outbound
+connectivity is needed on the relay host — no public IP, no 443, no QUIC/UDP.
+
+**How it works:** omitting the `[tls]` section makes iroh-relay serve *all*
+services (the `/relay` WebSocket and the `healthz` routes) over plain HTTP on
+`http_bind_addr`. QUIC address discovery defaults to off, so no TLS is required
+and the relay starts cleanly without `--dev`. This is the non-`--dev`
+equivalent of the local dev config — verified against iroh-relay 1.0.2.
+
+Copy the bundled template [`../relay-prod.toml.example`](../relay-prod.toml.example) to `relay-prod.toml` and adjust as needed:
+
+```toml
+# Plain-HTTP relay on 3340 (the non-dev default is port 80). Must match the
+# cloudflared ingress service and the --relay-url the clients use.
+http_bind_addr = "[::]:3340"
+
+# Metrics server defaults to port 9090 and often collides with other services;
+# turn it off (or move it to a private address you do NOT expose via the tunnel).
+enable_metrics = false
+# metrics_bind_addr = "127.0.0.1:9099"
+
+# Recommended for a publicly reachable relay: require a bearer token. Clients
+# then use --relay-url https://relay.example.com/?token=<secret>
+# access.shared_token = ["change-me-to-a-long-random-secret"]
+```
+
+**1. Run the relay** (no `--dev`):
 
 ```bash
-cargo install iroh-dns-server
-iroh-dns-server --config dns.toml
+cp relay-prod.toml.example relay-prod.toml
+iroh-relay -c relay-prod.toml
 ```
 
-Example `dns.toml`:
-```toml
-# Rate limiting for pkarr PUT requests
-pkarr_put_rate_limit = "smart"
+**2. Point cloudflared at it.** The tunnel's ingress must forward the hostname
+to `http://localhost:3340`. With a token-based (dashboard-managed) tunnel this
+is one line in the dashboard; for a locally-managed tunnel, `config.yml`:
 
-# HTTP server for pkarr API (development)
-[http]
-port = 8080
-bind_addr = "0.0.0.0"
+```yaml
+tunnel: <tunnel-uuid>
+credentials-file: /root/.cloudflared/<tunnel-uuid>.json
 
-# HTTPS server (production)
-[https]
-port = 443
-domains = ["dns.example.com"]
-cert_mode = "lets_encrypt"
-letsencrypt_prod = true
-
-# DNS server configuration
-[dns]
-port = 53
-default_ttl = 30
-origins = ["dns.example.com", "."]
-rr_a = "203.0.113.10"  # Your server's public IP
-rr_ns = "ns1.dns.example.com."
-default_soa = "ns1.dns.example.com hostmaster.dns.example.com 0 10800 3600 604800 3600"
-
-# Mainline DHT fallback (optional)
-[mainline]
-enabled = false
+ingress:
+  - hostname: relay.example.com
+    service: http://localhost:3340
+  - service: http_status:404
 ```
 
-> **Note:** The iroh-dns-server provides the `/pkarr` HTTP endpoint used by tunnel-rs for peer discovery. Refer to the [iroh-dns-server source](https://github.com/n0-computer/iroh/tree/main/iroh-dns-server) for the latest configuration options.
+```bash
+# Locally-managed tunnel:
+cloudflared tunnel run <tunnel-name>
+# Or dashboard/token-managed tunnel:
+cloudflared tunnel run --token <token>
+```
+
+**3. Verify** end to end:
+
+```bash
+./test-scripts/run_e2e.sh --relay-url https://relay.example.com --relay-only
+```
+
+> [!NOTE]
+> No paid Cloudflare plan or HTTP/1.1 override is needed — the iroh relay
+> client sends no TLS ALPN, so Cloudflare's edge negotiates HTTP/1.1 and the
+> WebSocket upgrade works through both quick and named tunnels. A bare
+> `curl https://relay.example.com/relay` returning `400` is expected (the relay
+> answers 400 to any non-WebSocket request); it is not a tunnel problem. See
+> [`iroh-relay-connection-trace.md`](iroh-relay-connection-trace.md) for the
+> full trace.
+
+> **Trade-off:** this routes all relayed traffic through Cloudflare and, because
+> there is no QUIC endpoint, disables QUIC address discovery (one of the signals
+> iroh uses to help peers hole-punch to a direct connection). For a relay whose
+> job is a pure relay-only fallback this is fine; if you want to maximize direct
+> P2P success, use the TLS + QUIC production config above instead.
 
 ### Using Your Infrastructure
 
@@ -171,7 +183,6 @@ enabled = false
 # Server (tokens via files — recommended)
 tunnel-rs server \
   --relay-url https://relay.example.com \
-  --dns-server https://dns.example.com/pkarr \
   --secret-file ./server.key \
   --allowed-tcp 127.0.0.0/8 \
   --auth-tokens-file ./auth_tokens.txt
@@ -179,7 +190,6 @@ tunnel-rs server \
 # Client (tokens via files — recommended)
 tunnel-rs client \
   --relay-url https://relay.example.com \
-  --dns-server https://dns.example.com/pkarr \
   --server-node-id <ID> \
   --source tcp://127.0.0.1:22 \
   --target 127.0.0.1:2222 \

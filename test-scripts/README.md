@@ -1,108 +1,116 @@
-# Multi-Session Testing Scripts
+# tunnel-rs end-to-end test scripts
 
-Scripts for testing client-initiated multi-session tunnel.
+Self-contained end-to-end test that pushes real traffic through a tunnel-rs
+tunnel on localhost and verifies it comes back intact.
 
-## Architecture
+## What it does
 
-In client-initiated mode:
-- **Server** whitelists allowed networks with `--allowed-tcp` (CIDR notation)
-- **Client** specifies the source service with `--source` (`tcp://host:port` or `udp://host:port`)
+`run_e2e.sh` brings up everything on `127.0.0.1`:
 
 ```
-[Echo Server]     [Server]                      [Client]                [Test Client]
-  :19999    <--  --allowed-tcp 127.0.0.0/8  <--  --source tcp://localhost:19999  <-->  :17001-17003
-                  (waits for connections)       (initiates, tests DNS)
+echo client (uv/python)                          echo server (uv/python)
+        │                                                 ▲
+        ▼  127.0.0.1:<target>                             │ 127.0.0.1:<backend>
+   tunnel-rs client  ──────── iroh tunnel ─────────  tunnel-rs server
 ```
 
-## Quick Start
+For both **TCP** and **UDP** it sends a payload to the tunnel client's local
+port and asserts the echo server's reply makes the full round trip.
+
+Both tunnel-rs processes are configured via **JSON on stdin** (`--config-stdin`),
+which exercises that both `server` and `client` accept stdin config. The Python
+backends and test clients run through **`uv run`** (PEP 723 inline metadata, no
+third-party dependencies).
+
+## Files
+
+| File | Role | Runtime |
+|------|------|---------|
+| `echo_server.py` | TCP/UDP echo backend | `uv run` |
+| `echo_client.py` | Sends a payload, verifies the echo | `uv run` |
+| `run_e2e.sh`     | Orchestrator: keygen, configs, processes, assertions | bash |
+
+## Requirements
+
+- `uv` and Python ≥ 3.11
+- A built `tunnel-rs` binary (the script builds the debug binary if missing)
+- **Internet access** for the default run (uses the public iroh relay + the
+  default iroh discovery server). Not needed when you point at your own relay
+  with `--relay-url` (see below).
+
+## Usage
 
 ```bash
-# Build first
-cargo build --release
-
-# Terminal 1: Start echo server (the source service)
-python3 test-scripts/echo_server.py 19999
-
-# Terminal 2: Start server (waits for client connections)
-./test-scripts/server.sh
-
-# Terminal 3: Start client(s) - these initiate connections to server
-./test-scripts/client.sh 3      # 3 sessions on ports 17001-17003
-
-# Terminal 4: Run tests
-python3 test-scripts/test_tunnel.py -n 3                # Ping 3 ports (17001-17003)
-python3 test-scripts/test_tunnel.py -n 3 --loop         # Ping every 5s
-python3 test-scripts/test_tunnel.py -n 3 --stream 10    # Stream for 10s
-python3 test-scripts/test_tunnel.py -n 3 --stream 10 --loop  # Stream 10s repeatedly
+./test-scripts/run_e2e.sh
 ```
 
-## Scripts
+With no flags it runs the default test: the public iroh relay plus the default
+iroh discovery server (no relay override).
 
-| Script | Description |
-|--------|-------------|
-| `server.sh [MAX]` | Start server with `--allowed-tcp 127.0.0.0/8` (default: max 5 sessions) |
-| `client.sh [NUM] [PORT] [SRC]` | Start N clients requesting source SRC on local ports (default: 1 client, port 17001, source 19999) |
-| `test_tunnel.py` | Test tunnel connectivity and data integrity |
-| `echo_server.py [PORT]` | Multi-connection TCP echo server |
-| `keys.sh` | Key management (auto-sourced by other scripts) |
+### CLI options
 
-## Key Management
+| Flag | Meaning |
+|------|---------|
+| `--relay-url URL` | Custom relay URL for both sides (**repeatable**). When set, iroh discovery is **disabled automatically** and both sides rendezvous via the relay. Also accepts `--relay-url=URL`. |
+| `--relay-only` | Force all traffic through the relay, disabling direct P2P. Requires at least one `--relay-url`. |
+| `-h`, `--help` | Show help and exit. |
 
-Keys are auto-generated on first run:
-- Server key saved to `test-scripts/.keys/server.key`
-- Auth token saved to `test-scripts/.tunnel_keys`
+Examples:
 
 ```bash
-# View current keys
-source test-scripts/keys.sh && show_keys
+# Default: public relay + iroh discovery server (needs internet), no override
+./test-scripts/run_e2e.sh
 
-# Regenerate keys
-source test-scripts/keys.sh && generate_keys
+# Custom relay -> iroh discovery disabled path
+./test-scripts/run_e2e.sh --relay-url https://relay.example.com
 
-# Use keys in custom commands
-source test-scripts/keys.sh
-echo $SERVER_KEY_FILE $SERVER_NODE_ID $TUNNEL_RS_AUTH_TOKEN
+# Multiple relays (failover)
+./test-scripts/run_e2e.sh --relay-url https://r1.example.com --relay-url https://r2.example.com
+
+# Relay-only e2e (no direct P2P; requires a custom relay)
+./test-scripts/run_e2e.sh --relay-url https://relay.example.com --relay-only
 ```
 
-## Test Modes
+Exit code is `0` when both TCP and UDP round trips pass, non-zero otherwise.
 
-### Ping Test
-Send a single message and verify it echoes back:
+### Running a local relay for offline relay-only tests
+
+`--relay-only` needs a reachable relay. To run fully offline, start a local
+`iroh-relay` in dev mode using the bundled config (`relay-dev.toml`, which
+disables the metrics server so it won't collide with port 9090):
+
 ```bash
-python3 test-scripts/test_tunnel.py -n 3           # Once
-python3 test-scripts/test_tunnel.py -n 3 --loop    # Every 5s
+# terminal 1: local dev relay on http://localhost:3340
+iroh-relay --dev -c test-scripts/relay-dev.toml
+
+# terminal 2: relay-only e2e against it
+./test-scripts/run_e2e.sh --relay-url http://localhost:3340 --relay-only
 ```
 
-### Streaming Test
-Concurrent streaming with data verification:
+Install the relay with `cargo install iroh-relay` if you don't have it. See
+[`../docs/SELF-HOSTING.md`](../docs/SELF-HOSTING.md) for relay ports and config
+details, including a production `relay-prod.toml.example` + Cloudflare Tunnel
+setup that serves the relay over a single TCP port.
+
+### Environment overrides
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `TUNNEL_RS_BIN` | `target/debug/tunnel-rs` | Path to the tunnel-rs binary |
+| `READY_TIMEOUT` | `60` | Seconds to wait for each process to become ready |
+| `KEEP_LOGS` | `0` | Set to `1` to keep the temp working dir (configs + logs) for inspection |
+| `RELAY_URL` | _(unset)_ | Fallback single custom relay, used **only** when no `--relay-url` flag is given (prefer the flag) |
+
 ```bash
-python3 test-scripts/test_tunnel.py -n 3 --stream 10           # 10 seconds
-python3 test-scripts/test_tunnel.py -n 3 --stream 10 --loop    # 10s repeatedly
+# Keep the generated JSON configs and per-process logs for debugging
+KEEP_LOGS=1 ./test-scripts/run_e2e.sh
 ```
 
-Output shows:
-- Messages sent/received per session
-- Bytes transferred
-- Verified message counts
-- Throughput stats
+## Running the pieces by hand
 
-## Example Output
+The Python helpers are usable on their own:
 
-```
-=== Streaming Test (10s) ===
-Sessions: 3 (ports 17001-17003)
-----------------------------------------------------------------------
-[17001] Connected
-[17002] Connected
-[17003] Connected
-[10.0s] Sent: 150.5KB, Recv: 180.2KB, Verified: 1500
-----------------------------------------------------------------------
-Results:
-  [OK] Port 17001: sent=500 recv=495 verified=492 err=0
-  [OK] Port 17002: sent=500 recv=492 verified=490 err=0
-  [OK] Port 17003: sent=500 recv=493 verified=491 err=0
-----------------------------------------------------------------------
-Total: 150.5KB sent, 180.2KB recv, 1473 verified
-Throughput: 15.0KB/s
-*** ALL OK ***
+```bash
+uv run test-scripts/echo_server.py --proto tcp --port 9000
+uv run test-scripts/echo_client.py --proto tcp --port 9000 --message hi
 ```
