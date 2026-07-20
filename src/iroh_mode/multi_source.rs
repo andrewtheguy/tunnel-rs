@@ -33,6 +33,8 @@ pub struct MultiSourceServerConfig {
     /// Whether to use relay-only mode (disables direct P2P).
     pub relay_only: bool,
     /// Pkarr discovery server URL, or "none" to disable internet discovery.
+    /// With custom relay URLs configured, internet discovery is disabled
+    /// automatically unless a discovery server is set explicitly.
     pub discovery: Option<String>,
     /// Set of valid authentication tokens. **Sensitive field - redacted in Debug output.**
     pub auth_tokens: HashSet<String>,
@@ -72,6 +74,8 @@ pub struct MultiSourceClientConfig {
     /// Whether to use relay-only mode (disables direct P2P).
     pub relay_only: bool,
     /// Pkarr discovery server URL, or "none" to disable internet discovery.
+    /// With custom relay URLs configured, internet discovery is disabled
+    /// automatically unless a discovery server is set explicitly.
     pub discovery: Option<String>,
     /// Authentication token for server access. **Sensitive field - redacted in Debug output.**
     pub auth_token: String,

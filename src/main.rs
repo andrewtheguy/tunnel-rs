@@ -80,6 +80,8 @@ enum Command {
         relay_urls: Vec<String>,
 
         /// Pkarr discovery server URL, or "none" to disable internet discovery.
+        /// With custom relay URLs configured, internet discovery is disabled
+        /// automatically unless a discovery server is set explicitly.
         /// mDNS for local network discovery is unaffected.
         #[arg(long)]
         discovery: Option<String>,
@@ -129,6 +131,8 @@ enum Command {
         relay_urls: Vec<String>,
 
         /// Pkarr discovery server URL, or "none" to disable internet discovery.
+        /// With custom relay URLs configured, internet discovery is disabled
+        /// automatically unless a discovery server is set explicitly.
         /// mDNS for local network discovery is unaffected.
         #[arg(long)]
         discovery: Option<String>,

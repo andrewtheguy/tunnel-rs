@@ -32,6 +32,8 @@ pub struct IrohConfig {
     pub secret: Option<String>,
     pub relay_urls: Option<Vec<String>>,
     /// Pkarr discovery server URL, or "none" to disable internet discovery.
+    /// With custom relay URLs configured, internet discovery is disabled
+    /// automatically unless a discovery server is set explicitly.
     pub discovery: Option<String>,
     /// NodeId of the server to connect to (client only)
     pub server_node_id: Option<String>,

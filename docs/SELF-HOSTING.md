@@ -7,11 +7,15 @@ This document covers how to self-host iroh's relay and Pkarr discovery services 
 The `--discovery` option (or `[iroh].discovery` in a config file) controls
 internet address discovery independently from the relay configuration:
 
-- **Omitted (default):** use iroh's public discovery service. The server publishes
-  its home relay and addresses; clients resolve them.
+- **Omitted (default):** with no custom relays, use iroh's public discovery
+  service (the server publishes its home relay and addresses; clients resolve
+  them). With custom `--relay-url`s configured, internet discovery is disabled
+  automatically — clients reach the server through relay hints, and nothing is
+  published to public iroh infrastructure.
 - **Custom URL:** publish and resolve through that Pkarr HTTP endpoint, for
   example `--discovery https://dns.example.com/pkarr`. Configure the same URL
-  on the server and clients.
+  on the server and clients. An explicit URL is honored even when custom
+  relays are configured.
 - **`none`:** disable internet discovery. The client then relies on relay hints
   supplied by `--relay-url`, or on mDNS when both peers share a local network.
 
@@ -19,34 +23,36 @@ mDNS for local-network discovery remains enabled for all three settings.
 `--relay-only` is the exception: it skips Pkarr, DNS, and mDNS discovery and
 rendezvous occurs solely through the explicitly configured relay.
 
+Relay hints make discovery unnecessary with custom relays, including more than
+one: the client includes every configured relay in the server's address, and
+iroh sends the QUIC handshake packets to all of them, so the connection is
+established via whichever relay the server is currently homed on.
+
 > [!WARNING]
-> `discovery = "none"` does not work reliably with more than one custom relay.
-> An iroh endpoint has one home relay at a time, and relay servers are stateless
-> and independent: they do not synchronize registrations or forward traffic to
-> one another. Without a published discovery record, a client knows the relay
-> list but not which relay is currently the server's home, so it can try a relay
-> where the server is not registered. Keep discovery enabled (public or
-> self-hosted) when configuring multiple custom relays. `none` is suitable when
-> both sides use one shared custom relay, or can find each other over mDNS.
+> Configure clients with the **full** relay list. An iroh endpoint has one home
+> relay at a time, and relay servers are stateless and independent: they do not
+> synchronize registrations or forward traffic to one another. A client
+> configured with only a subset of the server's relays can reach the server only
+> while the server's current home relay is in that subset. (After its home relay
+> goes offline, the server re-homes onto another configured relay within
+> ~30 seconds.) If clients must work with partial relay lists, configure an
+> explicit shared discovery server instead.
 
 ## Custom Relay Server
 
 Use a custom relay server instead of the public iroh relay infrastructure.
-Discovery is not changed automatically: omit `--discovery` to keep using iroh's
-public service, point it at a self-hosted Pkarr service, or set it to `none` for
-a single shared relay.
+Configuring any custom relay disables internet discovery automatically; set
+`--discovery` explicitly only to point at a self-hosted Pkarr service.
 
 ```bash
-# Both sides must use the same relay (tokens via files — recommended)
+# Both sides must use the same relay(s) (tokens via files — recommended)
 tunnel-rs server \
   --relay-url https://relay.example.com \
-  --discovery none \
   --allowed-tcp 127.0.0.0/8 \
   --auth-tokens-file ./auth_tokens.txt
 
 tunnel-rs client \
   --relay-url https://relay.example.com \
-  --discovery none \
   --server-node-id <ID> \
   --source tcp://127.0.0.1:22 \
   --target 127.0.0.1:2222 \
@@ -60,8 +66,9 @@ tunnel-rs server \
   --auth-tokens-file ./auth_tokens.txt
 ```
 
-With `--discovery none`, clients and the server find each other through the
-single shared relay URL or through mDNS on the same local network.
+With custom relays (internet discovery auto-disabled), clients and the server
+find each other through the shared relay URLs or through mDNS on the same
+local network.
 
 > **Tip:** For container deployments, use environment variables instead of files: `TUNNEL_RS_AUTH_TOKENS`, `TUNNEL_RS_SECRET` (server); `TUNNEL_RS_AUTH_TOKEN` (client).
 
@@ -80,8 +87,11 @@ iroh-relay --dev -c test-scripts/relay-dev.toml
 
 ## Full Self-Hosted Infrastructure
 
-For fully independent operation, self-host an iroh relay and either a Pkarr
-discovery service or use one shared relay with `discovery = "none"`.
+For fully independent operation, self-host one or more iroh relays; with custom
+relays configured on both sides, internet discovery is disabled automatically
+and no discovery service is needed. Optionally self-host a Pkarr discovery
+service instead (e.g. to support clients configured with only part of the relay
+list).
 
 ### Running iroh-relay
 

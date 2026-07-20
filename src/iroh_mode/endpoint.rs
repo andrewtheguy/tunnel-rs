@@ -143,12 +143,20 @@ pub fn print_relay_status(relay_urls: &[String], relay_only: bool, using_custom_
 
 /// Create a base endpoint builder with common configuration.
 ///
-/// Internet address discovery is configured independently from the relay map.
+/// Internet address discovery is configured independently from the relay map,
+/// except that custom relays disable it by default: when `relay_mode` is
+/// [`RelayMode::Custom`] and no discovery server is configured explicitly,
+/// internet discovery (n0 DNS lookup + pkarr publishing) is turned off. The
+/// client reaches the server through relay hints instead — iroh sends QUIC
+/// Initial packets to every known relay path, so the handshake succeeds via
+/// whichever configured relay the server is homed on, and no public iroh
+/// infrastructure is contacted.
 ///
 /// # Arguments
 /// * `relay_mode` - The relay mode to use
 /// * `relay_only` - If true, only use relay connections (no direct P2P).
 /// * `discovery` - Optional custom Pkarr server URL, or "none" to disable internet discovery.
+///   When `None` with custom relays, internet discovery is disabled automatically.
 /// * `secret_key` - When present (a persistent identity), the endpoint also
 ///   publishes itself to the selected discovery server; an ephemeral endpoint
 ///   (no secret) only resolves and never advertises itself.
@@ -223,6 +231,7 @@ pub fn create_endpoint_builder(
         );
     }
 
+    let using_custom_relay = matches!(relay_mode, RelayMode::Custom(_));
     let transport_config = transport_config.build();
     // iroh 1.0 requires the crypto provider to be set explicitly on the builder
     // when starting from the `Empty` preset — the `tls-ring` feature only makes
@@ -259,6 +268,9 @@ pub fn create_endpoint_builder(
                     );
                     builder = builder.address_lookup(PkarrResolver::builder(pkarr_url));
                 }
+            }
+            None if using_custom_relay => {
+                info!("Internet discovery disabled (custom relays configured)");
             }
             None => {
                 if secret_key.is_some() {

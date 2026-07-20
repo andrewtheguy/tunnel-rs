@@ -800,7 +800,9 @@ graph LR
 
 The `iroh::Endpoint` provides:
 
-- **Discovery**: Automatic peer discovery via Pkarr/DNS/mDNS
+- **Discovery**: Automatic peer discovery via Pkarr/DNS/mDNS (internet
+  discovery is disabled automatically when custom relays are configured;
+  clients then reach the server through relay hints)
 - **Relay**: Fallback relay servers for NAT traversal
 - **QUIC**: Built-in QUIC transport with hole punching
 - **Identity**: Ed25519-based peer identity and authentication

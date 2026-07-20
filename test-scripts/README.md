@@ -31,15 +31,15 @@ temporary working directory. The Python backends and test clients run through
 | `echo_server.py` | TCP/UDP echo backend | `uv run` |
 | `echo_client.py` | Sends a payload, verifies the echo | `uv run` |
 | `run_e2e.sh`     | Orchestrator: keygen, configs, processes, assertions | bash |
+| `run_relay_failover_e2e.sh` | Relay-only failover scenarios against two local `iroh-relay` instances | bash |
 
 ## Requirements
 
 - `uv` and Python ≥ 3.11
 - A built `tunnel-rs` binary (the script builds the debug binary if missing)
 - **Internet access** for the default run (uses the public iroh relay + the
-  default iroh discovery server), and for runs with multiple custom relays.
-  A run with one custom relay sets `discovery = "none"` and needs no public
-  iroh infrastructure.
+  default iroh discovery server). Runs with custom relays disable internet
+  discovery automatically and need no public iroh infrastructure.
 
 ## Usage
 
@@ -54,7 +54,7 @@ iroh discovery server (no relay override).
 
 | Flag | Meaning |
 |------|---------|
-| `--relay-url URL` | Custom relay URL for both sides (**repeatable**). One relay sets `discovery = "none"`; multiple relays retain public discovery so clients can locate the server's home relay. Also accepts `--relay-url=URL`. |
+| `--relay-url URL` | Custom relay URL for both sides (**repeatable**). Custom relays disable internet discovery automatically; clients reach the server through relay hints. Also accepts `--relay-url=URL`. |
 | `--relay-only` | Force all traffic through the relay, disabling direct P2P. Requires at least one `--relay-url`. |
 | `-h`, `--help` | Show help and exit. |
 
@@ -64,10 +64,10 @@ Examples:
 # Default: public relay + iroh discovery server (needs internet), no override
 ./test-scripts/run_e2e.sh
 
-# One custom relay -> discovery="none" path
+# One custom relay (internet discovery auto-disabled)
 ./test-scripts/run_e2e.sh --relay-url https://relay.example.com
 
-# Multiple relays (failover; uses public discovery)
+# Multiple relays (failover; internet discovery auto-disabled)
 ./test-scripts/run_e2e.sh --relay-url https://r1.example.com --relay-url https://r2.example.com
 
 # Relay-only e2e (no direct P2P; requires a custom relay)
@@ -90,7 +90,8 @@ iroh-relay --dev -c test-scripts/relay-dev.toml
 ./test-scripts/run_e2e.sh --relay-url http://localhost:3340 --relay-only
 ```
 
-Install the relay with `cargo install iroh-relay` if you don't have it. See
+Install the relay with `cargo install iroh-relay --features server` if you
+don't have it. See
 [`../docs/SELF-HOSTING.md`](../docs/SELF-HOSTING.md) for relay ports and config
 details, including a production `relay-prod.toml.example` + Cloudflare Tunnel
 setup that serves the relay over a single TCP port.
@@ -108,6 +109,31 @@ setup that serves the relay over a single TCP port.
 # Keep per-process logs for debugging
 KEEP_LOGS=1 ./test-scripts/run_e2e.sh
 ```
+
+## Relay failover test
+
+`run_relay_failover_e2e.sh` is a separate, fully offline suite that starts
+**two local `iroh-relay --dev` instances** and exercises relay failures in
+relay-only mode. The tunnel server is always configured with both relays;
+clients run with both or with only one of them:
+
+- **Phase A (relay down before connecting):** server fails cleanly with no
+  relays up; with one relay down, clients connect via the live one (configured
+  with both relays or only the live one); a client configured with only the
+  dead relay fails.
+- **Phase B (relay down after connecting):** the relay carrying the connection
+  is killed and a restarted client fails over to the surviving relay (the
+  server re-homes within ~30s); with both relays killed new clients fail; after
+  both relays restart, clients connect again.
+
+```bash
+cargo install iroh-relay --features server   # one-time
+./test-scripts/run_relay_failover_e2e.sh
+```
+
+Working files and logs go to `./tmp/relay-failover.*` (kept with
+`KEEP_LOGS=1`). `TUNNEL_RS_BIN`, `IROH_RELAY_BIN`, and `READY_TIMEOUT` are
+honored like in `run_e2e.sh`.
 
 ## Running the pieces by hand
 
