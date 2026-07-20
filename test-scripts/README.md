@@ -35,8 +35,9 @@ third-party dependencies).
 - `uv` and Python ≥ 3.11
 - A built `tunnel-rs` binary (the script builds the debug binary if missing)
 - **Internet access** for the default run (uses the public iroh relay + the
-  default iroh discovery server). Not needed when you point at your own relay
-  with `--relay-url` (see below).
+  default iroh discovery server), and for runs with multiple custom relays.
+  A run with one custom relay sets `discovery = "none"` and needs no public
+  iroh infrastructure.
 
 ## Usage
 
@@ -51,7 +52,7 @@ iroh discovery server (no relay override).
 
 | Flag | Meaning |
 |------|---------|
-| `--relay-url URL` | Custom relay URL for both sides (**repeatable**). When set, iroh discovery is **disabled automatically** and both sides rendezvous via the relay. Also accepts `--relay-url=URL`. |
+| `--relay-url URL` | Custom relay URL for both sides (**repeatable**). One relay sets `discovery = "none"`; multiple relays retain public discovery so clients can locate the server's home relay. Also accepts `--relay-url=URL`. |
 | `--relay-only` | Force all traffic through the relay, disabling direct P2P. Requires at least one `--relay-url`. |
 | `-h`, `--help` | Show help and exit. |
 
@@ -61,10 +62,10 @@ Examples:
 # Default: public relay + iroh discovery server (needs internet), no override
 ./test-scripts/run_e2e.sh
 
-# Custom relay -> iroh discovery disabled path
+# One custom relay -> discovery="none" path
 ./test-scripts/run_e2e.sh --relay-url https://relay.example.com
 
-# Multiple relays (failover)
+# Multiple relays (failover; uses public discovery)
 ./test-scripts/run_e2e.sh --relay-url https://r1.example.com --relay-url https://r2.example.com
 
 # Relay-only e2e (no direct P2P; requires a custom relay)

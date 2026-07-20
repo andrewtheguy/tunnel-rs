@@ -39,16 +39,19 @@ auth_token_file = "~/.config/tunnel-rs/token.txt"
 
 # Custom relay server URL(s) for failover
 # Must match the server's relay configuration.
-#
-# Peer discovery is automatic and not configurable:
-#   - Default relays: the default iroh discovery server is used (pkarr + DNS lookup).
-#   - Custom relay (relay_urls set): discovery is disabled automatically; the
-#     relay doubles as the rendezvous point. mDNS remains enabled for local
-#     network discovery.
 # relay_urls = [
 #     "https://relay1.example.com",
 #     "https://relay2.example.com",
 # ]
+
+# Pkarr discovery is configured independently from relay_urls and must match
+# the server. If omitted, iroh's public discovery service is used. Set a custom
+# /pkarr endpoint to self-host discovery, or "none" to disable internet
+# discovery. mDNS remains enabled unless --relay-only is used.
+# discovery = "https://dns.example.com/pkarr"
+# discovery = "none"
+# WARNING: discovery="none" is not recommended with multiple custom relays;
+# independent relays do not know which relay is the server's current home.
 
 # ============================================================================
 # Encrypted Inline Secrets (Optional)

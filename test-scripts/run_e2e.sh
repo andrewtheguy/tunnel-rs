@@ -20,10 +20,11 @@
 #
 # Environment overrides:
 #   TUNNEL_RS_BIN   path to the tunnel-rs binary (default: cargo-built debug binary)
-#   RELAY_URL       custom relay URL for both sides. When set, iroh discovery is
-#                   disabled automatically and both sides rendezvous via the relay.
-#                   When unset, the default public relay + iroh discovery server
-#                   are used (requires internet access).
+#   RELAY_URL       custom relay URL for both sides. A single custom relay uses
+#                   discovery="none"; multiple relays retain public discovery
+#                   because lookup is needed to identify the server's home relay.
+#                   When unset, the default public relay + discovery server are
+#                   used (requires internet access).
 #   KEEP_LOGS       set to 1 to keep the temp working directory after the run.
 #   READY_TIMEOUT   seconds to wait for each process to become ready (default: 60).
 #
@@ -49,10 +50,9 @@ With no options it runs the default test: the public iroh relay plus the
 default iroh discovery server (requires internet access), no relay override.
 
 Options:
-  --relay-url URL   Custom relay URL for both sides (repeatable). When set,
-                    iroh discovery is disabled automatically and both sides
-                    rendezvous through the relay. May also be given as
-                    --relay-url=URL.
+  --relay-url URL   Custom relay URL for both sides (repeatable). One relay uses
+                    discovery="none"; multiple relays keep public discovery.
+                    May also be given as --relay-url=URL.
   --relay-only      Force all traffic through the relay, disabling direct P2P.
                     Requires at least one --relay-url.
   -h, --help        Show this help and exit.
@@ -197,8 +197,8 @@ fi
 TOKEN="$("$BIN" generate-auth-token)"
 log "EndpointId: $ENDPOINT_ID"
 
-# Optional custom-relay JSON fragment (exercises the discovery-disabled path)
-# and the matching --relay-only CLI args (relay_only is CLI-only, not config).
+# Optional custom-relay JSON fragment and matching --relay-only CLI args
+# (relay_only is CLI-only, not config).
 RELAY_FRAGMENT=""
 declare -a RELAY_ONLY_ARGS=()
 if [[ ${#RELAY_URLS[@]} -gt 0 ]]; then
@@ -208,7 +208,12 @@ if [[ ${#RELAY_URLS[@]} -gt 0 ]]; then
         joined+="\"$u\""
     done
     RELAY_FRAGMENT=",\"relay_urls\":[$joined]"
-    log "Using custom relay(s): ${RELAY_URLS[*]} (iroh discovery disabled)"
+    if [[ ${#RELAY_URLS[@]} -eq 1 ]]; then
+        RELAY_FRAGMENT+=",\"discovery\":\"none\""
+        log "Using one custom relay with discovery=none: ${RELAY_URLS[*]}"
+    else
+        log "Using custom relays with public discovery: ${RELAY_URLS[*]}"
+    fi
 else
     log "Using default relay + iroh discovery server (needs internet)"
 fi
