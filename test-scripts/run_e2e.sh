@@ -147,6 +147,15 @@ start_bg() {
     echo "$pid"
 }
 
+# Start tunnel-rs with an in-memory JSON config fed through a pipe. Secrets are
+# never written to the temporary working directory.
+start_tunnel() {
+    local role="$1" config="$2" logfile="$3"
+    printf '%s\n' "$config" |
+        setsid "$BIN" "$role" --config-stdin "${RELAY_ONLY_ARGS[@]}" >"$logfile" 2>&1 &
+    PIDS+=("$!")
+}
+
 # Wait until $1 (a log file) contains the regex $2, or time out after $3 secs.
 wait_for_log() {
     local logfile="$1" pattern="$2" timeout="$3"
@@ -187,29 +196,30 @@ log "Ports: tcp_backend=$TCP_BACKEND udp_backend=$UDP_BACKEND tcp_target=$TCP_TA
 # ---------------------------------------------------------------------------
 # Server identity + auth token
 # ---------------------------------------------------------------------------
-SECRET="$("$BIN" generate-server-key --output - 2>"$WORK/keygen.err")"
-ENDPOINT_ID="$(sed -n 's/^EndpointId: //p' "$WORK/keygen.err")"
-if [[ -z "$ENDPOINT_ID" ]]; then
-    echo "ERROR: could not parse EndpointId from keygen" >&2
-    cat "$WORK/keygen.err" >&2
-    exit 1
-fi
-TOKEN="$("$BIN" generate-auth-token)"
+read -r ENDPOINT_ID SECRET < <(
+    "$BIN" generate-server-key --json |
+        python3 -c 'import json, sys; value = json.load(sys.stdin); print(value["public_key"], value["private_key"])'
+)
+TOKEN="$(
+    "$BIN" generate-auth-token --json |
+        python3 -c 'import json, sys; print(json.load(sys.stdin)["auth_tokens"][0])'
+)"
 log "EndpointId: $ENDPOINT_ID"
 
-# Optional custom-relay JSON fragment and matching --relay-only CLI args
+# Optional custom-relay configuration and matching --relay-only CLI args
 # (relay_only is CLI-only, not config).
-RELAY_FRAGMENT=""
+RELAY_CONFIG="{}"
 declare -a RELAY_ONLY_ARGS=()
 if [[ ${#RELAY_URLS[@]} -gt 0 ]]; then
-    joined=""
-    for u in "${RELAY_URLS[@]}"; do
-        [[ -n "$joined" ]] && joined+=","
-        joined+="\"$u\""
-    done
-    RELAY_FRAGMENT=",\"relay_urls\":[$joined]"
+    RELAY_CONFIG="$(
+        printf '%s\0' "${RELAY_URLS[@]}" |
+            python3 -c 'import json, sys; urls = [value.decode() for value in sys.stdin.buffer.read().split(b"\0") if value]; print(json.dumps({"relay_urls": urls}))'
+    )"
     if [[ ${#RELAY_URLS[@]} -eq 1 ]]; then
-        RELAY_FRAGMENT+=",\"discovery\":\"none\""
+        RELAY_CONFIG="$(
+            printf '%s\n' "$RELAY_CONFIG" |
+                python3 -c 'import json, sys; value = json.load(sys.stdin); value["discovery"] = "none"; print(json.dumps(value))'
+        )"
         log "Using one custom relay with discovery=none: ${RELAY_URLS[*]}"
     else
         log "Using custom relays with public discovery: ${RELAY_URLS[*]}"
@@ -234,60 +244,59 @@ wait_for_log "$WORK/echo_tcp.log" "READY tcp" 30
 wait_for_log "$WORK/echo_udp.log" "READY udp" 30
 
 # ---------------------------------------------------------------------------
-# tunnel-rs server (JSON config on stdin)
+# tunnel-rs server (in-memory JSON config piped to stdin)
 # ---------------------------------------------------------------------------
-cat >"$WORK/server.json" <<EOF
-{
-  "role": "server",
-  "mode": "iroh",
-  "iroh": {
-    "secret": "$SECRET",
-    "auth_tokens": ["$TOKEN"],
-    "allowed_sources": { "tcp": ["127.0.0.0/8"], "udp": ["127.0.0.0/8"] }$RELAY_FRAGMENT
-  }
+SERVER_CONFIG="$(
+    printf '%s\n%s\n%s\n' "$SECRET" "$TOKEN" "$RELAY_CONFIG" |
+        python3 -c '
+import json, sys
+secret = sys.stdin.readline().rstrip("\n")
+token = sys.stdin.readline().rstrip("\n")
+iroh = {
+    "secret": secret,
+    "auth_tokens": [token],
+    "allowed_sources": {"tcp": ["127.0.0.0/8"], "udp": ["127.0.0.0/8"]},
 }
-EOF
+iroh.update(json.loads(sys.stdin.readline()))
+print(json.dumps({"role": "server", "mode": "iroh", "iroh": iroh}))
+'
+)"
 
 log "Starting tunnel-rs server..."
-setsid "$BIN" server --config-stdin "${RELAY_ONLY_ARGS[@]}" <"$WORK/server.json" >"$WORK/server.log" 2>&1 &
-PIDS+=("$!")
+start_tunnel server "$SERVER_CONFIG" "$WORK/server.log"
+unset SERVER_CONFIG
 wait_for_log "$WORK/server.log" "Waiting for clients to connect" "$READY_TIMEOUT"
 
 # ---------------------------------------------------------------------------
-# tunnel-rs clients (one per protocol; JSON config on stdin)
+# tunnel-rs clients (one per protocol; in-memory JSON configs piped to stdin)
 # ---------------------------------------------------------------------------
-cat >"$WORK/client_tcp.json" <<EOF
-{
-  "role": "client",
-  "mode": "iroh",
-  "iroh": {
-    "server_node_id": "$ENDPOINT_ID",
-    "request_source": "tcp://127.0.0.1:$TCP_BACKEND",
-    "target": "127.0.0.1:$TCP_TARGET",
-    "auth_token": "$TOKEN"$RELAY_FRAGMENT
-  }
+build_client_config() {
+    local protocol="$1" backend_port="$2" target_port="$3"
+    printf '%s\n%s\n%s\n' "$ENDPOINT_ID" "$TOKEN" "$RELAY_CONFIG" |
+        python3 -c '
+import json, sys
+protocol, backend_port, target_port = sys.argv[1:]
+endpoint_id = sys.stdin.readline().rstrip("\n")
+token = sys.stdin.readline().rstrip("\n")
+iroh = {
+    "server_node_id": endpoint_id,
+    "request_source": f"{protocol}://127.0.0.1:{backend_port}",
+    "target": f"127.0.0.1:{target_port}",
+    "auth_token": token,
 }
-EOF
+iroh.update(json.loads(sys.stdin.readline()))
+print(json.dumps({"role": "client", "mode": "iroh", "iroh": iroh}))
+' "$protocol" "$backend_port" "$target_port"
+}
 
-cat >"$WORK/client_udp.json" <<EOF
-{
-  "role": "client",
-  "mode": "iroh",
-  "iroh": {
-    "server_node_id": "$ENDPOINT_ID",
-    "request_source": "udp://127.0.0.1:$UDP_BACKEND",
-    "target": "127.0.0.1:$UDP_TARGET",
-    "auth_token": "$TOKEN"$RELAY_FRAGMENT
-  }
-}
-EOF
+CLIENT_TCP_CONFIG="$(build_client_config tcp "$TCP_BACKEND" "$TCP_TARGET")"
+CLIENT_UDP_CONFIG="$(build_client_config udp "$UDP_BACKEND" "$UDP_TARGET")"
 
 log "Starting tunnel-rs TCP client..."
-setsid "$BIN" client --config-stdin "${RELAY_ONLY_ARGS[@]}" <"$WORK/client_tcp.json" >"$WORK/client_tcp.log" 2>&1 &
-PIDS+=("$!")
+start_tunnel client "$CLIENT_TCP_CONFIG" "$WORK/client_tcp.log"
 log "Starting tunnel-rs UDP client..."
-setsid "$BIN" client --config-stdin "${RELAY_ONLY_ARGS[@]}" <"$WORK/client_udp.json" >"$WORK/client_udp.log" 2>&1 &
-PIDS+=("$!")
+start_tunnel client "$CLIENT_UDP_CONFIG" "$WORK/client_udp.log"
+unset CLIENT_TCP_CONFIG CLIENT_UDP_CONFIG RELAY_CONFIG SECRET TOKEN
 
 wait_for_log "$WORK/client_tcp.log" "Listening on TCP" "$READY_TIMEOUT"
 wait_for_log "$WORK/client_udp.log" "Listening on UDP" "$READY_TIMEOUT"
