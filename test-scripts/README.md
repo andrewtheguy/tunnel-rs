@@ -17,10 +17,12 @@ echo client (uv/python)                          echo server (uv/python)
 For both **TCP** and **UDP** it sends a payload to the tunnel client's local
 port and asserts the echo server's reply makes the full round trip.
 
-Both tunnel-rs processes are configured via **JSON on stdin** (`--config-stdin`),
-which exercises that both `server` and `client` accept stdin config. The Python
-backends and test clients run through **`uv run`** (PEP 723 inline metadata, no
-third-party dependencies).
+The script generates the identity and auth token with the commands' `--json`
+mode, uses Python's `json` module to parse those results and serialize the
+runtime configurations, and pipes each configuration directly to
+`--config-stdin`. No key, token, or secret-bearing config is written to the
+temporary working directory. The Python backends and test clients run through
+**`uv run`** (PEP 723 inline metadata, no third-party dependencies).
 
 ## Files
 
@@ -35,8 +37,9 @@ third-party dependencies).
 - `uv` and Python ≥ 3.11
 - A built `tunnel-rs` binary (the script builds the debug binary if missing)
 - **Internet access** for the default run (uses the public iroh relay + the
-  default iroh discovery server). Not needed when you point at your own relay
-  with `--relay-url` (see below).
+  default iroh discovery server), and for runs with multiple custom relays.
+  A run with one custom relay sets `discovery = "none"` and needs no public
+  iroh infrastructure.
 
 ## Usage
 
@@ -51,7 +54,7 @@ iroh discovery server (no relay override).
 
 | Flag | Meaning |
 |------|---------|
-| `--relay-url URL` | Custom relay URL for both sides (**repeatable**). When set, iroh discovery is **disabled automatically** and both sides rendezvous via the relay. Also accepts `--relay-url=URL`. |
+| `--relay-url URL` | Custom relay URL for both sides (**repeatable**). One relay sets `discovery = "none"`; multiple relays retain public discovery so clients can locate the server's home relay. Also accepts `--relay-url=URL`. |
 | `--relay-only` | Force all traffic through the relay, disabling direct P2P. Requires at least one `--relay-url`. |
 | `-h`, `--help` | Show help and exit. |
 
@@ -61,10 +64,10 @@ Examples:
 # Default: public relay + iroh discovery server (needs internet), no override
 ./test-scripts/run_e2e.sh
 
-# Custom relay -> iroh discovery disabled path
+# One custom relay -> discovery="none" path
 ./test-scripts/run_e2e.sh --relay-url https://relay.example.com
 
-# Multiple relays (failover)
+# Multiple relays (failover; uses public discovery)
 ./test-scripts/run_e2e.sh --relay-url https://r1.example.com --relay-url https://r2.example.com
 
 # Relay-only e2e (no direct P2P; requires a custom relay)
@@ -98,11 +101,11 @@ setup that serves the relay over a single TCP port.
 |----------|---------|---------|
 | `TUNNEL_RS_BIN` | `target/debug/tunnel-rs` | Path to the tunnel-rs binary |
 | `READY_TIMEOUT` | `60` | Seconds to wait for each process to become ready |
-| `KEEP_LOGS` | `0` | Set to `1` to keep the temp working dir (configs + logs) for inspection |
+| `KEEP_LOGS` | `0` | Set to `1` to keep the temporary log directory for inspection; it contains no secret-bearing configs |
 | `RELAY_URL` | _(unset)_ | Fallback single custom relay, used **only** when no `--relay-url` flag is given (prefer the flag) |
 
 ```bash
-# Keep the generated JSON configs and per-process logs for debugging
+# Keep per-process logs for debugging
 KEEP_LOGS=1 ./test-scripts/run_e2e.sh
 ```
 

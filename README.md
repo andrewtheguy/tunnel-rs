@@ -224,7 +224,7 @@ auth_token_file = "~/.config/tunnel-rs/token.txt"
 
 ## Self-Hosting
 
-For custom relay servers or fully independent operation without public infrastructure, see [docs/SELF-HOSTING.md](docs/SELF-HOSTING.md).
+For custom relay or discovery servers, or fully independent operation without public infrastructure, see [docs/SELF-HOSTING.md](docs/SELF-HOSTING.md).
 
 ---
 
@@ -338,6 +338,7 @@ tunnel-rs client \
 | `--secret-file` | - | Path to secret key file for persistent server identity |
 | `--relay-url` | public | Custom relay server URL(s), repeatable |
 | `--relay-only` | false | Force all traffic through relay (CLI-only; not supported in config files) |
+| `--discovery` | public | Custom Pkarr discovery URL, or `none` to disable internet discovery |
 | `--encryption-key-file` | - | Path to age identity file for decrypting age-encrypted config values |
 
 **Environment variables** (for containers and automation scripts):
@@ -368,6 +369,7 @@ tunnel-rs client \
 | `--auth-token-file` | - | Path to file containing authentication token |
 | `--relay-url` | public | Custom relay server URL(s), repeatable |
 | `--relay-only` | false | Force all traffic through relay (CLI-only; not supported in config files) |
+| `--discovery` | public | Custom Pkarr discovery URL, or `none` to disable internet discovery |
 | `--encryption-key-file` | - | Path to age identity file for decrypting age-encrypted config values |
 
 **Environment variables** (for containers and automation scripts):
@@ -466,6 +468,7 @@ mode = "iroh"
 [iroh]
 secret_file = "./server.key"
 # relay_urls = ["https://relay.example.com"]
+# discovery = "https://dns.example.com/pkarr"
 max_sessions = 100
 
 # Authentication tokens file (one token per line, # comments allowed)
@@ -503,6 +506,7 @@ server_node_id = "2xnbkpbc7izsilvewd7c62w7wnwziacmpfwvhcrya5nt76dqkpga"
 request_source = "tcp://127.0.0.1:22"
 target = "127.0.0.1:2222"
 # relay_urls = ["https://relay.example.com"]
+# discovery = "https://dns.example.com/pkarr"
 
 # Authentication token file (get token from server admin, 47 chars)
 auth_token_file = "~/.config/tunnel-rs/token.txt"
@@ -575,6 +579,10 @@ tunnel-rs generate-auth-token
 
 # Generate multiple auth tokens
 tunnel-rs generate-auth-token -c 5
+
+# Emit JSON (always uses an auth_tokens array)
+tunnel-rs generate-auth-token --json
+# Output: {"auth_tokens":["i..."]}
 ```
 
 Auth token format: `i` + Base64URL-encoded(32 random bytes + CRC16 checksum) = 47 characters total.
@@ -586,6 +594,10 @@ Auth token format: `i` + Base64URL-encoded(32 random bytes + CRC16 checksum) = 4
 ```bash
 tunnel-rs generate-server-key --output ./server.key
 
+# Emit a new keypair as JSON without writing a file
+tunnel-rs generate-server-key --json
+# Output: {"public_key":"...","private_key":"..."}
+
 # Write the key to stdout instead of a file (e.g. to capture it in a script)
 tunnel-rs generate-server-key --output -
 
@@ -593,7 +605,7 @@ tunnel-rs generate-server-key --output -
 tunnel-rs generate-server-key --output ./server.key --force
 ```
 
-The secret key is written to the `--output` target (created with `0600` permissions on Unix), and the EndpointId is printed to stdout. Use `-` as the output to write the key to stdout instead — in that case the EndpointId is printed to stderr so it stays off the key stream. Existing files are not overwritten unless `--force` is passed.
+Without `--json`, the secret key is written to the required `--output` target (created with `0600` permissions on Unix), and the EndpointId is printed to stdout. Use `-` as the output to write the key to stdout instead — in that case the EndpointId is printed to stderr so it stays off the key stream. Existing files are not overwritten unless `--force` is passed. With `--json`, no file is written and both keys are emitted to stdout.
 
 ## show-server-id
 

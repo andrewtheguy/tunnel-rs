@@ -79,6 +79,11 @@ enum Command {
         #[arg(long = "relay-url")]
         relay_urls: Vec<String>,
 
+        /// Pkarr discovery server URL, or "none" to disable internet discovery.
+        /// mDNS for local network discovery is unaffected.
+        #[arg(long)]
+        discovery: Option<String>,
+
         /// Force all connections through the relay server (disables direct P2P).
         #[arg(long)]
         relay_only: bool,
@@ -123,6 +128,11 @@ enum Command {
         #[arg(long = "relay-url")]
         relay_urls: Vec<String>,
 
+        /// Pkarr discovery server URL, or "none" to disable internet discovery.
+        /// mDNS for local network discovery is unaffected.
+        #[arg(long)]
+        discovery: Option<String>,
+
         /// Force all connections through the relay server (disables direct P2P).
         #[arg(long)]
         relay_only: bool,
@@ -141,12 +151,16 @@ enum Command {
     /// Use show-server-id to display the public EndpointId derived from this key.
     GenerateServerKey {
         /// Path where to save the private key file
-        #[arg(short, long)]
-        output: PathBuf,
+        #[arg(short, long, required_unless_present = "json", conflicts_with = "json")]
+        output: Option<PathBuf>,
 
         /// Overwrite existing file if it exists
-        #[arg(long)]
+        #[arg(long, requires = "output")]
         force: bool,
+
+        /// Print the public and private keys as JSON instead of saving a file
+        #[arg(long)]
+        json: bool,
     },
     /// Show the server's public EndpointId derived from a private key
     ///
@@ -164,6 +178,10 @@ enum Command {
         /// Number of tokens to generate (default: 1)
         #[arg(short, long, default_value = "1")]
         count: usize,
+
+        /// Print the generated token(s) as JSON
+        #[arg(long)]
+        json: bool,
     },
     /// Age encryption commands for config file secrets
     ConfigEncryption {
@@ -219,6 +237,7 @@ struct ServerIrohParams {
     secret: Option<String>,
     secret_file: Option<PathBuf>,
     relay_urls: Vec<String>,
+    discovery: Option<String>,
     auth_tokens: Vec<String>,
     auth_tokens_file: Option<PathBuf>,
     transport: TransportTuning,
@@ -239,6 +258,7 @@ fn resolve_server_iroh_params(
         max_sessions,
         secret_file,
         relay_urls,
+        discovery,
         auth_tokens_file,
         encryption_key_file: _,
         ..
@@ -277,6 +297,7 @@ fn resolve_server_iroh_params(
         } else {
             relay_urls.clone()
         },
+        discovery: discovery.clone().or(cfg.discovery.clone()),
         auth_tokens: if !env_auth_tokens.is_empty() {
             env_auth_tokens
         } else {
@@ -294,6 +315,7 @@ struct ClientIrohParams {
     source: Option<String>,
     target: Option<String>,
     relay_urls: Vec<String>,
+    discovery: Option<String>,
     auth_token: Option<String>,
     auth_token_file: Option<PathBuf>,
     transport: TransportTuning,
@@ -312,6 +334,7 @@ fn resolve_client_iroh_params(
         source,
         target,
         relay_urls,
+        discovery,
         auth_token_file,
         encryption_key_file: _,
         ..
@@ -337,6 +360,7 @@ fn resolve_client_iroh_params(
         } else {
             relay_urls.clone()
         },
+        discovery: discovery.clone().or(cfg.discovery.clone()),
         auth_token,
         auth_token_file,
         transport: cfg.transport.clone(),
@@ -500,6 +524,7 @@ async fn run_inner() -> Result<()> {
                 secret,
                 secret_file,
                 relay_urls,
+                discovery,
                 auth_tokens,
                 auth_tokens_file,
                 transport,
@@ -533,6 +558,7 @@ async fn run_inner() -> Result<()> {
                 secret: Some(secret),
                 relay_urls,
                 relay_only,
+                discovery,
                 auth_tokens,
                 transport,
             })
@@ -573,6 +599,7 @@ async fn run_inner() -> Result<()> {
                 source,
                 target,
                 relay_urls,
+                discovery,
                 auth_token,
                 auth_token_file,
                 transport,
@@ -625,18 +652,37 @@ async fn run_inner() -> Result<()> {
                 target,
                 relay_urls,
                 relay_only,
+                discovery,
                 auth_token,
                 transport,
             })
             .await
         }
-        Command::GenerateServerKey { output, force } => {
-            secret::generate_secret(expand_tilde(output), *force)
+        Command::GenerateServerKey {
+            output,
+            force,
+            json,
+        } => {
+            if *json {
+                secret::generate_secret_json()
+            } else {
+                secret::generate_secret(expand_tilde(
+                    output.as_ref().expect("clap requires --output without --json"),
+                ), *force)
+            }
         }
         Command::ShowServerId { secret_file } => secret::show_id(expand_tilde(secret_file)),
-        Command::GenerateAuthToken { count } => {
-            for _ in 0..*count {
-                println!("{}", auth::generate_token());
+        Command::GenerateAuthToken { count, json } => {
+            let tokens: Vec<String> = (0..*count).map(|_| auth::generate_token()).collect();
+            if *json {
+                println!(
+                    "{}",
+                    serde_json::to_string(&serde_json::json!({ "auth_tokens": tokens }))?
+                );
+            } else {
+                for token in tokens {
+                    println!("{}", token);
+                }
             }
             Ok(())
         }

@@ -4,9 +4,24 @@ use anyhow::{Context, Result};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use iroh::SecretKey;
 use log::info;
+use serde::Serialize;
 use std::path::PathBuf;
 
 use crate::iroh_mode::endpoint::{load_secret, secret_to_endpoint_id};
+
+#[derive(Serialize)]
+struct GeneratedServerKey {
+    public_key: String,
+    private_key: String,
+}
+
+fn generate_server_key() -> GeneratedServerKey {
+    let secret = SecretKey::generate();
+    GeneratedServerKey {
+        public_key: secret_to_endpoint_id(&secret).to_string(),
+        private_key: BASE64.encode(secret.to_bytes()),
+    }
+}
 
 fn write_secret_to_output(
     output: &PathBuf,
@@ -64,16 +79,20 @@ fn write_secret_to_output(
 
 /// Generate a new secret key file (base64 encoded) and output the EndpointId to stdout
 pub fn generate_secret(output: PathBuf, force: bool) -> Result<()> {
-    let secret = SecretKey::generate();
-    let secret_base64 = BASE64.encode(secret.to_bytes());
-    let endpoint_id = secret_to_endpoint_id(&secret);
+    let generated = generate_server_key();
     write_secret_to_output(
         &output,
-        &secret_base64,
-        &format!("EndpointId: {}", endpoint_id),
+        &generated.private_key,
+        &format!("EndpointId: {}", generated.public_key),
         force,
         "Secret key",
     )
+}
+
+/// Generate a server keypair and print both keys as a JSON object.
+pub fn generate_secret_json() -> Result<()> {
+    println!("{}", serde_json::to_string(&generate_server_key())?);
+    Ok(())
 }
 
 /// Show the EndpointId for an existing secret key file
@@ -82,4 +101,26 @@ pub fn show_id(secret_file: PathBuf) -> Result<()> {
     let endpoint_id = secret_to_endpoint_id(&secret);
     println!("{}", endpoint_id);
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::iroh_mode::endpoint::load_secret_from_string;
+
+    #[test]
+    fn generated_server_key_contains_matching_public_and_private_keys() {
+        let generated = generate_server_key();
+        let secret = load_secret_from_string(&generated.private_key).unwrap();
+
+        assert_eq!(generated.public_key, secret_to_endpoint_id(&secret).to_string());
+    }
+
+    #[test]
+    fn generated_server_key_serializes_with_public_and_private_keys() {
+        let value = serde_json::to_value(generate_server_key()).unwrap();
+
+        assert!(value["public_key"].is_string());
+        assert!(value["private_key"].is_string());
+    }
 }
