@@ -22,7 +22,7 @@ use crate::config::{
     validate_transport_tuning, ClientConfig, ConfigSource, ServerConfig, TransportTuning,
 };
 use crate::iroh_mode::endpoint::{
-    load_secret, load_secret_from_string, secret_to_endpoint_id,
+    load_secret, load_secret_from_string, secret_to_endpoint_id, RelayConfig,
 };
 
 /// Default `env_logger` filter: tunnel-rs's own code at `info`, the noisy
@@ -78,6 +78,11 @@ enum Command {
         #[arg(long = "relay-url")]
         relay_urls: Vec<String>,
 
+        /// Shared bearer token for the custom relay(s) (requires --relay-url).
+        /// Prefer TUNNEL_RS_RELAY_AUTH_TOKEN or config to keep it out of the process list.
+        #[arg(long, value_name = "TOKEN")]
+        relay_auth_token: Option<String>,
+
         /// Force all connections through the relay server (disables direct P2P).
         #[arg(long)]
         relay_only: bool,
@@ -117,6 +122,11 @@ enum Command {
         /// Custom relay server URL(s) for failover
         #[arg(long = "relay-url")]
         relay_urls: Vec<String>,
+
+        /// Shared bearer token for the custom relay(s) (requires --relay-url).
+        /// Prefer TUNNEL_RS_RELAY_AUTH_TOKEN or config to keep it out of the process list.
+        #[arg(long, value_name = "TOKEN")]
+        relay_auth_token: Option<String>,
 
         /// Force all connections through the relay server (disables direct P2P).
         #[arg(long)]
@@ -191,6 +201,7 @@ struct ServerIrohParams {
     secret: Option<String>,
     secret_file: Option<PathBuf>,
     relay_urls: Vec<String>,
+    relay_auth_token: Option<String>,
     authorized_keys_file: Option<PathBuf>,
     transport: TransportTuning,
 }
@@ -210,6 +221,7 @@ fn resolve_server_iroh_params(
         max_sessions,
         secret_file,
         relay_urls,
+        relay_auth_token,
         authorized_keys_file,
         ..
     } = cli
@@ -243,6 +255,10 @@ fn resolve_server_iroh_params(
         } else {
             relay_urls.clone()
         },
+        relay_auth_token: relay_auth_token
+            .clone()
+            .or_else(|| env_var_opt("TUNNEL_RS_RELAY_AUTH_TOKEN"))
+            .or(cfg.relay_auth_token.clone()),
         authorized_keys_file: authorized_keys_file
             .clone()
             .or_else(|| env_var_opt("TUNNEL_RS_AUTHORIZED_KEYS_FILE").map(PathBuf::from))
@@ -258,6 +274,7 @@ struct ClientIrohParams {
     source: Option<String>,
     target: Option<String>,
     relay_urls: Vec<String>,
+    relay_auth_token: Option<String>,
     private_key_file: Option<PathBuf>,
     transport: TransportTuning,
 }
@@ -275,6 +292,7 @@ fn resolve_client_iroh_params(
         source,
         target,
         relay_urls,
+        relay_auth_token,
         private_key_file,
         ..
     } = cli
@@ -292,6 +310,10 @@ fn resolve_client_iroh_params(
         } else {
             relay_urls.clone()
         },
+        relay_auth_token: relay_auth_token
+            .clone()
+            .or_else(|| env_var_opt("TUNNEL_RS_RELAY_AUTH_TOKEN"))
+            .or(cfg.relay_auth_token.clone()),
         private_key_file: private_key_file
             .clone()
             .or_else(|| env_var_opt("TUNNEL_RS_PRIVATE_KEY_FILE").map(PathBuf::from))
@@ -440,9 +462,12 @@ async fn run_inner() -> Result<()> {
                 secret,
                 secret_file,
                 relay_urls,
+                relay_auth_token,
                 authorized_keys_file,
                 transport,
             } = resolve_server_iroh_params(&command, cfg.iroh());
+            let relay_config = RelayConfig::from_urls_with_token(&relay_urls, relay_auth_token)
+                .map_err(TunnelError::config)?;
             let secret = resolve_iroh_secret(secret, secret_file)?;
             let authorized_keys_file = authorized_keys_file.ok_or_else(|| {
                 TunnelError::config(anyhow::anyhow!(
@@ -468,7 +493,7 @@ async fn run_inner() -> Result<()> {
                 allowed_udp,
                 max_sessions,
                 secret: Some(secret),
-                relay_urls,
+                relay_config,
                 relay_only: *relay_only,
                 authorized_keys,
                 transport,
@@ -493,9 +518,12 @@ async fn run_inner() -> Result<()> {
                 source,
                 target,
                 relay_urls,
+                relay_auth_token,
                 private_key_file,
                 transport,
             } = resolve_client_iroh_params(&command, cfg.iroh());
+            let relay_config = RelayConfig::from_urls_with_token(&relay_urls, relay_auth_token)
+                .map_err(TunnelError::config)?;
             let server_node_id = server_node_id.ok_or_else(|| TunnelError::config(
                 anyhow::anyhow!("server_node_id is required. Provide via --server-node-id or in config file."),
             ))?;
@@ -521,7 +549,7 @@ async fn run_inner() -> Result<()> {
                 node_id: server_node_id,
                 source,
                 target,
-                relay_urls,
+                relay_config,
                 relay_only: *relay_only,
                 private_key,
                 transport,

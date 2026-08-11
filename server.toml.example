@@ -24,20 +24,26 @@ secret_file = "./server.key"
 
 # Custom relay server URL(s) for failover
 # If not provided, uses iroh's default public relays.
+#
+# Every relay listed here is probed individually at startup and ALL of them must
+# come online, so a dead backup relay fails startup instead of hiding until the
+# relay you depend on goes down.
 # relay_urls = [
 #     "https://relay1.example.com",
 #     "https://relay2.example.com",
 # ]
 
-# Pkarr discovery is configured independently from relay_urls. If omitted,
-# iroh's public discovery service is used. Set a custom /pkarr endpoint to
-# self-host discovery, or "none" to disable internet discovery. mDNS remains
-# enabled unless --relay-only is used.
-# discovery = "https://dns.example.com/pkarr"
-# discovery = "none"
-# WARNING: discovery="none" is not recommended with multiple custom relays.
-# An endpoint has only one home relay and independent relays do not forward to
-# each other, so clients may try a relay where the server is not registered.
+# Optional shared bearer token sent to every custom relay above
+# (Authorization: Bearer <token> on the relay WebSocket upgrade). Must match the
+# relay's access.shared_token and the client's relay_auth_token. Requires
+# relay_urls; the default public relays never take a token.
+# Prefer TUNNEL_RS_RELAY_AUTH_TOKEN for production deployments.
+# relay_auth_token = "shared-relay-secret"
+
+# Internet discovery is NOT configurable: it follows the relay mode. Default
+# relays enable the n0 lookup stack (pkarr publishing + DNS); custom relays
+# disable it entirely, and clients reach the server through relay hints. mDNS
+# local-network discovery stays on unless --relay-only is used.
 
 # Maximum concurrent sessions (default: 100)
 max_sessions = 100

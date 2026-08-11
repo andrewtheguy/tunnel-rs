@@ -27,8 +27,9 @@ pub struct MultiSourceServerConfig {
     pub max_sessions: Option<usize>,
     /// Iroh secret key for the endpoint. **Sensitive field - redacted in Debug output.**
     pub secret: Option<SecretKey>,
-    /// Iroh relay URLs.
-    pub relay_urls: Vec<String>,
+    /// Resolved relay configuration (default relays, or custom relays with an
+    /// optional shared auth token).
+    pub relay_config: RelayConfig,
     /// Whether to use relay-only mode (disables direct P2P).
     pub relay_only: bool,
     /// Ed25519 public keys authorized to authenticate clients.
@@ -44,7 +45,7 @@ impl std::fmt::Debug for MultiSourceServerConfig {
             .field("allowed_udp", &self.allowed_udp)
             .field("max_sessions", &self.max_sessions)
             .field("secret", &self.secret.as_ref().map(|_| "[REDACTED]"))
-            .field("relay_urls", &self.relay_urls)
+            .field("relay_urls", &self.relay_config.custom_urls())
             .field("relay_only", &self.relay_only)
             .field("authorized_keys", &self.authorized_keys)
             .field("transport", &self.transport)
@@ -60,8 +61,9 @@ pub struct MultiSourceClientConfig {
     pub source: String,
     /// Local target address to listen on (e.g., "127.0.0.1:2222").
     pub target: String,
-    /// Iroh relay URLs.
-    pub relay_urls: Vec<String>,
+    /// Resolved relay configuration (default relays, or custom relays with an
+    /// optional shared auth token).
+    pub relay_config: RelayConfig,
     /// Whether to use relay-only mode (disables direct P2P).
     pub relay_only: bool,
     /// Ed25519 key used only for application authentication.
@@ -76,7 +78,7 @@ impl std::fmt::Debug for MultiSourceClientConfig {
             .field("node_id", &self.node_id)
             .field("source", &self.source)
             .field("target", &self.target)
-            .field("relay_urls", &self.relay_urls)
+            .field("relay_urls", &self.relay_config.custom_urls())
             .field("relay_only", &self.relay_only)
             .field("private_key", &self.private_key)
             .field("transport", &self.transport)
@@ -87,7 +89,7 @@ impl std::fmt::Debug for MultiSourceClientConfig {
 use crate::auth::{generate_challenge, AuthorizedKeys, Challenge, ClientAuthKey};
 
 use crate::iroh_mode::endpoint::{
-    TUNNEL_ALPN, connect_to_server, create_client_endpoint, create_server_endpoint,
+    RelayConfig, TUNNEL_ALPN, connect_to_server, create_client_endpoint, create_server_endpoint,
     validate_relay_only, watch_connection_paths,
 };
 use crate::iroh_mode::helpers::{
@@ -150,14 +152,14 @@ pub async fn run_multi_source_server(config: MultiSourceServerConfig) -> Result<
         );
     }
 
-    validate_relay_only(relay_only, &config.relay_urls)?;
+    validate_relay_only(relay_only, &config.relay_config)?;
 
     log::info!("Multi-Source Tunnel - Server Mode");
     log::info!("==================================");
     log::info!("Creating iroh endpoint...");
 
     let endpoint = create_server_endpoint(
-        &config.relay_urls,
+        &config.relay_config,
         relay_only,
         config.secret,
         TUNNEL_ALPN,
@@ -569,7 +571,7 @@ async fn authenticate_connection(
 pub async fn run_multi_source_client(config: MultiSourceClientConfig) -> Result<()> {
     let relay_only = config.relay_only;
 
-    validate_relay_only(relay_only, &config.relay_urls)?;
+    validate_relay_only(relay_only, &config.relay_config)?;
 
     // Validate source format
     let is_tcp = config.source.starts_with("tcp://");
@@ -600,7 +602,7 @@ pub async fn run_multi_source_client(config: MultiSourceClientConfig) -> Result<
     // Client keeps an ephemeral iroh identity. The application authentication
     // key is used only on the post-connect auth stream.
     let endpoint = create_client_endpoint(
-        &config.relay_urls,
+        &config.relay_config,
         relay_only,
         None,
         Some(&config.transport),
@@ -610,7 +612,7 @@ pub async fn run_multi_source_client(config: MultiSourceClientConfig) -> Result<
     let conn = connect_to_server(
         &endpoint,
         server_id,
-        &config.relay_urls,
+        &config.relay_config,
         relay_only,
         TUNNEL_ALPN,
     )

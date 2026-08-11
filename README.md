@@ -203,7 +203,29 @@ private_key_file = "~/.config/tunnel-rs/client.key"
 
 ## Self-Hosting
 
-For custom relay servers and fully independent operation without public infrastructure, see [docs/SELF-HOSTING.md](docs/SELF-HOSTING.md). Configuring custom relays disables internet discovery automatically.
+For custom relay servers and fully independent operation without public
+infrastructure, see
+**[iroh-common-architecture](https://github.com/flexaccessdev/iroh-common-architecture)** —
+the iroh transport docs shared with
+[ezvpn](https://github.com/flexaccessdev/ezvpn) and
+[flextunnel](https://github.com/flexaccessdev/flextunnel):
+[self-hosting](https://github.com/flexaccessdev/iroh-common-architecture/blob/main/self-hosting.md)
+(running your own relay, including the single-port Cloudflare Tunnel setup) and
+[relays and address lookup](https://github.com/flexaccessdev/iroh-common-architecture/blob/main/relays-and-address-lookup.md)
+(the design). tunnel-rs is the **reference program for relay-only setups** — use
+its relay-only e2e script to validate a freshly deployed relay.
+
+Two behaviors to know before configuring relays:
+
+- **Custom relays disable internet discovery automatically.** Nothing is
+  published to or resolved from n0's public infrastructure; both sides reach each
+  other through the configured relay URLs, so configure both sides with the
+  **full** relay list.
+- **Every configured relay is probed individually at startup, and all must come
+  online** or the process refuses to start. A dead backup relay is a startup
+  failure rather than a failover path that silently does not exist. Losing a
+  relay *after* startup is survivable — the endpoint re-homes onto a surviving
+  one within ~30s.
 
 ---
 
@@ -309,7 +331,8 @@ tunnel-rs client \
 | `--authorized-keys-file` | required | Path to SSH-like file containing authorized Ed25519 public keys |
 | `--max-sessions` | 100 | Maximum concurrent sessions |
 | `--secret-file` | - | Path to secret key file for persistent server identity |
-| `--relay-url` | public | Custom relay server URL(s), repeatable |
+| `--relay-url` | public | Custom relay server URL(s), repeatable. Every one must be reachable at startup |
+| `--relay-auth-token` | - | Shared bearer token for the custom relay(s); requires `--relay-url` |
 | `--relay-only` | false | Force all traffic through relay (CLI-only; not supported in config files) |
 
 **Environment variables** (for containers and automation scripts):
@@ -318,6 +341,7 @@ tunnel-rs client \
 |---------|-------------|
 | `TUNNEL_RS_AUTHORIZED_KEYS_FILE` | Path to the server authorized-keys file |
 | `TUNNEL_RS_SECRET` | Base64-encoded secret key for persistent server identity (use this or `--secret-file`) |
+| `TUNNEL_RS_RELAY_AUTH_TOKEN` | Shared bearer token for the custom relay(s) (use this instead of `--relay-auth-token` to keep it out of the process list) |
 
 ### client
 
@@ -335,7 +359,8 @@ tunnel-rs client \
 | `--source`, `-s` | required | Source address to request from server (tcp://host:port or udp://host:port) |
 | `--target`, `-t` | required | Local address to listen on |
 | `--private-key-file` | required | Path to compact Ed25519 authentication private key |
-| `--relay-url` | public | Custom relay server URL(s), repeatable |
+| `--relay-url` | public | Custom relay server URL(s), repeatable. Every one must be reachable at startup |
+| `--relay-auth-token` | - | Shared bearer token for the custom relay(s); requires `--relay-url` |
 | `--relay-only` | false | Force all traffic through relay (CLI-only; not supported in config files) |
 
 **Environment variables** (for containers and automation scripts):
@@ -343,6 +368,7 @@ tunnel-rs client \
 | Env Var | Description |
 |---------|-------------|
 | `TUNNEL_RS_PRIVATE_KEY_FILE` | Path to the compact Ed25519 authentication private key |
+| `TUNNEL_RS_RELAY_AUTH_TOKEN` | Shared bearer token for the custom relay(s) (use this instead of `--relay-auth-token` to keep it out of the process list) |
 
 ## Configuration Files
 

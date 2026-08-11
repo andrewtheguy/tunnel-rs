@@ -96,9 +96,10 @@ iroh-relay --dev -c test-scripts/relay-dev.toml
 
 Install the relay with `cargo install iroh-relay --features server` if you
 don't have it. See
-[`../docs/SELF-HOSTING.md`](../docs/SELF-HOSTING.md) for relay ports and config
-details, including a production `relay-prod.toml.example` + Cloudflare Tunnel
-setup that serves the relay over a single TCP port.
+[self-hosting.md](https://github.com/flexaccessdev/iroh-common-architecture/blob/main/self-hosting.md)
+in iroh-common-architecture for relay ports and config details, including a
+production Cloudflare Tunnel setup that serves the relay over a single TCP port
+(`relay-prod.toml.example` in this repo is the matching template).
 
 ### Environment overrides
 
@@ -118,17 +119,24 @@ KEEP_LOGS=1 ./test-scripts/run_e2e.sh
 
 `run_relay_failover_e2e.sh` is a separate, fully offline suite that starts
 **two local `iroh-relay --dev` instances** and exercises relay failures in
-relay-only mode. The tunnel server is always configured with both relays;
-clients run with both or with only one of them:
+relay-only mode. Servers and clients are each given an explicit relay list per
+scenario.
 
-- **Phase A (relay down before connecting):** server fails cleanly with no
-  relays up; with one relay down, clients connect via the live one (configured
-  with both relays or only the live one); a client configured with only the
-  dead relay fails.
-- **Phase B (relay down after connecting):** the relay carrying the connection
-  is killed and a restarted client fails over to the surviving relay (the
-  server re-homes within ~30s); with both relays killed new clients fail; after
-  both relays restart, clients connect again.
+The contract under test is that **startup is strict but runtime is not**: every
+configured custom relay is probed individually at startup and all of them must
+come online, so a dead relay in the configured set is fatal even when another
+relay would work. Once a process is running, losing a relay is survivable and
+the peer re-homes onto a surviving one.
+
+- **Phase A (relay down before startup):** a server configured with both relays
+  fails to start when either or both are down; a server and client configured
+  with only the live relay connect; clients configured with a dead relay (alone
+  or alongside a live one) fail to start.
+- **Phase B (relay down after startup):** the relay carrying the connection is
+  killed — the running server stays up, and a restarted client configured with
+  the surviving relay reconnects once the server re-homes (~30s); with both
+  relays killed new clients fail; after both relays restart, clients connect
+  again.
 
 ```bash
 cargo install iroh-relay --features server   # one-time

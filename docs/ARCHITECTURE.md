@@ -305,29 +305,30 @@ graph TB
 
 ### Endpoint Management
 
+The relay/discovery design is shared with ezvpn and flextunnel and is documented
+once in
+[iroh-common-architecture / relays-and-address-lookup.md](https://github.com/flexaccessdev/iroh-common-architecture/blob/main/relays-and-address-lookup.md).
+In short: `RelayConfig` (`src/iroh_mode/endpoint.rs`) resolves the raw config
+once into `Default` or `Custom`, and that single choice decides both the relay
+map and whether n0 internet discovery runs. Discovery is not independently
+configurable. Every custom relay is probed individually before the real endpoint
+binds, and startup fails if any of them is unreachable.
+
 ```mermaid
 graph TB
     subgraph "Endpoint Creation"
-        A[Load/Generate Secret] --> B[Create Endpoint Builder]
-        B --> C{Relay URLs?}
-        C -->|Yes| D[Add Custom Relays]
-        C -->|No| E[Use Default Relays]
-        D --> F{Relay Only? (CLI-only)}
+        A[Load/Generate Secret] --> B[Resolve RelayConfig]
+        B --> C{Custom relay URLs?}
+        C -->|Yes| D[Probe each relay in parallel<br/>all must come online]
+        D --> D2[Custom relay map<br/>n0 discovery OFF]
+        C -->|No| E[Default relay map<br/>n0 DNS lookup ON<br/>pkarr publish if persistent identity]
+        D2 --> F{Relay Only? (CLI-only)}
         E --> F
-        F -->|Yes| G[Disable IP transports]
-        F -->|No| H[Keep IP + relay transports]
-        G --> I{DNS Server?}
-        H --> I
-        I -->|Yes| J[Add Custom DNS]
-        I -->|No| K[Use Default DNS]
-        J --> L[Build Endpoint]
-        K --> L
-    end
-
-    subgraph "Discovery"
-        L --> M[Publish to Pkarr/DNS]
-        M --> N[Enable mDNS]
-        N --> O[Endpoint Ready]
+        F -->|Yes| G[Clear IP transports<br/>no address lookup at all]
+        F -->|No| H[Keep IP + relay transports<br/>enable mDNS]
+        G --> L[Build + bind Endpoint]
+        H --> L
+        L --> O[Wait for online, then Ready]
     end
 
     style A fill:#FFE0B2
@@ -880,5 +881,8 @@ Retry guidance:
 
 ## References
 
+- [iroh-common-architecture](https://github.com/flexaccessdev/iroh-common-architecture) —
+  shared iroh transport design for tunnel-rs, ezvpn, and flextunnel: relays and
+  address lookup, relay self-hosting, discovery findings, relay connection trace
 - [iroh Documentation](https://iroh.computer/)
 - [RFC 9000 - QUIC](https://datatracker.ietf.org/doc/html/rfc9000)

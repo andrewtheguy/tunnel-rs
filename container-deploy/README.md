@@ -179,7 +179,7 @@ The default deployment uses `hostNetwork: true` so the pod shares the node's net
 > [!NOTE]
 > The pod can still access ClusterIP services and pod IPs — kube-proxy rules and CNI routes are installed at the node level, so hostNetwork pods inherit them.
 
-With `hostNetwork: true`, traffic from the pod appears as node-originated, so Kubernetes network policies do not apply. If you need network policy enforcement (e.g., in multi-tenant clusters), remove `hostNetwork: true` and `dnsPolicy: ClusterFirstWithHostNet` from the deployment. Without `hostNetwork`, the pod uses K8s overlay networking where NAT hole-punching cannot work — connections will fall back to iroh relay servers. Consider using a [self-hosted relay](../docs/SELF-HOSTING.md) for lower latency in this case.
+With `hostNetwork: true`, traffic from the pod appears as node-originated, so Kubernetes network policies do not apply. If you need network policy enforcement (e.g., in multi-tenant clusters), remove `hostNetwork: true` and `dnsPolicy: ClusterFirstWithHostNet` from the deployment. Without `hostNetwork`, the pod uses K8s overlay networking where NAT hole-punching cannot work — connections will fall back to iroh relay servers. Consider using a [self-hosted relay](https://github.com/flexaccessdev/iroh-common-architecture/blob/main/self-hosting.md) for lower latency in this case.
 
 ## Use Cases
 

@@ -41,19 +41,27 @@ private_key_file = "~/.config/tunnel-rs/client.key"
 
 # Custom relay server URL(s) for failover
 # Must match the server's relay configuration.
+#
+# Every relay listed here is probed individually at startup and ALL of them must
+# come online, so a dead backup relay fails startup instead of hiding until the
+# relay you depend on goes down.
 # relay_urls = [
 #     "https://relay1.example.com",
 #     "https://relay2.example.com",
 # ]
 
-# Pkarr discovery is configured independently from relay_urls and must match
-# the server. If omitted, iroh's public discovery service is used. Set a custom
-# /pkarr endpoint to self-host discovery, or "none" to disable internet
-# discovery. mDNS remains enabled unless --relay-only is used.
-# discovery = "https://dns.example.com/pkarr"
-# discovery = "none"
-# WARNING: discovery="none" is not recommended with multiple custom relays;
-# independent relays do not know which relay is the server's current home.
+# Optional shared bearer token sent to every custom relay above
+# (Authorization: Bearer <token> on the relay WebSocket upgrade). Must match the
+# relay's access.shared_token and the server's relay_auth_token. Requires
+# relay_urls; the default public relays never take a token.
+# Prefer TUNNEL_RS_RELAY_AUTH_TOKEN for production deployments.
+# relay_auth_token = "shared-relay-secret"
+
+# Internet discovery is NOT configurable: it follows the relay mode. Default
+# relays enable the n0 lookup stack (DNS resolution); custom relays disable it
+# entirely, and the client reaches the server through the relay hints it
+# attaches to its address. mDNS local-network discovery stays on unless
+# --relay-only is used.
 
 # ============================================================================
 # Transport Tuning (Optional)

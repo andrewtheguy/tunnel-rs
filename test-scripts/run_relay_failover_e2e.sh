@@ -3,26 +3,32 @@
 # Relay failover end-to-end test for tunnel-rs (relay-only mode, no internet).
 #
 # Runs TWO local iroh-relay instances (`--dev` mode, plain HTTP) and exercises
-# relay failure scenarios. The tunnel server is ALWAYS configured with both
-# relays; clients are configured with both or with only one of them. Custom
-# relays disable internet discovery automatically, so the whole test runs
-# without any public iroh infrastructure.
+# relay failure scenarios. Servers and clients are each configured with an
+# explicit relay list per scenario. Custom relays disable internet discovery
+# automatically, so the whole test runs without any public iroh infrastructure.
 #
-# Phase A - relay offline BEFORE anything connects:
-#   A0  both relays down .... server fails to come online (negative)
-#   A1  only relay2 up ...... server homes on relay2; client with BOTH relays
-#                             connects (skips dead relay1); TCP echo passes
-#   A2  client with ONLY relay2 (the live one) connects; TCP echo passes
-#   A3  client with ONLY relay1 (the dead one) fails to connect (negative)
+# Startup contract under test: every *configured* custom relay is probed
+# individually at startup and ALL of them must come online, so a dead relay in
+# the configured set is fatal even when another relay would work. Failover is a
+# RUNTIME property: once a process has started, losing a relay is survivable and
+# the peer re-homes onto a surviving one.
 #
-# Phase B - relay offline AFTER client/server are connected:
-#   B1  both relays up; client with both relays connects; TCP echo passes
-#   B2  the relay carrying the connection is killed; a restarted client
-#       reconnects via the surviving relay once the server re-homes
-#       (iroh re-probes relays every ~20-26s); TCP echo passes
-#   B3  the surviving relay is killed too (both down); a new client fails
-#       to connect (negative)
-#   B4  both relays are restarted; a new client eventually connects again
+# Phase A - relay offline BEFORE startup (the per-relay startup probe):
+#   A0  both relays down; server configured with BOTH ..... startup fails (negative)
+#   A1  only relay2 up; server configured with BOTH ....... startup fails (negative)
+#   A2  only relay2 up; server AND client configured with
+#       ONLY relay2 ......................................  connects; TCP echo passes
+#   A3  same server; client configured with BOTH .......... startup fails (negative)
+#   A4  same server; client configured with ONLY the dead
+#       relay1 ...........................................  startup fails (negative)
+#
+# Phase B - relay offline AFTER startup (runtime failover):
+#   B1  both relays up; server and client with both relays; connects; TCP echo passes
+#   B2  the relay carrying the connection is killed; the server stays up and a
+#       restarted client configured with ONLY the survivor reconnects once the
+#       server re-homes (iroh re-probes relays every ~20-26s); TCP echo passes
+#   B3  the surviving relay is killed too (both down); a new client fails (negative)
+#   B4  both relays are restarted; a new client with both relays connects again
 #       (server relay reconnect + re-home); TCP echo passes
 #
 # Requirements: iroh-relay (cargo install iroh-relay), uv, python3.
@@ -223,7 +229,7 @@ stop_relay() {
 SERVER_PID=""
 SERVER_LOG=""
 
-# Start the tunnel server; always configured with BOTH relays, relay-only.
+# Start the tunnel server in relay-only mode. Args: <relay_url>...
 start_server() {
     SERVER_LOG="$WORK/server.$(date +%s%N).log"
     local config
@@ -239,12 +245,39 @@ iroh = {
     "relay_urls": sys.argv[2:],
 }
 print(json.dumps({"role": "server", "mode": "iroh", "iroh": iroh}))
-' "$WORK/authorized_keys" "$RELAY1_URL" "$RELAY2_URL"
+' "$WORK/authorized_keys" "$@"
     )"
     printf '%s\n' "$config" |
         setsid "$BIN" server --config-stdin --relay-only >"$SERVER_LOG" 2>&1 &
     SERVER_PID=$!
     PIDS+=("$SERVER_PID")
+}
+
+# Start a server that is EXPECTED to fail its startup relay probe. Passes when
+# the process reports the failure and never becomes ready. Args: <relay_url>...
+expect_server_start_failure() {
+    local rc=0
+    start_server "$@"
+    wait_for_log_or_death "$SERVER_PID" "$SERVER_LOG" \
+        "failed to come online" "$READY_TIMEOUT" || rc=$?
+    # rc 0 (error logged) or 2 (process died after logging) both mean it gave
+    # up; verify it never became ready.
+    if grep -Eq "Waiting for clients to connect" "$SERVER_LOG"; then
+        rc=1
+    elif [[ "$rc" -eq 2 ]]; then
+        rc=0
+    fi
+    stop_server
+    return "$rc"
+}
+
+# Start a server that is EXPECTED to come up. Args: <relay_url>...
+expect_server_ready() {
+    local rc=0
+    start_server "$@"
+    wait_for_log_or_death "$SERVER_PID" "$SERVER_LOG" \
+        "Waiting for clients to connect" "$READY_TIMEOUT" || rc=1
+    return "$rc"
 }
 
 stop_server() {
@@ -370,45 +403,38 @@ PIDS+=("$!")
 wait_for_log "$WORK/echo_tcp.log" "READY tcp" 30
 
 # ===========================================================================
-# Phase A - relays offline BEFORE client/server connect
+# Phase A - relays offline BEFORE startup (the per-relay startup probe)
 # ===========================================================================
 
-scenario A0 "both relays down: server fails to come online"
+scenario A0 "both relays down: server configured with both fails to start"
 rc=0
-start_server
-wait_for_log_or_death "$SERVER_PID" "$SERVER_LOG" \
-    "failed to come online" "$READY_TIMEOUT" || rc=$?
-# rc 0 (error logged) or 2 (process died after logging) both mean it gave up;
-# verify it never became ready.
-if grep -Eq "Waiting for clients to connect" "$SERVER_LOG"; then
-    rc=1
-elif [[ "$rc" -eq 2 ]]; then
-    rc=0
-fi
+expect_server_start_failure "$RELAY1_URL" "$RELAY2_URL" || rc=1
 record A0 "$rc"
-stop_server
 
-scenario A1 "relay1 down from the start: server homes on relay2, client with both relays connects"
+scenario A1 "relay1 down: server configured with BOTH relays still fails to start"
 start_relay 2
-start_server
 rc=0
-wait_for_log_or_death "$SERVER_PID" "$SERVER_LOG" "Waiting for clients to connect" "$READY_TIMEOUT" || rc=1
-if [[ "$rc" -eq 0 ]]; then
-    connect_and_echo 3 "$RELAY1_URL" "$RELAY2_URL" || rc=1
-fi
+expect_server_start_failure "$RELAY1_URL" "$RELAY2_URL" || rc=1
 record A1 "$rc"
-kill_pid "$CLIENT_PID"; CLIENT_PID=""
 
-scenario A2 "client configured with ONLY the live relay (relay2) connects"
+scenario A2 "server and client configured with ONLY the live relay (relay2) connect"
 rc=0
-connect_and_echo 3 "$RELAY2_URL" || rc=1
+expect_server_ready "$RELAY2_URL" || rc=1
+if [[ "$rc" -eq 0 ]]; then
+    connect_and_echo 3 "$RELAY2_URL" || rc=1
+fi
 record A2 "$rc"
 kill_pid "$CLIENT_PID"; CLIENT_PID=""
 
-scenario A3 "client configured with ONLY the dead relay (relay1) fails"
+scenario A3 "client configured with BOTH relays fails (relay1 is down)"
+rc=0
+expect_connect_failure "$RELAY1_URL" "$RELAY2_URL" || rc=1
+record A3 "$rc"
+
+scenario A4 "client configured with ONLY the dead relay (relay1) fails"
 rc=0
 expect_connect_failure "$RELAY1_URL" || rc=1
-record A3 "$rc"
+record A4 "$rc"
 
 stop_server
 stop_relay 2
@@ -420,9 +446,8 @@ stop_relay 2
 scenario B1 "both relays up: client with both relays connects"
 start_relay 1
 start_relay 2
-start_server
 rc=0
-wait_for_log_or_death "$SERVER_PID" "$SERVER_LOG" "Waiting for clients to connect" "$READY_TIMEOUT" || rc=1
+expect_server_ready "$RELAY1_URL" "$RELAY2_URL" || rc=1
 CONNECTED_RELAY_NUM=""
 if [[ "$rc" -eq 0 ]]; then
     connect_and_echo 3 "$RELAY1_URL" "$RELAY2_URL" || rc=1
@@ -438,16 +463,27 @@ if [[ "$rc" -eq 0 ]]; then
 fi
 record B1 "$rc"
 
-scenario B2 "kill the relay carrying the connection: restarted client fails over to the surviving relay"
+scenario B2 "kill the relay carrying the connection: server survives, client reconnects via the survivor"
 rc=0
 if [[ -n "$CONNECTED_RELAY_NUM" ]]; then
     SURVIVOR_NUM=$(( 3 - CONNECTED_RELAY_NUM ))
+    SURVIVOR_URL="$(eval echo "\$RELAY${SURVIVOR_NUM}_URL")"
     stop_relay "$CONNECTED_RELAY_NUM"
     # The old client's QUIC connection lingers until it times out; restart the
     # client instead (real deployments restart via a supervisor).
     kill_pid "$CLIENT_PID"; CLIENT_PID=""
-    # Server needs a net_report re-probe cycle (~20-26s) to re-home; retry.
-    connect_and_echo 6 "$RELAY1_URL" "$RELAY2_URL" || rc=1
+    # Losing a relay at runtime must NOT take the already-started server down;
+    # only the startup probe is strict.
+    if ! kill -0 "$SERVER_PID" 2>/dev/null; then
+        note "server exited when a relay died at runtime"
+        rc=1
+    fi
+    # The restarted client is configured with only the surviving relay: the
+    # startup probe would reject the dead one. The server needs a net_report
+    # re-probe cycle (~20-26s) to re-home onto it; retry.
+    if [[ "$rc" -eq 0 ]]; then
+        connect_and_echo 6 "$SURVIVOR_URL" || rc=1
+    fi
 else
     rc=1
 fi
@@ -458,7 +494,7 @@ scenario B3 "kill the surviving relay too (both down): new client fails"
 rc=0
 if [[ -n "${SURVIVOR_NUM:-}" ]]; then
     stop_relay "$SURVIVOR_NUM"
-    expect_connect_failure "$RELAY1_URL" "$RELAY2_URL" || rc=1
+    expect_connect_failure "$SURVIVOR_URL" || rc=1
 else
     rc=1
 fi
