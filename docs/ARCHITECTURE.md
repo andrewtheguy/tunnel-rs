@@ -98,34 +98,12 @@ graph TD
     style A4 fill:#FFCCBC
 ```
 
-### NAT Traversal Capabilities
+### NAT Traversal
 
-```mermaid
-graph LR
-    subgraph "NAT Types"
-        A[Full Cone]
-        B[Restricted Cone]
-        C[Port Restricted]
-        D[Symmetric]
-    end
-
-    subgraph "iroh"
-        E1[✓ Direct/Relay]
-        E2[✓ Direct/Relay]
-        E3[✓ Direct/Relay]
-        E4[✓ Relay]
-    end
-
-    A --> E1
-    B --> E2
-    C --> E3
-    D --> E4
-
-    style E1 fill:#C8E6C9
-    style E2 fill:#C8E6C9
-    style E3 fill:#C8E6C9
-    style E4 fill:#C8E6C9
-```
+Provided entirely by iroh and identical across tunnel-rs, ezvpn, and flextunnel:
+which NAT types reach a direct path, why symmetric NAT (and container overlays
+like Kubernetes) stay on the relay, and what that means for relay bandwidth. See
+[NAT traversal and the QUIC transport](https://github.com/flexaccessdev/iroh-common-architecture/blob/main/nat-traversal-and-transport.md).
 
 ---
 
@@ -474,38 +452,15 @@ graph TB
 
 ### Encryption Stack
 
-```mermaid
-graph TB
-    subgraph "Application Data"
-        A[TCP/UDP Payload]
-    end
-    
-    subgraph "QUIC Layer"
-        B[QUIC Stream Encryption]
-        C[TLS 1.3]
-        D[Per-Stream Keys]
-    end
-    
-    subgraph "Transport"
-        E[QUIC Packets]
-        F[Authenticated Encryption]
-    end
-    
-    subgraph "Network"
-        G[UDP Datagrams]
-    end
-    
-    A --> B
-    B --> C
-    C --> D
-    D --> E
-    E --> F
-    F --> G
-    
-    style C fill:#C8E6C9
-    style D fill:#C8E6C9
-    style F fill:#C8E6C9
-```
+All traffic is end-to-end encrypted by QUIC/TLS 1.3 between the two endpoints;
+relay operators forward ciphertext and see only connection metadata. The stack
+and its ALPN handling are iroh's and identical across tunnel-rs, ezvpn, and
+flextunnel — see
+[NAT traversal and the QUIC transport](https://github.com/flexaccessdev/iroh-common-architecture/blob/main/nat-traversal-and-transport.md#encryption-stack).
+
+What is specific to tunnel-rs is everything layered on top: the fixed ALPN
+`mf/4` and the Ed25519 challenge-response below, which authorize the *user*
+rather than the endpoint.
 
 ### Identity and Authentication
 
@@ -782,14 +737,13 @@ graph LR
 
 ### Endpoint (iroh)
 
-The `iroh::Endpoint` provides:
-
-- **Discovery**: Automatic peer discovery via Pkarr/DNS/mDNS (internet
-  discovery is disabled automatically when custom relays are configured;
-  clients then reach the server through relay hints)
-- **Relay**: Fallback relay servers for NAT traversal
-- **QUIC**: Built-in QUIC transport with hole punching
-- **Identity**: Ed25519-based peer identity and authentication
+`iroh::Endpoint` supplies discovery, NAT traversal, relay fallback, the QUIC
+transport, and Ed25519 endpoint identity. tunnel-rs configures it in
+`src/iroh_mode/endpoint.rs` and adds nothing to the transport itself. For what
+the endpoint does and how it behaves, see
+[NAT traversal and the QUIC transport](https://github.com/flexaccessdev/iroh-common-architecture/blob/main/nat-traversal-and-transport.md)
+and
+[relays and address lookup](https://github.com/flexaccessdev/iroh-common-architecture/blob/main/relays-and-address-lookup.md).
 
 ---
 
@@ -797,47 +751,27 @@ The `iroh::Endpoint` provides:
 
 ### Connection Establishment Times
 
-> **Note:** These are illustrative, environment-dependent ranges (network conditions, NAT type, relay availability, and DNS). Treat as rough guidance, not guarantees.
-
-```mermaid
-graph LR
-    subgraph "iroh"
-        A[Discovery: 1-3s]
-        B[Connection: 0.5-2s]
-        C[Total: 1.5-5s]
-    end
-
-    style C fill:#FFF9C4
-```
+Establishment timings (discovery, hole punching, relay fallback) are iroh's and
+shared across the three programs — see
+[performance characteristics](https://github.com/flexaccessdev/iroh-common-architecture/blob/main/nat-traversal-and-transport.md#performance-characteristics).
 
 ### Throughput Characteristics
 
+Specific to tunnel-rs's tunneling layer:
+
 - **TCP Tunneling**: Limited by QUIC stream flow control, congestion control, and optional ACK frequency tuning
 - **UDP Tunneling**: Additional framing overhead (2 bytes per packet)
-- **Relay Mode**: Higher latency, potentially lower throughput
-- **Direct Mode**: Near-native performance with encryption overhead
+
+Direct-vs-relay path performance is a property of the iroh transport — see
+[performance characteristics](https://github.com/flexaccessdev/iroh-common-architecture/blob/main/nat-traversal-and-transport.md#performance-characteristics).
 
 ---
 
 ## Error Handling
 
-### Connection Failures
-
-```mermaid
-graph TB
-    A[Connection Attempt] --> B{Success?}
-    B -->|Yes| C[Established]
-    B -->|No| E{Relay available?}
-
-    E -->|Yes| F[Fallback to relay]
-    E -->|No| G[Connection failed]
-
-    F --> C
-
-    style C fill:#C8E6C9
-    style F fill:#FFF9C4
-    style G fill:#FFCCBC
-```
+Connection establishment and its relay fallback are handled by iroh (see
+[NAT traversal and the QUIC transport](https://github.com/flexaccessdev/iroh-common-architecture/blob/main/nat-traversal-and-transport.md)).
+What follows is how tunnel-rs surfaces the outcome.
 
 ### Exit Codes (Client Mode)
 
@@ -882,7 +816,10 @@ Retry guidance:
 ## References
 
 - [iroh-common-architecture](https://github.com/flexaccessdev/iroh-common-architecture) —
-  shared iroh transport design for tunnel-rs, ezvpn, and flextunnel: relays and
-  address lookup, relay self-hosting, discovery findings, relay connection trace
+  shared iroh transport design for tunnel-rs, ezvpn, and flextunnel: [NAT
+  traversal and the QUIC transport](https://github.com/flexaccessdev/iroh-common-architecture/blob/main/nat-traversal-and-transport.md),
+  [relays and address lookup](https://github.com/flexaccessdev/iroh-common-architecture/blob/main/relays-and-address-lookup.md),
+  [relay self-hosting](https://github.com/flexaccessdev/iroh-common-architecture/blob/main/self-hosting.md),
+  the discovery findings, and the relay connection trace
 - [iroh Documentation](https://iroh.computer/)
 - [RFC 9000 - QUIC](https://datatracker.ietf.org/doc/html/rfc9000)
