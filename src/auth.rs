@@ -134,6 +134,20 @@ pub fn generate_challenge() -> Challenge {
 pub fn load_authorized_keys(path: &Path) -> Result<AuthorizedKeys> {
     let content = std::fs::read_to_string(path)
         .with_context(|| format!("Failed to read authorized keys file: {}", path.display()))?;
+    parse_authorized_keys(&content, &path.display().to_string())
+}
+
+/// Parse authorized-key entries from inline config values.
+///
+/// Each entry holds one authorized-keys line; blank lines and `#` comments are
+/// skipped just like in a file. `origin` names the config field in errors.
+pub fn parse_authorized_keys_entries(entries: &[String], origin: &str) -> Result<AuthorizedKeys> {
+    parse_authorized_keys(&entries.join("\n"), origin)
+}
+
+/// Parse authorized-key lines, labelling errors with `origin` (a file path or a
+/// config field name).
+fn parse_authorized_keys(content: &str, origin: &str) -> Result<AuthorizedKeys> {
     let mut keys = HashMap::new();
 
     for (index, line) in content.lines().enumerate() {
@@ -150,22 +164,16 @@ pub fn load_authorized_keys(path: &Path) -> Result<AuthorizedKeys> {
         let encoded = token.strip_prefix(PUBLIC_KEY_PREFIX).ok_or_else(|| {
             anyhow::anyhow!(
                 "Unsupported authorized key at {}:{}; expected '{}URLSAFE_BASE64[ comment]'",
-                path.display(),
+                origin,
                 line_number,
                 PUBLIC_KEY_PREFIX
             )
         })?;
 
-        let key_bytes = decode_public_key(encoded).with_context(|| {
-            format!("Invalid authorized key at {}:{}", path.display(), line_number)
-        })?;
-        VerifyingKey::from_bytes(&key_bytes).with_context(|| {
-            format!(
-                "Invalid Ed25519 public key at {}:{}",
-                path.display(),
-                line_number
-            )
-        })?;
+        let key_bytes = decode_public_key(encoded)
+            .with_context(|| format!("Invalid authorized key at {}:{}", origin, line_number))?;
+        VerifyingKey::from_bytes(&key_bytes)
+            .with_context(|| format!("Invalid Ed25519 public key at {}:{}", origin, line_number))?;
 
         keys.insert(key_bytes, comment.to_string());
     }
@@ -173,13 +181,22 @@ pub fn load_authorized_keys(path: &Path) -> Result<AuthorizedKeys> {
     Ok(AuthorizedKeys { keys })
 }
 
-/// Load a compact Ed25519 private key.
+/// Load a compact Ed25519 private key from a file.
 ///
-/// The file contains a short, versioned prefix followed by standard base64
+/// The file contains a short, versioned prefix followed by URL-safe base64
 /// encoding of the 32-byte private seed.
 pub fn load_private_key(path: &Path) -> Result<ClientAuthKey> {
     let content = std::fs::read_to_string(path)
         .with_context(|| format!("Failed to read private key file: {}", path.display()))?;
+    parse_private_key(&content, &path.display().to_string())
+}
+
+/// Parse a compact Ed25519 private key, labelling errors with `origin` (a file
+/// path or a config field name).
+///
+/// Accepts the same content as a private-key file, so an inline value may be
+/// either the bare token or the full generated file including its `#` comments.
+pub fn parse_private_key(content: &str, origin: &str) -> Result<ClientAuthKey> {
     let mut private_key_line = None;
     for line in content.lines() {
         let line = line.trim();
@@ -189,30 +206,29 @@ pub fn load_private_key(path: &Path) -> Result<ClientAuthKey> {
         if private_key_line.is_some() {
             anyhow::bail!(
                 "Invalid authentication private key in {}: multiple key lines",
-                path.display()
+                origin
             );
         }
         private_key_line = Some(line);
     }
-    let private_key_line = private_key_line.ok_or_else(|| {
-        anyhow::anyhow!("No authentication private key found in {}", path.display())
-    })?;
+    let private_key_line = private_key_line
+        .ok_or_else(|| anyhow::anyhow!("No authentication private key found in {}", origin))?;
     let encoded = private_key_line
         .strip_prefix(PRIVATE_KEY_PREFIX)
         .ok_or_else(|| {
             anyhow::anyhow!(
                 "Invalid authentication private key in {}: expected '{}' prefix",
-                path.display(),
+                origin,
                 PRIVATE_KEY_PREFIX
             )
         })?;
     let bytes = BASE64
         .decode(encoded)
-        .with_context(|| format!("Invalid base64 private key: {}", path.display()))?;
+        .with_context(|| format!("Invalid base64 private key: {}", origin))?;
     let bytes: [u8; 32] = bytes.try_into().map_err(|bytes: Vec<u8>| {
         anyhow::anyhow!(
             "Invalid private key in {}: expected 32 bytes, got {}",
-            path.display(),
+            origin,
             bytes.len()
         )
     })?;
@@ -421,6 +437,77 @@ mod tests {
             .verify_proof(&challenge, &private_key.public_key(), &signature)
             .unwrap();
         assert_eq!(comment, Some("user@example.com"));
+    }
+
+    #[test]
+    fn loads_inline_keys_and_preserves_comment() {
+        let signing_key = SigningKey::from_bytes(&[42; 32]);
+        let public_key = BASE64.encode(signing_key.verifying_key().to_bytes());
+        let authorized_keys = parse_authorized_keys_entries(
+            &[
+                "# tunnel-rs clients".to_string(),
+                String::new(),
+                format!("{}{} user@example.com", PUBLIC_KEY_PREFIX, public_key),
+            ],
+            "[iroh].authorized_keys",
+        )
+        .unwrap();
+        // A bare token, without the surrounding key-file comments.
+        let private_key = parse_private_key(
+            &format!("{}{}", PRIVATE_KEY_PREFIX, BASE64.encode([42; 32])),
+            "[iroh].private_key",
+        )
+        .unwrap();
+        let challenge = [11; CHALLENGE_LENGTH];
+        let signature = private_key.sign_challenge(&challenge);
+
+        assert_eq!(authorized_keys.len(), 1);
+        assert_eq!(
+            authorized_keys
+                .verify_proof(&challenge, &private_key.public_key(), &signature)
+                .unwrap(),
+            Some("user@example.com")
+        );
+    }
+
+    #[test]
+    fn inline_private_key_accepts_a_whole_key_file() {
+        let (private_key, authorized_key) = generate_keypair("alice laptop").unwrap();
+        // `super::` — the test module has its own `private_key_file` fixture.
+        let parsed = parse_private_key(
+            &super::private_key_file(&authorized_key, &private_key),
+            "[iroh].private_key",
+        )
+        .unwrap();
+        let authorized_keys =
+            parse_authorized_keys_entries(&[authorized_key], "[iroh].authorized_keys").unwrap();
+        let challenge = [12; CHALLENGE_LENGTH];
+        let signature = parsed.sign_challenge(&challenge);
+
+        assert_eq!(
+            authorized_keys
+                .verify_proof(&challenge, &parsed.public_key(), &signature)
+                .unwrap(),
+            Some("alice laptop")
+        );
+    }
+
+    #[test]
+    fn inline_key_errors_name_the_config_field() {
+        let error = parse_authorized_keys_entries(
+            &["ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC comment".to_string()],
+            "[iroh].authorized_keys",
+        )
+        .unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("at [iroh].authorized_keys:1"));
+
+        let error = parse_private_key(&BASE64.encode([42; 32]), "[iroh].private_key").unwrap_err();
+        assert!(error.to_string().contains("in [iroh].private_key"));
+
+        let error = parse_private_key("", "[iroh].private_key").unwrap_err();
+        assert!(error.to_string().contains("No authentication private key"));
     }
 
     #[test]

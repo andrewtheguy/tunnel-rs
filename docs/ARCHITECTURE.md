@@ -385,9 +385,16 @@ authorized_keys_file = "/etc/tunnel-rs/authorized_keys"
 private_key_file = "~/.config/tunnel-rs/client.key"
 ```
 
+A JSON stdin config may instead carry the keys themselves — `authorized_keys`
+(an array of authorized-keys lines) on the server and `private_key` (the bare
+token or a whole key file) on the client. Those inline forms are rejected in
+TOML, where they would outlive the process in VCS and backups.
+
 ### Configuration Loading Flow
 
 For normal usage, prefer file-based configs (`-c`, `--default-config`) which use TOML — settings are saved and reusable. The `--config-stdin` flag is intended for automation and IPC only; it uses JSON because JSON is self-delimiting — `serde_json::from_reader` parses exactly one JSON object and returns without waiting for EOF, allowing the caller to keep stdin open. Config passed via stdin is not persisted.
+
+Both formats reject unknown fields, so a misspelled key fails at startup instead of silently doing nothing.
 
 ```mermaid
 sequenceDiagram
@@ -432,15 +439,15 @@ graph TB
     B -->|No| C[Error: Role mismatch]
     B -->|Yes| F{Check sections}
 
-    F --> G{Extra sections?}
-    G -->|Yes| H[Ignored by parser]
+    F --> G{Unknown fields?}
+    G -->|Yes| H[Error: unknown field]
     G -->|No| I{Required fields?}
 
     I -->|Missing| J[Error: Missing field]
     I -->|Present| K[Validation Success]
 
     style C fill:#FFCCBC
-    style H fill:#FFF9C4
+    style H fill:#FFCCBC
     style J fill:#FFCCBC
     style K fill:#C8E6C9
 ```

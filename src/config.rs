@@ -20,9 +20,11 @@ use std::path::{Path, PathBuf};
 /// iroh transport configuration (multi-source).
 ///
 /// Some fields are role-specific (enforced by validate()):
-/// - Server-only: `allowed_sources`, `max_sessions`, `authorized_keys_file`, `secret`, `secret_file`
-/// - Client-only: `request_source`, `target`, `server_node_id`, `private_key_file`
+/// - Server-only: `allowed_sources`, `max_sessions`, `authorized_keys_file`, `authorized_keys`,
+///   `secret`, `secret_file`
+/// - Client-only: `request_source`, `target`, `server_node_id`, `private_key_file`, `private_key`
 #[derive(Deserialize, Default, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct IrohConfig {
     /// Path to secret key file for persistent server identity (server only)
     pub secret_file: Option<PathBuf>,
@@ -45,8 +47,16 @@ pub struct IrohConfig {
     pub max_sessions: Option<usize>,
     /// Path to an SSH-style authorized-keys file containing Ed25519 public keys (server only).
     pub authorized_keys_file: Option<PathBuf>,
+    /// Inline authorized-keys entries, one per array element (server only).
+    /// Same syntax as a line of `authorized_keys_file`. Stdin configs only;
+    /// config files must use `authorized_keys_file`.
+    pub authorized_keys: Option<Vec<String>>,
     /// Path to a compact tunnel-rs Ed25519 private key (client only).
     pub private_key_file: Option<PathBuf>,
+    /// Inline compact tunnel-rs Ed25519 private key (client only).
+    /// Accepts the bare `tunnelrsv1authsecret:` token or the whole generated key
+    /// file. Stdin configs only; config files must use `private_key_file`.
+    pub private_key: Option<String>,
     /// Source URL to request from server (client only).
     /// Format: tcp://host:port or udp://host:port
     #[serde(alias = "source")]
@@ -60,13 +70,25 @@ pub struct IrohConfig {
 }
 
 impl IrohConfig {
-    /// Inline endpoint identity secrets are allowed for stdin automation but
-    /// not in persistent TOML files.
-    fn reject_plaintext_secret(&self) -> Result<()> {
+    /// Inline keys are allowed for stdin automation but not in persistent TOML
+    /// files, where they would leak into VCS and backups.
+    fn reject_inline_keys(&self) -> Result<()> {
         if self.secret.is_some() {
             anyhow::bail!(
                 "[iroh] Plaintext 'secret' is not allowed in config files. \
                  Use 'secret_file' or set TUNNEL_RS_SECRET."
+            );
+        }
+        if self.private_key.is_some() {
+            anyhow::bail!(
+                "[iroh] Inline 'private_key' is not allowed in config files. \
+                 Use 'private_key_file', or pass it in a --config-stdin JSON config."
+            );
+        }
+        if self.authorized_keys.is_some() {
+            anyhow::bail!(
+                "[iroh] Inline 'authorized_keys' is not allowed in config files. \
+                 Use 'authorized_keys_file', or pass them in a --config-stdin JSON config."
             );
         }
         Ok(())
@@ -76,6 +98,7 @@ impl IrohConfig {
 /// Allowed source networks for client-requested source feature.
 /// Separate CIDR lists for TCP and UDP protocols.
 #[derive(Deserialize, Default, Clone)]
+#[serde(deny_unknown_fields)]
 pub struct AllowedSources {
     /// Allowed TCP source networks (CIDR notation, e.g., "127.0.0.0/8", "::1/128")
     #[serde(default)]
@@ -133,6 +156,7 @@ pub const DEFAULT_SEND_WINDOW: u32 = 64 * 1024 * 1024;
 ///
 /// These settings affect performance and memory usage of the QUIC transport layer.
 #[derive(Deserialize, Default, Clone, Debug, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct TransportTuning {
     /// Congestion controller algorithm (default: cubic).
     /// Options: cubic, bbr, newreno
@@ -166,6 +190,7 @@ pub struct TransportTuning {
 
 /// Unified server configuration.
 #[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct ServerConfig {
     // Validation field
     pub role: Option<Role>,
@@ -179,6 +204,7 @@ pub struct ServerConfig {
 
 /// Unified client configuration.
 #[derive(Deserialize, Default)]
+#[serde(deny_unknown_fields)]
 pub struct ClientConfig {
     // Validation field
     pub role: Option<Role>,
@@ -350,13 +376,21 @@ impl ServerConfig {
 
         if let Some(ref iroh) = self.iroh {
             if source == ConfigSource::File {
-                iroh.reject_plaintext_secret()?;
+                iroh.reject_inline_keys()?;
             }
             if iroh.secret.is_some() && iroh.secret_file.is_some() {
                 anyhow::bail!("[iroh] Use only one of 'secret' or 'secret_file'.");
             }
-            if iroh.private_key_file.is_some() {
-                anyhow::bail!("[iroh] 'private_key_file' is a client-only field.");
+            if iroh.authorized_keys.is_some() && iroh.authorized_keys_file.is_some() {
+                anyhow::bail!("[iroh] Use only one of 'authorized_keys' or 'authorized_keys_file'.");
+            }
+            if let Some(ref keys) = iroh.authorized_keys
+                && keys.is_empty()
+            {
+                anyhow::bail!("[iroh] 'authorized_keys' is empty. List at least one public key.");
+            }
+            if iroh.private_key_file.is_some() || iroh.private_key.is_some() {
+                anyhow::bail!("[iroh] 'private_key' / 'private_key_file' are client-only fields.");
             }
             if iroh.request_source.is_some() || iroh.target.is_some() {
                 anyhow::bail!(
@@ -390,7 +424,7 @@ impl ClientConfig {
     }
 
     /// Validate that config matches the expected role.
-    pub fn validate(&self, _source: ConfigSource) -> Result<()> {
+    pub fn validate(&self, source: ConfigSource) -> Result<()> {
         let role = self
             .role
             .context("Config file missing required 'role' field. Add: role = \"client\"")?;
@@ -399,6 +433,12 @@ impl ClientConfig {
         }
 
         if let Some(ref iroh) = self.iroh {
+            if source == ConfigSource::File {
+                iroh.reject_inline_keys()?;
+            }
+            if iroh.private_key.is_some() && iroh.private_key_file.is_some() {
+                anyhow::bail!("[iroh] Use only one of 'private_key' or 'private_key_file'.");
+            }
             if iroh.allowed_sources.is_some() {
                 anyhow::bail!(
                     "[iroh] 'allowed_sources' is a server-only field. \
@@ -408,8 +448,10 @@ impl ClientConfig {
             if iroh.max_sessions.is_some() {
                 anyhow::bail!("[iroh] 'max_sessions' is a server-only field.");
             }
-            if iroh.authorized_keys_file.is_some() {
-                anyhow::bail!("[iroh] 'authorized_keys_file' is a server-only field.");
+            if iroh.authorized_keys_file.is_some() || iroh.authorized_keys.is_some() {
+                anyhow::bail!(
+                    "[iroh] 'authorized_keys' / 'authorized_keys_file' are server-only fields."
+                );
             }
             if iroh.secret.is_some() || iroh.secret_file.is_some() {
                 anyhow::bail!(
@@ -532,6 +574,15 @@ mod tests {
         }
     }
 
+    /// `unwrap_err` would need `Debug` on the config, which the config types
+    /// deliberately lack so inline keys can never be printed.
+    fn parse_error<T, E: std::fmt::Display>(result: std::result::Result<T, E>) -> String {
+        match result {
+            Ok(_) => panic!("expected a parse error"),
+            Err(err) => err.to_string(),
+        }
+    }
+
     fn server_config_with_iroh(iroh: IrohConfig) -> ServerConfig {
         ServerConfig {
             role: Some(Role::Server),
@@ -577,5 +628,160 @@ mod tests {
         });
         let err = cfg.validate(ConfigSource::File).unwrap_err();
         assert!(err.to_string().contains("server-only"));
+    }
+
+    #[test]
+    fn client_rejects_inline_private_key_from_file() {
+        let cfg = client_config_with_iroh(IrohConfig {
+            private_key: Some("tunnelrsv1authsecret:key".into()),
+            ..Default::default()
+        });
+        let err = cfg.validate(ConfigSource::File).unwrap_err();
+        assert!(err.to_string().contains("Inline 'private_key'"));
+    }
+
+    #[test]
+    fn client_allows_inline_private_key_from_stdin() {
+        let cfg = client_config_with_iroh(IrohConfig {
+            private_key: Some("tunnelrsv1authsecret:key".into()),
+            ..Default::default()
+        });
+        assert!(cfg.validate(ConfigSource::Stdin).is_ok());
+    }
+
+    #[test]
+    fn client_rejects_both_private_key_forms() {
+        let cfg = client_config_with_iroh(IrohConfig {
+            private_key: Some("tunnelrsv1authsecret:key".into()),
+            private_key_file: Some("client.key".into()),
+            ..Default::default()
+        });
+        let err = cfg.validate(ConfigSource::Stdin).unwrap_err();
+        assert!(err.to_string().contains("only one of 'private_key'"));
+    }
+
+    #[test]
+    fn server_rejects_inline_authorized_keys_from_file() {
+        let cfg = server_config_with_iroh(IrohConfig {
+            authorized_keys: Some(vec!["tunnelrsv1authpub:key".into()]),
+            ..Default::default()
+        });
+        let err = cfg.validate(ConfigSource::File).unwrap_err();
+        assert!(err.to_string().contains("Inline 'authorized_keys'"));
+    }
+
+    #[test]
+    fn server_allows_inline_authorized_keys_from_stdin() {
+        let cfg = server_config_with_iroh(IrohConfig {
+            authorized_keys: Some(vec!["tunnelrsv1authpub:key".into()]),
+            ..Default::default()
+        });
+        assert!(cfg.validate(ConfigSource::Stdin).is_ok());
+    }
+
+    #[test]
+    fn server_rejects_both_authorized_keys_forms() {
+        let cfg = server_config_with_iroh(IrohConfig {
+            authorized_keys: Some(vec!["tunnelrsv1authpub:key".into()]),
+            authorized_keys_file: Some("authorized_keys".into()),
+            ..Default::default()
+        });
+        let err = cfg.validate(ConfigSource::Stdin).unwrap_err();
+        assert!(err.to_string().contains("only one of 'authorized_keys'"));
+    }
+
+    #[test]
+    fn server_rejects_empty_inline_authorized_keys() {
+        let cfg = server_config_with_iroh(IrohConfig {
+            authorized_keys: Some(Vec::new()),
+            ..Default::default()
+        });
+        let err = cfg.validate(ConfigSource::Stdin).unwrap_err();
+        assert!(err.to_string().contains("is empty"));
+    }
+
+    #[test]
+    fn server_rejects_client_inline_private_key() {
+        let cfg = server_config_with_iroh(IrohConfig {
+            private_key: Some("tunnelrsv1authsecret:key".into()),
+            ..Default::default()
+        });
+        let err = cfg.validate(ConfigSource::Stdin).unwrap_err();
+        assert!(err.to_string().contains("client-only"));
+    }
+
+    #[test]
+    fn client_rejects_server_inline_authorized_keys() {
+        let cfg = client_config_with_iroh(IrohConfig {
+            authorized_keys: Some(vec!["tunnelrsv1authpub:key".into()]),
+            ..Default::default()
+        });
+        let err = cfg.validate(ConfigSource::Stdin).unwrap_err();
+        assert!(err.to_string().contains("server-only"));
+    }
+
+    #[test]
+    fn unknown_toml_fields_are_rejected() {
+        let cases = [
+            "role = \"client\"\nrelay_only = true\n",
+            "role = \"client\"\n[iroh]\nsecrete_file = \"x\"\n",
+            "role = \"client\"\n[iroh.transport]\nsend_windows = 2048\n",
+        ];
+        for case in cases {
+            let err = parse_error(toml::from_str::<ClientConfig>(case));
+            assert!(
+                err.contains("unknown field"),
+                "expected unknown field error for {case:?}, got: {err}"
+            );
+        }
+
+        let err = parse_error(toml::from_str::<ServerConfig>(
+            "role = \"server\"\n[iroh.allowed_sources]\ntpc = [\"127.0.0.0/8\"]\n",
+        ));
+        assert!(err.contains("unknown field"), "got: {err}");
+    }
+
+    /// The shipped examples are the reference for every documented field, so
+    /// `deny_unknown_fields` must accept them verbatim.
+    #[test]
+    fn example_configs_parse() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let server = std::fs::read_to_string(root.join("server.toml.example")).unwrap();
+        let client = std::fs::read_to_string(root.join("client.toml.example")).unwrap();
+
+        toml::from_str::<ServerConfig>(&server)
+            .unwrap_or_else(|err| panic!("server.toml.example: {err}"))
+            .validate(ConfigSource::File)
+            .unwrap();
+        toml::from_str::<ClientConfig>(&client)
+            .unwrap_or_else(|err| panic!("client.toml.example: {err}"))
+            .validate(ConfigSource::File)
+            .unwrap();
+    }
+
+    #[test]
+    fn unknown_stdin_json_fields_are_rejected() {
+        let err = parse_error(serde_json::from_str::<ServerConfig>(
+            r#"{"role":"server","iroh":{"authorised_keys":["k"]}}"#,
+        ));
+        assert!(err.contains("unknown field"), "got: {err}");
+    }
+
+    #[test]
+    fn stdin_json_accepts_inline_keys() {
+        let cfg: ClientConfig = serde_json::from_str(
+            r#"{"role":"client","iroh":{"private_key":"tunnelrsv1authsecret:key"}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            cfg.iroh().unwrap().private_key.as_deref(),
+            Some("tunnelrsv1authsecret:key")
+        );
+
+        let cfg: ServerConfig = serde_json::from_str(
+            r#"{"role":"server","iroh":{"authorized_keys":["tunnelrsv1authpub:a","tunnelrsv1authpub:b c"]}}"#,
+        )
+        .unwrap();
+        assert_eq!(cfg.iroh().unwrap().authorized_keys.as_ref().unwrap().len(), 2);
     }
 }
