@@ -46,16 +46,16 @@ tunnel-rs uses iroh for establishing tunnels, providing NAT traversal with relay
      Client Side                                            Server Side
 ```
 
-1. Server creates an iroh endpoint (with internet discovery on default relays; custom relays disable it and clients use relay hints instead)
-2. Server publishes its address via Pkarr/DNS (default relays only)
-3. Client resolves the server via discovery, or reaches it directly through the configured relays
-4. **QUIC handshake:** Connection uses the fixed ALPN `mf/4` shared by all peers
-5. **Authentication phase:** Client opens the dedicated auth stream; the server sends a fresh random challenge
-6. **Client proves key possession:** Client signs the domain-separated challenge and sends its public key and signature; the server checks the key against `authorized_keys` and verifies the signature (10s timeout)
-   - *If authentication fails, the connection is closed and steps 7–9 do not occur*
-7. **Source request phase:** Client opens source stream with `SourceRequest`
-8. Server validates source against allowed networks and responds
-9. If accepted, traffic forwarding begins
+1. **Transport:** Client and server find each other and connect over iroh — see
+   [relays and address lookup](https://github.com/flexaccessdev/iroh-common-architecture/blob/main/relays-and-address-lookup.md)
+   for discovery, relays, and NAT traversal
+2. **QUIC handshake:** Connection uses the fixed ALPN `mf/4` shared by all peers
+3. **Authentication phase:** Client opens the dedicated auth stream; the server sends a fresh random challenge
+4. **Client proves key possession:** Client signs the domain-separated challenge and sends its public key and signature; the server checks the key against `authorized_keys` and verifies the signature (10s timeout)
+   - *If authentication fails, the connection is closed and steps 5–7 do not occur*
+5. **Source request phase:** Client opens source stream with `SourceRequest`
+6. Server validates source against allowed networks and responds
+7. If accepted, traffic forwarding begins
 
 > See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed diagrams and technical deep-dives.
 
@@ -341,7 +341,7 @@ secret_file = "./server.key"
 
 ## Configuration Files
 
-Use `--default-config` to load from the default location, or `-c <path>` for a custom path (both TOML). For normal usage, prefer config files so your settings are saved and reusable. The third form, [`--config-stdin`](#json-config-via-stdin), is for automation. Only one of the three may be used at a time. All settings live in the `[iroh]` section.
+Use `--default-config` to load from the default location, or `-c <path>` for a custom path (both TOML). For normal usage, prefer config files so your settings are saved and reusable. The third form, [`--config-stdin`](#json-config-via-stdin), is for automation. Only one of the three may be used at a time. Whichever form you use, `role` (`"server"` or `"client"`) is a required **top-level** field that is checked against the subcommand; every other setting goes under the `[iroh]` section.
 
 > **Security:** Authentication private keys are referenced by path and are not embedded in TOML. The server endpoint `secret` is also rejected in TOML; use `secret_file` instead. Inline server endpoint secrets remain available only through `TUNNEL_RS_SECRET` or JSON `--config-stdin` automation.
 
@@ -609,17 +609,12 @@ the iroh transport docs shared with
 (the design). tunnel-rs is the **reference program for relay-only setups** — use
 its relay-only e2e script to validate a freshly deployed relay.
 
-Two behaviors to know before configuring relays:
+Two behaviors are worth reading up on before configuring relays, both covered in
+[relays and address lookup](https://github.com/flexaccessdev/iroh-common-architecture/blob/main/relays-and-address-lookup.md):
+custom relays disable internet discovery (configure **both** sides with the full
+relay list), and every configured relay must come online at startup or the
+process refuses to start.
 
-- **Custom relays disable internet discovery automatically.** Nothing is
-  published to or resolved from n0's public infrastructure, so the configured
-  relay URLs are the only way the two sides find each other — configure both
-  sides with the **full** relay list. The relays are connection *hints*, not a
-  transport choice: hole punching still runs, and traffic moves to a direct path
-  whenever one is available. Pass `--relay-only` (CLI-only) to force every byte
-  through the relays instead.
-- **Every configured relay is probed individually at startup, and all must come
-  online** or the process refuses to start. A dead backup relay is a startup
-  failure rather than a failover path that silently does not exist. Losing a
-  relay *after* startup is survivable — the endpoint re-homes onto a surviving
-  one within ~30s.
+The one tunnel-rs-specific knob is `--relay-only`, which forces every byte
+through the relays instead of attempting direct paths. It is **CLI-only** and not
+accepted in config files, to avoid accidental activation.

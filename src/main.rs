@@ -528,7 +528,7 @@ async fn run_inner() -> Result<()> {
                 anyhow::anyhow!("server_node_id is required. Provide via --server-node-id or in config file."),
             ))?;
             let source = source.ok_or_else(|| TunnelError::config(
-                anyhow::anyhow!("--source is required. Specify the source to request from server (e.g., --source tcp://127.0.0.1:22)"),
+                anyhow::anyhow!("Source is required. Provide via --source or [iroh].request_source in the config file (e.g., --source tcp://127.0.0.1:22)"),
             ))?;
             let target = target.ok_or_else(|| TunnelError::config(
                 anyhow::anyhow!("--target is required. Provide the local address to listen on (e.g., --target 127.0.0.1:2222)"),
