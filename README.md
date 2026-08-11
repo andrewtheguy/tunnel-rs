@@ -240,7 +240,9 @@ tunnelrsv1authsecret:<urlsafe-base64-private-seed>
 ```
 
 Both tokens carry unpadded [URL-safe base64](https://datatracker.ietf.org/doc/html/rfc4648#section-5)
-of 32 raw key bytes, so a key is a single copy-pasteable word.
+of 32 raw key bytes, so a key is a single copy-pasteable word. To reprint the
+public entry for a key you already have, use
+[`show-auth-key`](#show-auth-key).
 
 Add the generated public entry to the server's `authorized_keys` file. A single
 space separates the key from its comment, and the comment runs to end of line;
@@ -564,6 +566,26 @@ would make `authorized_keys` ignore the line. Either way, the server's
 `--json`, no file is written and both halves are emitted to stdout as one object
 — handy for feeding a `--config-stdin` config's inline `authorized_keys` /
 `private_key`.
+
+### show-auth-key
+
+Reprint the authorized-key entry for a key you already have — the client-side
+counterpart of `show-server-id`, for when the entry scrolled away or the server
+needs to be re-provisioned:
+
+```bash
+tunnel-rs show-auth-key --private-key-file ~/.config/tunnel-rs/client.key
+# Output: tunnelrsv1authpub:<urlsafe-base64-public-key> alice laptop
+
+# Machine-readable form
+tunnel-rs show-auth-key --private-key-file ./client.key --json
+# Output: {"authorized_key":"tunnelrsv1authpub:... alice laptop"}
+```
+
+The entry is derived from the private key itself. The comment is the one part
+that cannot be, so it is read from the key file's `# Public key:` header — pass
+`--comment` to replace it, and expect a bare key token from a file that has no
+header.
 
 ### generate-server-key
 

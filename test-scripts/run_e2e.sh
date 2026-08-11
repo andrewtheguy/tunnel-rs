@@ -272,6 +272,23 @@ if [[ ! "$(sed -n '4p' "$WORK/stdout.key")" =~ ^tunnelrsv1authsecret:[A-Za-z0-9_
 fi
 log "Compact key format, public-key comment, stdout default, and 0600 permissions: PASS"
 
+# show-auth-key reprints the entry, comment included, from the key file alone.
+if [[ "$("$BIN" show-auth-key --private-key-file "$WORK/client.key")" != "$AUTHORIZED_ENTRY" ]]; then
+    echo "ERROR: show-auth-key does not reproduce the generated authorized-key entry" >&2
+    exit 1
+fi
+if [[ "$("$BIN" show-auth-key --private-key-file "$WORK/client.key" --json)" \
+    != "{\"authorized_key\":\"$AUTHORIZED_ENTRY\"}" ]]; then
+    echo "ERROR: show-auth-key --json has an unexpected shape" >&2
+    exit 1
+fi
+if [[ "$("$BIN" show-auth-key --private-key-file "$WORK/client.key" --comment "renamed")" \
+    != "${AUTHORIZED_ENTRY% e2e client} renamed" ]]; then
+    echo "ERROR: show-auth-key --comment does not replace the key file's comment" >&2
+    exit 1
+fi
+log "Authorized-key entry recovery from a private key: PASS"
+
 # Server keys use the same layout: headers above the key, stdout by default.
 "$BIN" generate-server-key > "$WORK/server_stdout.key" 2> "$WORK/server_stdout.id"
 SERVER_STDOUT_ID="$(sed 's/^EndpointId: //' "$WORK/server_stdout.id")"

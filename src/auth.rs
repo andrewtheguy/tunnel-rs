@@ -244,12 +244,7 @@ pub fn parse_private_key(content: &str, origin: &str) -> Result<ClientAuthKey> {
 /// Fails when the comment contains a line break, which would split the entry
 /// across lines and forge a second authorized key.
 pub fn generate_keypair(comment: &str) -> Result<(String, String)> {
-    // The comment runs to end of line, so a line break is the one thing it
-    // cannot hold; everything else (including inner spaces) is preserved.
-    let comment = comment.trim();
-    if comment.contains(['\n', '\r']) {
-        anyhow::bail!("Authorized-key comment must not contain line breaks");
-    }
+    let comment = validate_comment(comment)?;
 
     let signing_key = SigningKey::from_bytes(&rand::random());
     let private_key = format!(
@@ -257,17 +252,41 @@ pub fn generate_keypair(comment: &str) -> Result<(String, String)> {
         PRIVATE_KEY_PREFIX,
         BASE64.encode(signing_key.to_bytes())
     );
-    let public_key = format!(
-        "{}{}",
-        PUBLIC_KEY_PREFIX,
-        BASE64.encode(signing_key.verifying_key().to_bytes())
+    let authorized_key = authorized_key_entry(
+        &public_key_token(&signing_key.verifying_key().to_bytes()),
+        comment,
     );
-    let authorized_key = if comment.is_empty() {
-        public_key
+    Ok((private_key, authorized_key))
+}
+
+/// Trim an authorized-key comment, rejecting line breaks.
+///
+/// The comment runs to end of line, so a line break is the one thing it cannot
+/// hold — it would split the entry across lines and forge a second authorized
+/// key. Everything else (including inner spaces) is preserved.
+fn validate_comment(comment: &str) -> Result<&str> {
+    let comment = comment.trim();
+    if comment.contains(['\n', '\r']) {
+        anyhow::bail!("Authorized-key comment must not contain line breaks");
+    }
+    Ok(comment)
+}
+
+/// The `tunnelrsv1authpub:` token for a raw public key.
+fn public_key_token(public_key: &PublicKeyBytes) -> String {
+    format!("{}{}", PUBLIC_KEY_PREFIX, BASE64.encode(public_key))
+}
+
+/// Join a public-key token and a comment into one authorized-keys line.
+///
+/// The caller has already rejected line breaks in `comment`; an empty comment
+/// leaves the bare token.
+fn authorized_key_entry(public_key: &str, comment: &str) -> String {
+    if comment.is_empty() {
+        public_key.to_string()
     } else {
         format!("{}{}{}", public_key, COMMENT_DELIMITER, comment)
-    };
-    Ok((private_key, authorized_key))
+    }
 }
 
 /// Render the private-key file for a freshly generated keypair.
@@ -379,6 +398,56 @@ pub fn generate_auth_key_json(comment: &str) -> Result<()> {
         })?
     );
     Ok(())
+}
+
+/// The authorized-key entry for an existing key, as printed by
+/// `show-auth-key --json`.
+#[derive(Serialize)]
+struct AuthKeyEntry {
+    authorized_key: String,
+}
+
+/// Print the authorized-keys entry for an existing private key file, the
+/// counterpart of `show-server-id` for client authentication keys.
+///
+/// The entry is derived from the private key itself, so it is right even when
+/// the file's `# Public key:` header has been edited. The comment is the one
+/// thing key material cannot yield, so it comes from that header unless
+/// `comment` supplies one.
+pub fn show_auth_key(path: &Path, comment: Option<&str>, json: bool) -> Result<()> {
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("Failed to read private key file: {}", path.display()))?;
+    let key = parse_private_key(&content, &path.display().to_string())?;
+    let public_key = public_key_token(&key.public_key());
+
+    let comment = match comment {
+        Some(comment) => validate_comment(comment)?.to_string(),
+        None => header_comment(&content, &public_key).unwrap_or_default(),
+    };
+    let authorized_key = authorized_key_entry(&public_key, &comment);
+
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string(&AuthKeyEntry { authorized_key })?
+        );
+    } else {
+        println!("{}", authorized_key);
+    }
+    Ok(())
+}
+
+/// Recover the comment from a key file's `# Public key:` header.
+///
+/// The header is only trusted for the comment, and only when it names the key
+/// the file actually holds — a stale header cannot pin someone else's comment
+/// onto this key.
+fn header_comment(content: &str, public_key: &str) -> Option<String> {
+    content.lines().find_map(|line| {
+        let header = line.trim().strip_prefix("# Public key:")?.trim_start();
+        let comment = header.strip_prefix(public_key)?;
+        Some(comment.strip_prefix(COMMENT_DELIMITER)?.trim().to_string())
+    })
 }
 
 fn decode_public_key(encoded: &str) -> Result<PublicKeyBytes> {
@@ -772,5 +841,59 @@ mod tests {
                 .unwrap(),
             Some("alice laptop")
         );
+    }
+
+    #[test]
+    fn shown_auth_key_matches_the_generated_entry_with_its_comment() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("client.key");
+        generate_auth_key(Some(&path), "alice laptop", false).unwrap();
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        let generated = content
+            .lines()
+            .find_map(|line| line.strip_prefix("# Public key: "))
+            .unwrap();
+        let key = load_private_key(&path).unwrap();
+        let public_key = public_key_token(&key.public_key());
+
+        assert_eq!(
+            authorized_key_entry(
+                &public_key,
+                &header_comment(&content, &public_key).unwrap_or_default()
+            ),
+            generated
+        );
+    }
+
+    #[test]
+    fn header_comment_is_ignored_when_it_names_another_key() {
+        let public_key = public_key_token(&[7; PUBLIC_KEY_LENGTH]);
+        let other_key = public_key_token(&[9; PUBLIC_KEY_LENGTH]);
+        let file = format!("# Public key: {} alice laptop\n", other_key);
+
+        assert_eq!(header_comment(&file, &public_key), None);
+        assert_eq!(header_comment(&file, &other_key).as_deref(), Some("alice laptop"));
+    }
+
+    #[test]
+    fn commentless_key_files_yield_the_bare_public_key() {
+        let public_key = public_key_token(&[7; PUBLIC_KEY_LENGTH]);
+
+        // No header at all, and a header holding the token by itself.
+        assert_eq!(header_comment("", &public_key), None);
+        let file = format!("# Public key: {}\n", public_key);
+        assert_eq!(header_comment(&file, &public_key), None);
+        assert_eq!(authorized_key_entry(&public_key, ""), public_key);
+    }
+
+    #[test]
+    fn shown_auth_key_serializes_with_the_authorized_key() {
+        let value = serde_json::to_value(AuthKeyEntry {
+            authorized_key: "abc".to_string(),
+        })
+        .unwrap();
+
+        assert_eq!(value["authorized_key"], "abc");
     }
 }

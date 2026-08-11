@@ -369,6 +369,9 @@ Example usage with files (recommended):
 # Alice — generate a compact private key and capture its public entry
 tunnel-rs generate-auth-key --output alice.key --comment alice > alice.pub
 
+# Alice — reprint that entry later, straight from the private key
+tunnel-rs show-auth-key --private-key-file ./alice.key
+
 # Server — authorize the public entry
 cat alice.pub >> authorized_keys
 tunnel-rs server --authorized-keys-file ./authorized_keys ...
