@@ -20,9 +20,10 @@ spec:
       labels:
         app: tunnel-server
     spec:
-      # Node network namespace, so hole punching can find a direct path instead
-      # of relaying; ClusterFirstWithHostNet keeps *.svc.cluster.local resolvable.
-      # Trade-off (network policies do not apply): ../README.md#hostnetwork-and-direct-connections
+      # Node network namespace, giving hole punching a chance at a direct path;
+      # ClusterFirstWithHostNet keeps *.svc.cluster.local resolvable.
+      # Whether you need this, and the NetworkPolicy trade-off, are CNI-dependent:
+      # ../README.md#hostnetwork-and-direct-connections
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet
       containers:

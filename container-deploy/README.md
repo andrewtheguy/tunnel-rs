@@ -157,10 +157,11 @@ The deployment sets `hostNetwork: true` with
 
 - **`hostNetwork: true`** puts the pod in the *node's* network namespace rather
   than the pod's, so address discovery sees the node's real external address and
-  hole punching can work. Kubernetes overlay networking is the classic case where
-  it usually cannot — see
-  [symmetric NAT and container overlays](https://github.com/flexaccessdev/iroh-common-architecture/blob/main/nat-traversal-and-transport.md#symmetric-nat-and-container-overlays)
-  for why.
+  hole punching has a chance to work. Whether it was blocked in the first place
+  depends on your CNI and kube-proxy mode, not on Kubernetes as such — some
+  clusters hole-punch from inside a normal pod just fine. See
+  [Kubernetes and container networking](https://github.com/flexaccessdev/iroh-common-architecture/blob/main/nat-traversal-and-transport.md#kubernetes-and-container-networking)
+  before assuming you need this.
 - **`dnsPolicy: ClusterFirstWithHostNet`** is required to keep resolving cluster
   DNS names such as `service.namespace.svc.cluster.local`. Without it a
   hostNetwork pod inherits the node's `/etc/resolv.conf` and cannot resolve
@@ -170,11 +171,15 @@ The deployment sets `hostNetwork: true` with
 > A hostNetwork pod still reaches ClusterIP services and pod IPs: kube-proxy
 > rules and CNI routes are installed at the node level, so it inherits them.
 
-**The trade-off is network policy.** With `hostNetwork: true`, traffic appears
-node-originated and Kubernetes network policies do not apply to it. If you need
-policy enforcement — multi-tenant clusters especially — drop both fields from the
-deployment. The pod then runs on overlay networking, where hole punching usually
-fails and connections fall back to a relay. That works, but every byte takes an
-extra hop, so consider a
+**The trade-off is network policy.** With `hostNetwork: true` traffic appears
+node-originated, and `NetworkPolicy` enforcement for host-network pods is
+plugin-dependent — several CNIs do not apply pod policies to it at all. Check
+your CNI's documentation rather than assuming it still applies.
+
+If you need guaranteed policy enforcement — multi-tenant clusters especially —
+drop both fields from the deployment. The pod then runs on the cluster's normal
+pod networking, where hole punching may or may not succeed depending on the CNI;
+if it doesn't, connections fall back to a relay. That works, but every byte takes
+an extra hop, so consider a
 [self-hosted relay](https://github.com/flexaccessdev/iroh-common-architecture/blob/main/self-hosting.md)
 near the cluster to keep the latency cost down.
