@@ -331,9 +331,9 @@ graph TB
         C[server_node_id<br/>client only]
         D[request_source / target<br/>client only]
         E[allowed_sources / max_sessions<br/>server only]
-        F[secret_file / secret<br/>server only]
-        G[authorized_keys_file<br/>server only]
-        H[private_key_file<br/>client only]
+        F[secret_file / secret*<br/>server only]
+        G[authorized_keys_file / authorized_keys*<br/>server only]
+        H[private_key_file / private_key*<br/>client only]
         I[relay_urls]
         J[transport<br/>cc + window sizes + ACK threshold]
     end
@@ -350,6 +350,10 @@ graph TB
 
     style S fill:#FFF9C4
 ```
+
+`*` marks the inline key forms: a TOML config file carries only the `_file`
+paths, while a JSON `--config-stdin` config may carry either. Every other field
+is the same in both formats.
 
 ### Credential Mapping
 

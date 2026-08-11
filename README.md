@@ -302,7 +302,7 @@ secret_file = "./server.key"
 | `--config-stdin` | false | Read JSON config from stdin for automation/IPC (use `-c` for normal usage) |
 | `--allowed-tcp` | - | Allowed TCP networks in CIDR notation (repeatable) |
 | `--allowed-udp` | - | Allowed UDP networks in CIDR notation (repeatable) |
-| `--authorized-keys-file` | required | Path to SSH-like file containing authorized Ed25519 public keys |
+| `--authorized-keys-file` | required | Path to SSH-like file containing authorized Ed25519 public keys. Required unless the keys come from `[iroh].authorized_keys_file` or, with `--config-stdin`, an inline `[iroh].authorized_keys` |
 | `--max-sessions` | 100 | Maximum concurrent sessions |
 | `--secret-file` | - | Path to secret key file for persistent server identity |
 | `--relay-url` | public | Custom relay server URL(s), repeatable. Every one must be reachable at startup |
@@ -327,7 +327,7 @@ secret_file = "./server.key"
 | `--server-node-id`, `-n` | required | EndpointId of the server |
 | `--source`, `-s` | required | Source address to request from server (tcp://host:port or udp://host:port) |
 | `--target`, `-t` | required | Local address to listen on |
-| `--private-key-file` | required | Path to compact Ed25519 authentication private key |
+| `--private-key-file` | required | Path to compact Ed25519 authentication private key. Required unless the key comes from `[iroh].private_key_file` or, with `--config-stdin`, an inline `[iroh].private_key` |
 | `--relay-url` | public | Custom relay server URL(s), repeatable. Every one must be reachable at startup |
 | `--relay-auth-token` | - | Shared bearer token for the custom relay(s); requires `--relay-url` |
 | `--relay-only` | false | Force all traffic through relay (CLI-only; not supported in config files) |
