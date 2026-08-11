@@ -222,7 +222,17 @@ pub fn load_private_key(path: &Path) -> Result<ClientAuthKey> {
 }
 
 /// Generate a compact private key and its matching authorized-key entry.
-pub fn generate_keypair(comment: &str) -> (String, String) {
+///
+/// Fails when the comment contains a line break, which would split the entry
+/// across lines and forge a second authorized key.
+pub fn generate_keypair(comment: &str) -> Result<(String, String)> {
+    // The comment runs to end of line, so a line break is the one thing it
+    // cannot hold; everything else (including inner spaces) is preserved.
+    let comment = comment.trim();
+    if comment.contains(['\n', '\r']) {
+        anyhow::bail!("Authorized-key comment must not contain line breaks");
+    }
+
     let signing_key = SigningKey::from_bytes(&rand::random());
     let private_key = format!(
         "{}{}",
@@ -234,15 +244,12 @@ pub fn generate_keypair(comment: &str) -> (String, String) {
         PUBLIC_KEY_PREFIX,
         BASE64.encode(signing_key.verifying_key().to_bytes())
     );
-    // The comment runs to end of line, so a newline is the one character it
-    // cannot hold; everything else (including inner spaces) is preserved.
-    let comment = comment.trim();
     let authorized_key = if comment.is_empty() {
         public_key
     } else {
         format!("{}{}{}", public_key, COMMENT_DELIMITER, comment)
     };
-    (private_key, authorized_key)
+    Ok((private_key, authorized_key))
 }
 
 /// Render the private-key file for a freshly generated keypair.
@@ -264,7 +271,7 @@ fn private_key_file(authorized_key: &str, private_key: &str) -> String {
 /// the whole private-key file goes to stdout and the authorized-key entry to
 /// stderr, so `generate-auth-key > client.key` works and still shows the entry.
 pub fn generate_auth_key(path: Option<&Path>, comment: &str, force: bool) -> Result<()> {
-    let (private_key, authorized_key) = generate_keypair(comment);
+    let (private_key, authorized_key) = generate_keypair(comment)?;
     let private_key_file = private_key_file(&authorized_key, &private_key);
 
     let Some(path) = path.filter(|path| path.as_os_str() != "-") else {
@@ -511,7 +518,7 @@ mod tests {
 
     #[test]
     fn keys_use_unpadded_url_safe_base64() {
-        let (private_key, authorized_key) = generate_keypair("");
+        let (private_key, authorized_key) = generate_keypair("").unwrap();
         let private_encoded = private_key.strip_prefix(PRIVATE_KEY_PREFIX).unwrap();
         let public_encoded = authorized_key.strip_prefix(PUBLIC_KEY_PREFIX).unwrap();
 
@@ -558,7 +565,7 @@ mod tests {
 
     #[test]
     fn generated_keypair_uses_compact_base64_format() {
-        let (private_key, authorized_key) = generate_keypair("alice laptop");
+        let (private_key, authorized_key) = generate_keypair("alice laptop").unwrap();
         let encoded = private_key.strip_prefix(PRIVATE_KEY_PREFIX).unwrap();
         let private_bytes = BASE64.decode(encoded).unwrap();
         assert_eq!(private_bytes.len(), 32);
@@ -566,6 +573,34 @@ mod tests {
         assert!(private_key.starts_with("tunnelrsv1authsecret:"));
         assert!(authorized_key.starts_with("tunnelrsv1authpub:"));
         assert!(authorized_key.ends_with(" alice laptop"));
+    }
+
+    #[test]
+    fn rejects_a_comment_that_would_forge_a_second_authorized_key() {
+        let injected = format!(
+            "alice\n{}{}",
+            PUBLIC_KEY_PREFIX,
+            BASE64.encode(SigningKey::from_bytes(&[7; 32]).verifying_key().to_bytes())
+        );
+
+        for comment in [injected.as_str(), "alice\r\nbob", "alice\rbob"] {
+            let error = generate_keypair(comment).unwrap_err();
+            assert!(error.to_string().contains("must not contain line breaks"));
+        }
+
+        // Surrounding whitespace is still trimmed rather than rejected.
+        let (_, authorized_key) = generate_keypair("\n  alice laptop \n").unwrap();
+        assert!(authorized_key.ends_with(" alice laptop"));
+        assert_eq!(authorized_key.lines().count(), 1);
+    }
+
+    #[test]
+    fn line_break_comment_writes_no_key_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("client.key");
+
+        assert!(generate_auth_key(Some(&path), "alice\nbob", false).is_err());
+        assert!(!path.exists());
     }
 
     #[test]
