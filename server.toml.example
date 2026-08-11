@@ -14,6 +14,8 @@ role = "server"
 [iroh]
 # Path to secret key file for persistent identity (required).
 # Generate with: tunnel-rs generate-server-key --output server.key
+# The generated file starts with '# created:' and '# EndpointId:' comments above
+# the key itself; comment lines are ignored when the key is loaded.
 #
 # SECURITY: Plaintext 'secret' is not allowed in config files.
 # Use 'secret_file' here (recommended). For containers/automation, set TUNNEL_RS_SECRET environment variable instead.

@@ -60,7 +60,7 @@ cd container-deploy/docker
 
 # 1. Generate the server key
 docker run --rm ghcr.io/andrewtheguy/tunnel-rs:v0.5.0 \
-  generate-server-key --output - > server.key
+  generate-server-key > server.key
 
 # 2. Generate a client auth key; the authorized-key entry goes to the server
 docker run --rm -v "$PWD:/keys" ghcr.io/andrewtheguy/tunnel-rs:v0.5.0 \

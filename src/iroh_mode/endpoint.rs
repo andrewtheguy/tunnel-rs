@@ -85,7 +85,18 @@ pub fn load_secret(path: &Path) -> Result<SecretKey> {
 }
 
 /// Load secret key from a base64-encoded string.
+///
+/// Accepts either the bare base64 key or a whole generated key file, whose
+/// leading `#` headers carry the creation time and EndpointId. Blank lines are
+/// ignored, so the same value works from a file, an inline `secret`, or
+/// `TUNNEL_RS_SECRET`.
 pub fn load_secret_from_string(base64_key: &str) -> Result<SecretKey> {
+    let base64_key = base64_key
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty() && !line.starts_with('#'))
+        .context("No secret key found (expected a base64 key line)")?;
+
     let bytes = BASE64
         .decode(base64_key)
         .context("Invalid base64 in secret key")?;
@@ -767,6 +778,36 @@ mod tests {
     use super::*;
 
     const RELAY: &str = "https://relay.example.com./";
+
+    #[test]
+    fn secret_key_headers_and_blank_lines_are_skipped() {
+        let secret = SecretKey::generate();
+        let base64_key = BASE64.encode(secret.to_bytes());
+        let key_file = format!(
+            "# created: 2026-08-11T00:00:00Z\n# EndpointId: {}\n\n{}\n",
+            secret.public(),
+            base64_key
+        );
+
+        assert_eq!(
+            load_secret_from_string(&key_file).unwrap().to_bytes(),
+            secret.to_bytes()
+        );
+        assert_eq!(
+            load_secret_from_string(&base64_key).unwrap().to_bytes(),
+            secret.to_bytes()
+        );
+    }
+
+    #[test]
+    fn secret_key_with_only_headers_is_rejected() {
+        let error = load_secret_from_string("# created: 2026-08-11T00:00:00Z\n")
+            .expect_err("a file without a key line must be rejected");
+        assert!(
+            error.to_string().contains("No secret key found"),
+            "unexpected error: {error}"
+        );
+    }
 
     #[test]
     fn empty_urls_no_token_is_default() {

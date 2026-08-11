@@ -556,7 +556,7 @@ sequenceDiagram
 - A new random challenge prevents replaying a proof from another connection.
 - Domain separation prevents the signature from being valid for an unrelated Ed25519 protocol.
 - Removing a public entry from `authorized_keys` revokes that client after the server is restarted.
-- Compact private-key files are created with `0600` permissions on Unix and include their public entry as a comment for administration.
+- Compact private-key files are created with `0600` permissions on Unix and include their public entry as a comment for administration. Server secret key files carry the same headers, naming their EndpointId; comment lines are skipped when a key is loaded, so a whole key file is also accepted as an inline `secret`.
 - The fixed `mf/4` ALPN is not a secret and is unchanged by the authentication mechanism.
 
 ### Threat Model
@@ -603,7 +603,7 @@ sequenceDiagram
         User->>CLI: generate-server-key --output server.key
         CLI->>Secret: Generate Ed25519 key
         Secret->>Secret: Derive EndpointId
-        Secret->>FS: Write with 0600 permissions
+        Secret->>FS: Write "# EndpointId" header + key (0600)
         FS-->>Secret: Success
         Secret->>CLI: Display EndpointId
         CLI->>User: Show EndpointId (share with clients)
