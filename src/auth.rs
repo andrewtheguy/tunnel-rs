@@ -271,9 +271,15 @@ pub fn generate_keypair(comment: &str) -> Result<(String, String)> {
 }
 
 /// Render the private-key file for a freshly generated keypair.
+///
+/// The first header names the key kind, so a stray key file is identifiable
+/// without knowing the token prefixes apart.
 fn private_key_file(authorized_key: &str, private_key: &str) -> String {
     format!(
-        "# created: {}\n# public key: {}\n{}\n",
+        "# tunnel-rs client authentication key (Ed25519 private key)\n\
+         # Created: {}\n\
+         # Public key: {}\n\
+         {}\n",
         rfc3339_utc(SystemTime::now()),
         authorized_key,
         private_key
@@ -391,7 +397,7 @@ fn decode_public_key(encoded: &str) -> Result<PublicKeyBytes> {
 /// Format a timestamp as an RFC 3339 UTC instant, e.g. `2024-09-13T22:22:33Z`.
 ///
 /// Shared with [`crate::secret`], whose generated server keys carry the same
-/// `# created:` header.
+/// `# Created:` header.
 pub fn rfc3339_utc(time: SystemTime) -> String {
     let seconds = time
         .duration_since(UNIX_EPOCH)
@@ -741,10 +747,14 @@ mod tests {
 
         let content = std::fs::read_to_string(&path).unwrap();
         let mut lines = content.lines();
+        assert_eq!(
+            lines.next(),
+            Some("# tunnel-rs client authentication key (Ed25519 private key)")
+        );
         let created = lines.next().unwrap();
-        assert!(created.starts_with("# created: "));
+        assert!(created.starts_with("# Created: "));
         assert!(created.ends_with('Z'));
-        let authorized_entry = lines.next().unwrap().strip_prefix("# public key: ").unwrap();
+        let authorized_entry = lines.next().unwrap().strip_prefix("# Public key: ").unwrap();
         assert!(authorized_entry.starts_with(PUBLIC_KEY_PREFIX));
         assert!(authorized_entry.ends_with(" alice laptop"));
         assert!(lines.next().unwrap().starts_with(PRIVATE_KEY_PREFIX));

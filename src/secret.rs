@@ -34,11 +34,15 @@ fn generate_server_key() -> GeneratedServerKey {
 /// Render the secret key file for a freshly generated server key.
 ///
 /// The headers mirror the client authentication key file, so `head` on either
-/// one shows which identity the key belongs to and when it was created. Key
-/// loading skips `#` lines, so the file stays usable as an inline `secret`.
+/// one shows which kind of key it is, which identity it belongs to, and when it
+/// was created. Key loading skips `#` lines, so the file stays usable as an
+/// inline `secret`.
 fn secret_key_file(generated: &GeneratedServerKey) -> String {
     format!(
-        "# created: {}\n# EndpointId: {}\n{}\n",
+        "# tunnel-rs server secret key (iroh endpoint identity)\n\
+         # Created: {}\n\
+         # EndpointId: {}\n\
+         {}\n",
         rfc3339_utc(SystemTime::now()),
         generated.public_key,
         generated.private_key
@@ -155,9 +159,10 @@ mod tests {
         let file = secret_key_file(&generated);
         let lines: Vec<&str> = file.lines().collect();
 
-        assert!(lines[0].starts_with("# created: "));
-        assert_eq!(lines[1], format!("# EndpointId: {}", generated.public_key));
-        assert_eq!(lines[2], generated.private_key);
+        assert_eq!(lines[0], "# tunnel-rs server secret key (iroh endpoint identity)");
+        assert!(lines[1].starts_with("# Created: "));
+        assert_eq!(lines[2], format!("# EndpointId: {}", generated.public_key));
+        assert_eq!(lines[3], generated.private_key);
         // The commented file still loads as a key, so it works as an inline secret.
         let secret = load_secret_from_string(&file).unwrap();
         assert_eq!(secret_to_endpoint_id(&secret).to_string(), generated.public_key);

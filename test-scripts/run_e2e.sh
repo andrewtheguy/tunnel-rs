@@ -230,14 +230,19 @@ read -r ENDPOINT_ID SECRET < <(
     > "$WORK/unauthorized.authorized_key"
 
 AUTHORIZED_ENTRY="$(<"$WORK/authorized_keys")"
-CREATED_HEADER="$(sed -n '1p' "$WORK/client.key")"
-PRIVATE_KEY_HEADER="$(sed -n '2p' "$WORK/client.key")"
-PRIVATE_KEY_VALUE="$(sed -n '3p' "$WORK/client.key")"
-if [[ ! "$CREATED_HEADER" =~ ^\#\ created:\ [0-9]{4}(-[0-9]{2}){2}T([0-9]{2}:){2}[0-9]{2}Z$ ]]; then
+KEY_TYPE_HEADER="$(sed -n '1p' "$WORK/client.key")"
+CREATED_HEADER="$(sed -n '2p' "$WORK/client.key")"
+PRIVATE_KEY_HEADER="$(sed -n '3p' "$WORK/client.key")"
+PRIVATE_KEY_VALUE="$(sed -n '4p' "$WORK/client.key")"
+if [[ "$KEY_TYPE_HEADER" != "# tunnel-rs client authentication key (Ed25519 private key)" ]]; then
+    echo "ERROR: private-key file does not name its key type on the first line" >&2
+    exit 1
+fi
+if [[ ! "$CREATED_HEADER" =~ ^\#\ Created:\ [0-9]{4}(-[0-9]{2}){2}T([0-9]{2}:){2}[0-9]{2}Z$ ]]; then
     echo "ERROR: private-key file is missing an RFC 3339 UTC created header" >&2
     exit 1
 fi
-if [[ "$PRIVATE_KEY_HEADER" != "# public key: $AUTHORIZED_ENTRY" ]]; then
+if [[ "$PRIVATE_KEY_HEADER" != "# Public key: $AUTHORIZED_ENTRY" ]]; then
     echo "ERROR: private-key public comment does not match the authorized-key entry" >&2
     exit 1
 fi
@@ -256,12 +261,12 @@ fi
 # Without --output the key file goes to stdout and the entry to stderr.
 "$BIN" generate-auth-key --comment "stdout e2e client" \
     > "$WORK/stdout.key" 2> "$WORK/stdout.authorized_key"
-if ! diff -q <(sed -n '2p' "$WORK/stdout.key" | sed 's/^# public key: //') \
+if ! diff -q <(sed -n '3p' "$WORK/stdout.key" | sed 's/^# Public key: //') \
     "$WORK/stdout.authorized_key" > /dev/null; then
     echo "ERROR: stdout key file and stderr authorized-key entry disagree" >&2
     exit 1
 fi
-if [[ ! "$(sed -n '3p' "$WORK/stdout.key")" =~ ^tunnelrsv1authsecret:[A-Za-z0-9_-]{43}$ ]]; then
+if [[ ! "$(sed -n '4p' "$WORK/stdout.key")" =~ ^tunnelrsv1authsecret:[A-Za-z0-9_-]{43}$ ]]; then
     echo "ERROR: stdout private key is not in the compact versioned format" >&2
     exit 1
 fi
@@ -270,7 +275,12 @@ log "Compact key format, public-key comment, stdout default, and 0600 permission
 # Server keys use the same layout: headers above the key, stdout by default.
 "$BIN" generate-server-key > "$WORK/server_stdout.key" 2> "$WORK/server_stdout.id"
 SERVER_STDOUT_ID="$(sed 's/^EndpointId: //' "$WORK/server_stdout.id")"
-if [[ "$(sed -n '2p' "$WORK/server_stdout.key")" != "# EndpointId: $SERVER_STDOUT_ID" ]]; then
+if [[ "$(sed -n '1p' "$WORK/server_stdout.key")" \
+    != "# tunnel-rs server secret key (iroh endpoint identity)" ]]; then
+    echo "ERROR: server key file does not name its key type on the first line" >&2
+    exit 1
+fi
+if [[ "$(sed -n '3p' "$WORK/server_stdout.key")" != "# EndpointId: $SERVER_STDOUT_ID" ]]; then
     echo "ERROR: server key file header does not match the reported EndpointId" >&2
     exit 1
 fi

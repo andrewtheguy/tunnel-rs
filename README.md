@@ -233,8 +233,9 @@ tunnel-rs generate-auth-key \
 The private key file is compact and self-describing:
 
 ```text
-# created: 2024-09-13T22:22:33Z
-# public key: tunnelrsv1authpub:<urlsafe-base64-public-key> alice laptop
+# tunnel-rs client authentication key (Ed25519 private key)
+# Created: 2024-09-13T22:22:33Z
+# Public key: tunnelrsv1authpub:<urlsafe-base64-public-key> alice laptop
 tunnelrsv1authsecret:<urlsafe-base64-private-seed>
 ```
 
@@ -556,7 +557,7 @@ and the authorized-key entry is printed to stdout, so
 Without `--output` (or with `--output -`) the roles swap: the key file goes to
 stdout and the authorized-key entry to stderr — remember to restrict
 permissions yourself when redirecting to a file. The stderr copy is skipped when
-stdout is a terminal, where the key file's own `# public key:` header already
+stdout is a terminal, where the key file's own `# Public key:` header already
 shows it. Either way, copy the printed
 `tunnelrsv1authpub:...` line into the server's `authorized_keys` file. With
 `--json`, no file is written and both halves are emitted to stdout as one object
@@ -583,7 +584,8 @@ The key file carries the EndpointId in a comment above the key, so `head` on it
 tells you which identity it is:
 
 ```text
-# created: 2026-08-11T19:05:43Z
+# tunnel-rs server secret key (iroh endpoint identity)
+# Created: 2026-08-11T19:05:43Z
 # EndpointId: 2xnbkpbc7izsilvewd7c62w7wnwziacmpfwvhcrya5nt76dqkpga
 frBCAKqLx5GKmHQkN7DqFYJcEsZdteyKPmIS7a91nqQ=
 ```
