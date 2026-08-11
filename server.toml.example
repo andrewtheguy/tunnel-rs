@@ -51,8 +51,9 @@ max_sessions = 100
 #
 # Add the printed line to the authorized_keys_file below (NOT to this config file).
 # Blank lines and lines starting with # are ignored.
-# File format: ed25519 <base64-encoded 32-byte public key> [comment]
-# Example: ed25519 7zKf...base64...8ac= alice laptop
+# File format: tunnelrsv1authpub:<unpadded url-safe base64 32-byte public key>[ comment]
+# One space separates the key from the comment, which runs to end of line.
+# Example: tunnelrsv1authpub:1bhGIken5UAXTkC7cABRzM4cE98xZl3tilGyYZsoyP8 alice laptop
 authorized_keys_file = "/etc/tunnel-rs/authorized_keys"
 
 # ============================================================================

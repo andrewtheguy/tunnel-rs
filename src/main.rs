@@ -153,18 +153,21 @@ enum Command {
     },
     /// Generate a compact Ed25519 client authentication key.
     ///
-    /// Writes the private key to --output and prints the authorized-key entry.
+    /// Without --output the private key file is written to stdout and the
+    /// authorized-key entry to stderr. With --output the private key is saved
+    /// to that path (0600 on Unix) and the authorized-key entry is printed to
+    /// stdout.
     GenerateAuthKey {
-        /// Path where to save the compact base64 private key.
+        /// Path where to save the compact base64 private key ("-" means stdout).
         #[arg(short, long)]
-        output: PathBuf,
+        output: Option<PathBuf>,
 
         /// Comment appended to the printed authorized-key entry.
         #[arg(short, long, default_value = "")]
         comment: String,
 
         /// Overwrite an existing private key file.
-        #[arg(long)]
+        #[arg(long, requires = "output")]
         force: bool,
     },
 }
@@ -543,6 +546,9 @@ async fn run_inner() -> Result<()> {
             output,
             comment,
             force,
-        } => auth::generate_key_file(&expand_tilde(output), comment, *force),
+        } => {
+            let output = output.as_deref().map(expand_tilde);
+            auth::generate_auth_key(output.as_deref(), comment, *force)
+        }
     }
 }

@@ -82,8 +82,8 @@ tunnel-rs server \
 ```json
 {
   "authorized_keys": [
-    "ed25519 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= alice",
-    "ed25519 BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB= bob"
+    "tunnelrsv1authpub:1bhGIken5UAXTkC7cABRzM4cE98xZl3tilGyYZsoyP8 alice",
+    "tunnelrsv1authpub:sHMOUCikL2-gX4UbwMCRjOSmdgjhQWCYIqCcP86tGHQ bob"
   ]
 }
 ```

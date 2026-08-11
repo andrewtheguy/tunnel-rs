@@ -24,9 +24,11 @@ server_node_id = "2xnbkpbc7izsilvewd7c62w7wnwziacmpfwvhcrya5nt76dqkpga"
 #   tunnel-rs generate-auth-key --output ~/.config/tunnel-rs/client.key --comment "alice laptop"
 # Give the printed authorized-key line to the server administrator.
 #
-# The key file contains a public-key comment followed by one short private-key line:
-#   # public key: ed25519 <base64 public key> alice laptop
-#   tunnel-rs-ed25519-private-key-v1:<base64 private seed>
+# The key file contains a creation stamp and public-key comment followed by one
+# short private-key line (all base64 is unpadded URL-safe):
+#   # created: 2024-09-13T22:22:33Z
+#   # public key: tunnelrsv1authpub:<urlsafe base64 public key> alice laptop
+#   tunnelrsv1authsecret:<urlsafe base64 private seed>
 # It is separate from the ephemeral iroh client identity.
 private_key_file = "~/.config/tunnel-rs/client.key"
 

@@ -163,23 +163,28 @@ independent of the client's ephemeral iroh EndpointId.
 tunnel-rs generate-auth-key \
   --output ~/.config/tunnel-rs/client.key \
   --comment "alice laptop"
-# Output: ed25519 <base64-public-key> alice laptop
+# Output: tunnelrsv1authpub:<urlsafe-base64-public-key> alice laptop
 ```
 
 The private key file is compact and self-describing:
 
 ```text
-# public key: ed25519 <base64-public-key> alice laptop
-tunnel-rs-ed25519-private-key-v1:<base64-private-seed>
+# created: 2024-09-13T22:22:33Z
+# public key: tunnelrsv1authpub:<urlsafe-base64-public-key> alice laptop
+tunnelrsv1authsecret:<urlsafe-base64-private-seed>
 ```
 
-Add the generated public entry to the server's `authorized_keys` file. Comments
-at the end identify clients and are included in successful-authentication logs:
+Both tokens carry unpadded [URL-safe base64](https://datatracker.ietf.org/doc/html/rfc4648#section-5)
+of 32 raw key bytes, so a key is a single copy-pasteable word.
+
+Add the generated public entry to the server's `authorized_keys` file. A single
+space separates the key from its comment, and the comment runs to end of line;
+it identifies the client in successful-authentication logs:
 
 ```text
 # Blank lines and comment lines are ignored.
-ed25519 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= alice laptop
-ed25519 BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB= bob workstation
+tunnelrsv1authpub:1bhGIken5UAXTkC7cABRzM4cE98xZl3tilGyYZsoyP8 alice laptop
+tunnelrsv1authpub:sHMOUCikL2-gX4UbwMCRjOSmdgjhQWCYIqCcP86tGHQ bob workstation
 ```
 
 ### Configuration File
@@ -508,10 +513,18 @@ tunnel-rs generate-auth-key \
 
 # Overwrite an existing key file
 tunnel-rs generate-auth-key --output ./client.key --force
+
+# Without --output the key file goes to stdout (the authorized-key entry to stderr)
+tunnel-rs generate-auth-key --comment "alice laptop" > ./client.key
 ```
 
-The private key file is created with `0600` permissions on Unix. Copy the
-printed `ed25519 ...` line into the server's `authorized_keys` file.
+With `--output` the private key file is created with `0600` permissions on Unix
+and the authorized-key entry is printed to stdout, so
+`generate-auth-key --output client.key > authorized_keys` captures the entry.
+Without `--output` (or with `--output -`) the roles swap: the key file goes to
+stdout and the authorized-key entry to stderr — remember to restrict
+permissions yourself when redirecting to a file. Either way, copy the printed
+`tunnelrsv1authpub:...` line into the server's `authorized_keys` file.
 
 ## generate-server-key
 

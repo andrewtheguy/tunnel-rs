@@ -226,17 +226,22 @@ read -r ENDPOINT_ID SECRET < <(
     > "$WORK/unauthorized.authorized_key"
 
 AUTHORIZED_ENTRY="$(<"$WORK/authorized_keys")"
-PRIVATE_KEY_HEADER="$(sed -n '1p' "$WORK/client.key")"
-PRIVATE_KEY_VALUE="$(sed -n '2p' "$WORK/client.key")"
+CREATED_HEADER="$(sed -n '1p' "$WORK/client.key")"
+PRIVATE_KEY_HEADER="$(sed -n '2p' "$WORK/client.key")"
+PRIVATE_KEY_VALUE="$(sed -n '3p' "$WORK/client.key")"
+if [[ ! "$CREATED_HEADER" =~ ^\#\ created:\ [0-9]{4}(-[0-9]{2}){2}T([0-9]{2}:){2}[0-9]{2}Z$ ]]; then
+    echo "ERROR: private-key file is missing an RFC 3339 UTC created header" >&2
+    exit 1
+fi
 if [[ "$PRIVATE_KEY_HEADER" != "# public key: $AUTHORIZED_ENTRY" ]]; then
     echo "ERROR: private-key public comment does not match the authorized-key entry" >&2
     exit 1
 fi
-if [[ ! "$AUTHORIZED_ENTRY" =~ ^ed25519\ [A-Za-z0-9+/]{43}=\ e2e\ client$ ]]; then
+if [[ ! "$AUTHORIZED_ENTRY" =~ ^tunnelrsv1authpub:[A-Za-z0-9_-]{43}\ e2e\ client$ ]]; then
     echo "ERROR: generated authorized-key entry has an unexpected format" >&2
     exit 1
 fi
-if [[ ! "$PRIVATE_KEY_VALUE" =~ ^tunnel-rs-ed25519-private-key-v1:[A-Za-z0-9+/]{43}=$ ]]; then
+if [[ ! "$PRIVATE_KEY_VALUE" =~ ^tunnelrsv1authsecret:[A-Za-z0-9_-]{43}$ ]]; then
     echo "ERROR: generated private key is not in the compact versioned format" >&2
     exit 1
 fi
@@ -244,7 +249,19 @@ if [[ "$(stat -c '%a' "$WORK/client.key")" != "600" ]]; then
     echo "ERROR: generated private key permissions are not 0600" >&2
     exit 1
 fi
-log "Compact key format, public-key comment, and 0600 permissions: PASS"
+# Without --output the key file goes to stdout and the entry to stderr.
+"$BIN" generate-auth-key --comment "stdout e2e client" \
+    > "$WORK/stdout.key" 2> "$WORK/stdout.authorized_key"
+if ! diff -q <(sed -n '2p' "$WORK/stdout.key" | sed 's/^# public key: //') \
+    "$WORK/stdout.authorized_key" > /dev/null; then
+    echo "ERROR: stdout key file and stderr authorized-key entry disagree" >&2
+    exit 1
+fi
+if [[ ! "$(sed -n '3p' "$WORK/stdout.key")" =~ ^tunnelrsv1authsecret:[A-Za-z0-9_-]{43}$ ]]; then
+    echo "ERROR: stdout private key is not in the compact versioned format" >&2
+    exit 1
+fi
+log "Compact key format, public-key comment, stdout default, and 0600 permissions: PASS"
 log "EndpointId: $ENDPOINT_ID"
 
 # Optional custom-relay configuration and matching --relay-only CLI args

@@ -2,13 +2,22 @@
 //!
 //! The server issues a fresh random challenge. The client signs a
 //! domain-separated transcript with a compact Ed25519 private key, and the
-//! server verifies the proof against an SSH-like authorized-keys file.
+//! server verifies the proof against an authorized-keys file.
+//!
+//! Both key kinds are a single prefixed token holding unpadded URL-safe base64
+//! of 32 raw bytes. An authorized-keys line is the public token, optionally
+//! followed by a single space and a free-form comment that runs to end of line:
+//!
+//! ```text
+//! tunnelrsv1authpub:<urlsafe-base64> alice laptop
+//! ```
 
 use std::collections::HashMap;
 use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD as BASE64, Engine};
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 
 pub const CHALLENGE_LENGTH: usize = 32;
@@ -16,8 +25,11 @@ pub const PUBLIC_KEY_LENGTH: usize = 32;
 pub const SIGNATURE_LENGTH: usize = 64;
 
 const AUTH_DOMAIN: &[u8] = b"tunnel-rs public-key authentication v1\0";
-const AUTHORIZED_KEY_TYPE: &str = "ed25519";
-const PRIVATE_KEY_PREFIX: &str = "tunnel-rs-ed25519-private-key-v1:";
+const PUBLIC_KEY_PREFIX: &str = "tunnelrsv1authpub:";
+const PRIVATE_KEY_PREFIX: &str = "tunnelrsv1authsecret:";
+/// Separates the public-key token from its comment. A single space only: every
+/// byte after it, including further spaces, belongs to the comment.
+const COMMENT_DELIMITER: char = ' ';
 
 pub type Challenge = [u8; CHALLENGE_LENGTH];
 pub type PublicKeyBytes = [u8; PUBLIC_KEY_LENGTH];
@@ -115,10 +127,10 @@ pub fn generate_challenge() -> Challenge {
     rand::random()
 }
 
-/// Load Ed25519 keys from an SSH-like authorized-keys file.
+/// Load Ed25519 keys from an authorized-keys file.
 ///
 /// Each non-comment line must have the form:
-/// `ed25519 BASE64_KEY optional comment`
+/// `tunnelrsv1authpub:URLSAFE_BASE64[ comment]`
 pub fn load_authorized_keys(path: &Path) -> Result<AuthorizedKeys> {
     let content = std::fs::read_to_string(path)
         .with_context(|| format!("Failed to read authorized keys file: {}", path.display()))?;
@@ -126,21 +138,25 @@ pub fn load_authorized_keys(path: &Path) -> Result<AuthorizedKeys> {
 
     for (index, line) in content.lines().enumerate() {
         let line_number = index + 1;
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
+        let line = line.trim_end_matches(['\r', '\n']);
+        if line.trim().is_empty() || line.starts_with('#') {
             continue;
         }
 
-        let fields: Vec<&str> = line.split_whitespace().collect();
-        if fields.first().copied() != Some(AUTHORIZED_KEY_TYPE) || fields.len() < 2 {
-            anyhow::bail!(
-                "Unsupported authorized key at {}:{}; expected 'ed25519 BASE64_KEY [comment]'",
+        let (token, comment) = match line.split_once(COMMENT_DELIMITER) {
+            Some((token, comment)) => (token, comment),
+            None => (line, ""),
+        };
+        let encoded = token.strip_prefix(PUBLIC_KEY_PREFIX).ok_or_else(|| {
+            anyhow::anyhow!(
+                "Unsupported authorized key at {}:{}; expected '{}URLSAFE_BASE64[ comment]'",
                 path.display(),
-                line_number
-            );
-        }
+                line_number,
+                PUBLIC_KEY_PREFIX
+            )
+        })?;
 
-        let key_bytes = decode_public_key(fields[1]).with_context(|| {
+        let key_bytes = decode_public_key(encoded).with_context(|| {
             format!("Invalid authorized key at {}:{}", path.display(), line_number)
         })?;
         VerifyingKey::from_bytes(&key_bytes).with_context(|| {
@@ -151,7 +167,7 @@ pub fn load_authorized_keys(path: &Path) -> Result<AuthorizedKeys> {
             )
         })?;
 
-        keys.insert(key_bytes, fields[2..].join(" "));
+        keys.insert(key_bytes, comment.to_string());
     }
 
     Ok(AuthorizedKeys { keys })
@@ -213,31 +229,59 @@ pub fn generate_keypair(comment: &str) -> (String, String) {
         PRIVATE_KEY_PREFIX,
         BASE64.encode(signing_key.to_bytes())
     );
-    let public_key = BASE64.encode(signing_key.verifying_key().to_bytes());
+    let public_key = format!(
+        "{}{}",
+        PUBLIC_KEY_PREFIX,
+        BASE64.encode(signing_key.verifying_key().to_bytes())
+    );
+    // The comment runs to end of line, so a newline is the one character it
+    // cannot hold; everything else (including inner spaces) is preserved.
     let comment = comment.trim();
     let authorized_key = if comment.is_empty() {
-        format!("{} {}", AUTHORIZED_KEY_TYPE, public_key)
+        public_key
     } else {
-        format!("{} {} {}", AUTHORIZED_KEY_TYPE, public_key, comment)
+        format!("{}{}{}", public_key, COMMENT_DELIMITER, comment)
     };
     (private_key, authorized_key)
 }
 
-/// Write a newly generated compact private key with restricted permissions and
-/// print the matching authorized-key entry to stdout.
-pub fn generate_key_file(path: &Path, comment: &str, force: bool) -> Result<()> {
+/// Render the private-key file for a freshly generated keypair.
+fn private_key_file(authorized_key: &str, private_key: &str) -> String {
+    format!(
+        "# created: {}\n# public key: {}\n{}\n",
+        rfc3339_utc(SystemTime::now()),
+        authorized_key,
+        private_key
+    )
+}
+
+/// Generate a keypair, writing the private key to `path` (or to stdout when
+/// `path` is `None` or `-`) and reporting the matching authorized-key entry.
+///
+/// With a file destination the private key lands in the file with `0600`
+/// permissions and the authorized-key entry goes to stdout, so
+/// `generate-auth-key --output client.key > authorized_keys` works. Without one
+/// the whole private-key file goes to stdout and the authorized-key entry to
+/// stderr, so `generate-auth-key > client.key` works and still shows the entry.
+pub fn generate_auth_key(path: Option<&Path>, comment: &str, force: bool) -> Result<()> {
+    let (private_key, authorized_key) = generate_keypair(comment);
+    let private_key_file = private_key_file(&authorized_key, &private_key);
+
+    let Some(path) = path.filter(|path| path.as_os_str() != "-") else {
+        print!("{}", private_key_file);
+        eprintln!("{}", authorized_key);
+        return Ok(());
+    };
+
     if path.exists() && !force {
         anyhow::bail!(
             "File already exists: {}. Use --force to overwrite.",
             path.display()
         );
     }
-    if let Some(parent) = path.parent() {
+    if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
         std::fs::create_dir_all(parent).context("Failed to create parent directory")?;
     }
-
-    let (private_key, authorized_key) = generate_keypair(comment);
-    let private_key_file = format!("# public key: {}\n{}\n", authorized_key, private_key);
 
     #[cfg(unix)]
     {
@@ -281,6 +325,45 @@ fn decode_public_key(encoded: &str) -> Result<PublicKeyBytes> {
     })
 }
 
+/// Format a timestamp as an RFC 3339 UTC instant, e.g. `2024-09-13T22:22:33Z`.
+fn rfc3339_utc(time: SystemTime) -> String {
+    let seconds = time
+        .duration_since(UNIX_EPOCH)
+        .map(|since_epoch| since_epoch.as_secs())
+        .unwrap_or(0);
+    let (year, month, day) = civil_from_days((seconds / 86_400) as i64);
+    let seconds_of_day = seconds % 86_400;
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+        year,
+        month,
+        day,
+        seconds_of_day / 3600,
+        (seconds_of_day % 3600) / 60,
+        seconds_of_day % 60
+    )
+}
+
+/// Convert days since the Unix epoch to a proleptic Gregorian calendar date
+/// (Howard Hinnant's `civil_from_days`).
+fn civil_from_days(days: i64) -> (i64, u32, u32) {
+    let shifted = days + 719_468;
+    let era = if shifted >= 0 { shifted } else { shifted - 146_096 } / 146_097;
+    let day_of_era = (shifted - era * 146_097) as u64; // [0, 146096]
+    let year_of_era =
+        (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365; // [0, 399]
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100); // [0, 365]
+    let month_index = (5 * day_of_year + 2) / 153; // [0, 11], March-based
+    let day = (day_of_year - (153 * month_index + 2) / 5 + 1) as u32; // [1, 31]
+    let month = if month_index < 10 {
+        month_index + 3
+    } else {
+        month_index - 9
+    } as u32; // [1, 12]
+    let year = year_of_era as i64 + era * 400;
+    (if month <= 2 { year + 1 } else { year }, month, day)
+}
+
 fn signed_message(challenge: &Challenge) -> Vec<u8> {
     let mut message = Vec::with_capacity(AUTH_DOMAIN.len() + challenge.len());
     message.extend_from_slice(AUTH_DOMAIN);
@@ -309,7 +392,12 @@ mod tests {
         let public_key = BASE64.encode(signing_key.verifying_key().to_bytes());
         writeln!(file, "# tunnel-rs clients").unwrap();
         writeln!(file).unwrap();
-        writeln!(file, "ed25519 {} user@example.com", public_key).unwrap();
+        writeln!(
+            file,
+            "{}{} user@example.com",
+            PUBLIC_KEY_PREFIX, public_key
+        )
+        .unwrap();
         file
     }
 
@@ -369,12 +457,87 @@ mod tests {
     }
 
     #[test]
-    fn rejects_non_ed25519_authorized_key() {
+    fn rejects_authorized_key_without_the_versioned_prefix() {
         let mut file = NamedTempFile::new().unwrap();
         writeln!(file, "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC comment").unwrap();
 
         let error = load_authorized_keys(file.path()).unwrap_err();
-        assert!(error.to_string().contains("expected 'ed25519"));
+        assert!(error.to_string().contains("expected 'tunnelrsv1authpub:"));
+    }
+
+    #[test]
+    fn authorized_key_comment_is_everything_after_the_first_space() {
+        let signing_key = SigningKey::from_bytes(&[42; 32]);
+        let public_key = BASE64.encode(signing_key.verifying_key().to_bytes());
+        let mut file = NamedTempFile::new().unwrap();
+        // Tabs and repeated spaces are comment content, not delimiters.
+        writeln!(
+            file,
+            "{}{}  alice\tlaptop  (spare)",
+            PUBLIC_KEY_PREFIX, public_key
+        )
+        .unwrap();
+
+        let authorized_keys = load_authorized_keys(file.path()).unwrap();
+        let client = ClientAuthKey { signing_key };
+        let challenge = [5; CHALLENGE_LENGTH];
+        let signature = client.sign_challenge(&challenge);
+        assert_eq!(
+            authorized_keys
+                .verify_proof(&challenge, &client.public_key(), &signature)
+                .unwrap(),
+            Some(" alice\tlaptop  (spare)")
+        );
+    }
+
+    #[test]
+    fn authorized_key_without_a_comment_is_accepted() {
+        let signing_key = SigningKey::from_bytes(&[42; 32]);
+        let public_key = BASE64.encode(signing_key.verifying_key().to_bytes());
+        let mut file = NamedTempFile::new().unwrap();
+        writeln!(file, "{}{}", PUBLIC_KEY_PREFIX, public_key).unwrap();
+
+        let authorized_keys = load_authorized_keys(file.path()).unwrap();
+        let client = ClientAuthKey { signing_key };
+        let challenge = [6; CHALLENGE_LENGTH];
+        let signature = client.sign_challenge(&challenge);
+        assert_eq!(
+            authorized_keys
+                .verify_proof(&challenge, &client.public_key(), &signature)
+                .unwrap(),
+            Some("")
+        );
+    }
+
+    #[test]
+    fn keys_use_unpadded_url_safe_base64() {
+        let (private_key, authorized_key) = generate_keypair("");
+        let private_encoded = private_key.strip_prefix(PRIVATE_KEY_PREFIX).unwrap();
+        let public_encoded = authorized_key.strip_prefix(PUBLIC_KEY_PREFIX).unwrap();
+
+        for encoded in [private_encoded, public_encoded] {
+            assert_eq!(encoded.len(), 43, "32 bytes unpadded base64 is 43 chars");
+            assert!(!encoded.contains('='));
+            assert!(!encoded.contains('+'));
+            assert!(!encoded.contains('/'));
+            assert!(encoded
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_'));
+        }
+    }
+
+    #[test]
+    fn rfc3339_utc_formats_the_epoch_and_a_known_instant() {
+        assert_eq!(rfc3339_utc(UNIX_EPOCH), "1970-01-01T00:00:00Z");
+        assert_eq!(
+            rfc3339_utc(UNIX_EPOCH + std::time::Duration::from_secs(1_726_291_353)),
+            "2024-09-14T05:22:33Z"
+        );
+        // Leap day, to exercise the era/leap-year arithmetic.
+        assert_eq!(
+            rfc3339_utc(UNIX_EPOCH + std::time::Duration::from_secs(1_709_164_800)),
+            "2024-02-29T00:00:00Z"
+        );
     }
 
     #[test]
@@ -390,7 +553,7 @@ mod tests {
         write!(file, "{}", BASE64.encode([42; 32])).unwrap();
 
         let error = load_private_key(file.path()).unwrap_err();
-        assert!(error.to_string().contains("expected 'tunnel-rs-ed25519-private-key-v1:'"));
+        assert!(error.to_string().contains("expected 'tunnelrsv1authsecret:'"));
     }
 
     #[test]
@@ -400,27 +563,27 @@ mod tests {
         let private_bytes = BASE64.decode(encoded).unwrap();
         assert_eq!(private_bytes.len(), 32);
         assert!(!private_key.contains("BEGIN"));
-        assert!(private_key.starts_with("tunnel-rs-ed25519-private-key-v1:"));
-        assert!(authorized_key.starts_with("ed25519 "));
+        assert!(private_key.starts_with("tunnelrsv1authsecret:"));
+        assert!(authorized_key.starts_with("tunnelrsv1authpub:"));
         assert!(authorized_key.ends_with(" alice laptop"));
     }
 
     #[test]
-    fn generated_key_file_includes_public_key_comment() {
+    fn generated_key_file_follows_the_created_public_secret_template() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("client.key");
-        generate_key_file(&path, "alice laptop", false).unwrap();
+        generate_auth_key(Some(&path), "alice laptop", false).unwrap();
 
         let content = std::fs::read_to_string(&path).unwrap();
-        assert!(content.starts_with("# public key: ed25519 "));
-        let authorized_entry = content
-            .lines()
-            .next()
-            .unwrap()
-            .strip_prefix("# public key: ")
-            .unwrap();
+        let mut lines = content.lines();
+        let created = lines.next().unwrap();
+        assert!(created.starts_with("# created: "));
+        assert!(created.ends_with('Z'));
+        let authorized_entry = lines.next().unwrap().strip_prefix("# public key: ").unwrap();
+        assert!(authorized_entry.starts_with(PUBLIC_KEY_PREFIX));
         assert!(authorized_entry.ends_with(" alice laptop"));
-        assert!(content.lines().nth(1).unwrap().starts_with(PRIVATE_KEY_PREFIX));
+        assert!(lines.next().unwrap().starts_with(PRIVATE_KEY_PREFIX));
+        assert_eq!(lines.next(), None);
 
         let authorized_path = directory.path().join("authorized_keys");
         std::fs::write(&authorized_path, authorized_entry).unwrap();
