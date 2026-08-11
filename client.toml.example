@@ -19,7 +19,9 @@ server_node_id = "2xnbkpbc7izsilvewd7c62w7wnwziacmpfwvhcrya5nt76dqkpga"
 # Compact Ed25519 private key used only for post-connect authentication.
 # Generate it with:
 #   tunnel-rs generate-auth-key --output ~/.config/tunnel-rs/client.key --comment "alice laptop"
-# Give the printed authorized-key line to the server administrator.
+# Give the printed authorized-key line to the server administrator; reprint it
+# later with:
+#   tunnel-rs show-auth-key --private-key-file ~/.config/tunnel-rs/client.key
 #
 # The key file names its key type, then a creation stamp and public-key comment,
 # followed by one short private-key line (all base64 is unpadded URL-safe):

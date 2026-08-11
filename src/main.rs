@@ -192,6 +192,22 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Show the authorized-key entry for an existing client authentication key
+    ///
+    /// Add the printed entry to the server's authorized_keys file.
+    ShowAuthKey {
+        /// Path to the compact Ed25519 authentication private key file
+        #[arg(long)]
+        private_key_file: PathBuf,
+
+        /// Comment for the entry, replacing the one in the key file's header
+        #[arg(short, long)]
+        comment: Option<String>,
+
+        /// Print the authorized-key entry as JSON
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 fn env_var_opt(name: &str) -> Option<String> {
@@ -634,5 +650,14 @@ async fn run_inner() -> Result<()> {
                 auth::generate_auth_key(output.as_deref(), comment, *force)
             }
         }
+        Command::ShowAuthKey {
+            private_key_file,
+            comment,
+            json,
+        } => auth::show_auth_key(
+            &expand_tilde(private_key_file),
+            comment.as_deref(),
+            *json,
+        ),
     }
 }
