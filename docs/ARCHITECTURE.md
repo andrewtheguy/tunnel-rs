@@ -6,7 +6,7 @@ This document provides a comprehensive overview of the tunnel-rs architecture, i
 
 - [System Overview](#system-overview)
 - [Features](#features)
-- [iroh Mode Architecture](#iroh-mode-architecture)
+- [Tunnel Architecture](#tunnel-architecture)
 - [Configuration System](#configuration-system)
 - [Security Model](#security-model)
 - [Protocol Support](#protocol-support)
@@ -108,7 +108,7 @@ means for relay bandwidth. See
 
 ---
 
-## iroh Mode Architecture
+## Tunnel Architecture
 
 ### Architecture Overview
 
@@ -325,7 +325,6 @@ graph TB
 graph TB
     subgraph "Config File"
         A[role: server/client]
-        B[mode: iroh]
     end
 
     subgraph "iroh Options"
@@ -340,7 +339,6 @@ graph TB
     end
 
     A --> S[Validation]
-    B --> S
     S --> C
     S --> D
     S --> E
@@ -353,9 +351,9 @@ graph TB
     style S fill:#FFF9C4
 ```
 
-### iroh Credential Mapping
+### Credential Mapping
 
-`iroh` mode authenticates clients with separate Ed25519 keys. The QUIC ALPN is a fixed value (`mf/4`) shared by all peers and is not configurable; access control happens on the first application stream after the iroh handshake.
+tunnel-rs authenticates clients with separate Ed25519 keys. The QUIC ALPN is a fixed value (`mf/4`) shared by all peers and is not configurable; access control happens on the first application stream after the iroh handshake.
 
 | Credential | Env Vars / CLI Flags | Config Key | Expected Usage |
 |------------|-----------|-------------|----------------|
@@ -472,7 +470,7 @@ endpoint.
 
 ```mermaid
 graph TB
-    subgraph "iroh Mode"
+    subgraph "Identity and Authentication"
         A[Server Secret Key] --> B[Ed25519 Private Key]
         B --> C[EndpointId - Public Key]
         C --> D[Client Connects]
@@ -581,7 +579,7 @@ graph TB
 
 ### Secret Key Management (Server Only)
 
-In iroh mode, only the **server** needs a persistent transport secret key to maintain a stable EndpointId. Clients use ephemeral iroh identities. Their separate persistent Ed25519 keys are used only for application authentication after the transport handshake.
+Only the **server** needs a persistent transport secret key to maintain a stable EndpointId. Clients use ephemeral iroh identities. Their separate persistent Ed25519 keys are used only for application authentication after the transport handshake.
 
 ```mermaid
 sequenceDiagram

@@ -192,7 +192,7 @@ fn normalize_optional_endpoint(value: Option<String>) -> Option<String> {
         .filter(|v| !v.is_empty())
 }
 
-/// Resolved parameters for iroh server mode.
+/// Resolved server parameters from the CLI and the `[iroh]` config section.
 /// CLI values take precedence over config file values.
 struct ServerIrohParams {
     allowed_tcp: Vec<String>,
@@ -267,7 +267,7 @@ fn resolve_server_iroh_params(
     }
 }
 
-/// Resolved parameters for iroh client mode.
+/// Resolved client parameters from the CLI and the `[iroh]` config section.
 /// CLI values take precedence over config file values.
 struct ClientIrohParams {
     server_node_id: Option<String>,
@@ -528,7 +528,7 @@ async fn run_inner() -> Result<()> {
                 anyhow::anyhow!("server_node_id is required. Provide via --server-node-id or in config file."),
             ))?;
             let source = source.ok_or_else(|| TunnelError::config(
-                anyhow::anyhow!("--source is required for iroh client mode. Specify the source to request from server (e.g., --source tcp://127.0.0.1:22)"),
+                anyhow::anyhow!("--source is required. Specify the source to request from server (e.g., --source tcp://127.0.0.1:22)"),
             ))?;
             let target = target.ok_or_else(|| TunnelError::config(
                 anyhow::anyhow!("--target is required. Provide the local address to listen on (e.g., --target 127.0.0.1:2222)"),

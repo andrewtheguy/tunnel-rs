@@ -1,7 +1,7 @@
 //! Shared helper functions for iroh-based tunnels.
 //!
-//! This module contains stream and connection helpers used by
-//! iroh mode.
+//! This module contains stream and connection helpers used by the
+//! multi-source server and client.
 
 use anyhow::{Context, Result};
 use bytes::{Buf, Bytes, BytesMut};

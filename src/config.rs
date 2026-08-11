@@ -1,8 +1,8 @@
 //! Configuration file support for tunnel-rs.
 //!
 //! Configuration structure:
-//! - `role` and `mode` fields for validation (mode only accepts "iroh")
-//! - Mode-specific section: [iroh]
+//! - `role` field for validation
+//! - Transport section: [iroh]
 //!
 //! Role-based field semantics are enforced by `validate()` at parse time:
 //! - Server-only fields are rejected when role=client
@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 // Configuration Structures
 // ============================================================================
 
-/// iroh mode configuration (multi-source).
+/// iroh transport configuration (multi-source).
 ///
 /// Some fields are role-specific (enforced by validate()):
 /// - Server-only: `allowed_sources`, `max_sessions`, `authorized_keys_file`, `secret`, `secret_file`
@@ -102,13 +102,6 @@ pub enum Role {
     Client,
 }
 
-/// Connection mode. Only iroh is supported.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Mode {
-    Iroh,
-}
-
 /// Congestion controller algorithm selection.
 ///
 /// Controls how the QUIC connection manages congestion and adjusts sending rates.
@@ -174,25 +167,23 @@ pub struct TransportTuning {
 /// Unified server configuration.
 #[derive(Deserialize, Default)]
 pub struct ServerConfig {
-    // Validation fields
+    // Validation field
     pub role: Option<Role>,
-    pub mode: Option<Mode>,
 
     // Shared options
     pub source: Option<String>,
 
-    // Mode-specific section
+    // Transport section
     pub iroh: Option<IrohConfig>,
 }
 
 /// Unified client configuration.
 #[derive(Deserialize, Default)]
 pub struct ClientConfig {
-    // Validation fields
+    // Validation field
     pub role: Option<Role>,
-    pub mode: Option<Mode>,
 
-    // Mode-specific section
+    // Transport section
     pub iroh: Option<IrohConfig>,
 }
 
@@ -348,7 +339,7 @@ impl ServerConfig {
         self.iroh.as_ref()
     }
 
-    /// Validate that config matches expected role and mode.
+    /// Validate that config matches the expected role.
     pub fn validate(&self, source: ConfigSource) -> Result<()> {
         let role = self
             .role
@@ -356,10 +347,6 @@ impl ServerConfig {
         if role != Role::Server {
             anyhow::bail!("Config file has role = \"client\", but running as server");
         }
-
-        self.mode.context(
-            "Config file missing required 'mode' field. Add: mode = \"iroh\"",
-        )?;
 
         if let Some(ref iroh) = self.iroh {
             if source == ConfigSource::File {
@@ -402,7 +389,7 @@ impl ClientConfig {
         self.iroh.as_ref()
     }
 
-    /// Validate that config matches expected role and mode.
+    /// Validate that config matches the expected role.
     pub fn validate(&self, _source: ConfigSource) -> Result<()> {
         let role = self
             .role
@@ -410,10 +397,6 @@ impl ClientConfig {
         if role != Role::Client {
             anyhow::bail!("Config file has role = \"server\", but running as client");
         }
-
-        self.mode.context(
-            "Config file missing required 'mode' field. Add: mode = \"iroh\"",
-        )?;
 
         if let Some(ref iroh) = self.iroh {
             if iroh.allowed_sources.is_some() {
@@ -545,7 +528,6 @@ mod tests {
     fn client_config_with_iroh(iroh: IrohConfig) -> ClientConfig {
         ClientConfig {
             role: Some(Role::Client),
-            mode: Some(Mode::Iroh),
             iroh: Some(iroh),
         }
     }
@@ -553,7 +535,6 @@ mod tests {
     fn server_config_with_iroh(iroh: IrohConfig) -> ServerConfig {
         ServerConfig {
             role: Some(Role::Server),
-            mode: Some(Mode::Iroh),
             source: None,
             iroh: Some(iroh),
         }

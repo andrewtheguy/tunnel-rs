@@ -33,11 +33,18 @@ Tunnel-rs enables you to forward TCP and UDP traffic between machines without re
 - **Homelab Networking** — Connecting distributed homelab nodes or accessing local services remotely without complex VPN setups or public IP requirements
 - **Cross-platform Tunneling** for both TCP and UDP workflows (including Windows endpoints)
 
-## Overview
+## How It Works
 
 tunnel-rs uses iroh for establishing tunnels, providing NAT traversal with relay fallback, automatic discovery, and client authentication. Clients keep ephemeral iroh identities while proving possession of separately authorized Ed25519 keys, so transport identity and application access control remain independent.
 
-## How It Works
+```
++-----------------+        +-----------------+        +-----------------+        +-----------------+
+| SSH Client      |  TCP   | client          |  iroh  | server          |  TCP   | SSH Server      |
+|                 |<------>| (local:2222)    |<======>|                 |<------>| (client req)    |
+|                 |        |                 |  QUIC  |                 |        |                 |
++-----------------+        +-----------------+        +-----------------+        +-----------------+
+     Client Side                                            Server Side
+```
 
 1. Server creates an iroh endpoint (with internet discovery on default relays; custom relays disable it and clients use relay hints instead)
 2. Server publishes its address via Pkarr/DNS (default relays only)
@@ -109,10 +116,6 @@ curl -sSL https://andrewtheguy.github.io/tunnel-rs/install.sh | bash -s 20251210
 ```bash
 cargo install --path .
 ```
-
-### Feature Flags
-
-Relay-only is a **CLI-only** flag that forces connections through relay servers instead of attempting direct connections. It is intended for testing or special scenarios and is **not supported in config files** to avoid accidental activation. See `tunnel-rs --help` for usage.
 
 ### Supported Platforms
 
@@ -264,8 +267,9 @@ private_key_file = "~/.config/tunnel-rs/client.key"
 
 ## Server Identity
 
-Server identity is required. Configure a persistent identity for the **server**
-so its EndpointId survives restarts and clients can reconnect reliably:
+Required. Only the server needs a persistent key — clients use ephemeral iroh
+identities — and it is what keeps the server's EndpointId stable across restarts
+so clients can reconnect reliably:
 
 ```bash
 # Generate key and output EndpointId
@@ -275,15 +279,7 @@ tunnel-rs generate-server-key --output ./server.key
 tunnel-rs show-server-id --secret-file ./server.key
 ```
 
-Then reference the key in your server config or CLI:
-
-**CLI**:
-```bash
-tunnel-rs server \
-  --secret-file ./server.key \
-  --allowed-tcp 127.0.0.0/8 \
-  --authorized-keys-file ./authorized_keys
-```
+Then point the server at it — `--secret-file ./server.key` on the CLI, or:
 
 **Config file** (`server.toml`):
 ```toml
@@ -291,26 +287,9 @@ tunnel-rs server \
 secret_file = "./server.key"
 ```
 
-> **Note:** Server identity is required. Clients use ephemeral iroh identities by default — only the server needs a persistent key, so that it keeps a stable EndpointId clients can connect to.
-
 ---
 
 # Usage
-
-## Architecture
-
-### TCP Tunneling
-
-```
-+-----------------+        +-----------------+        +-----------------+        +-----------------+
-| SSH Client      |  TCP   | client          |  iroh  | server          |  TCP   | SSH Server      |
-|                 |<------>| (local:2222)    |<======>|                 |<------>| (client req)    |
-|                 |        |                 |  QUIC  |                 |        |                 |
-+-----------------+        +-----------------+        +-----------------+        +-----------------+
-     Client Side                                            Server Side
-```
-
-For deeper architecture diagrams and protocol flows, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## CLI Options
 
@@ -362,7 +341,7 @@ For deeper architecture diagrams and protocol flows, see [docs/ARCHITECTURE.md](
 
 ## Configuration Files
 
-Use `--default-config` to load from the default location, or `-c <path>` for a custom path (both TOML). For normal usage, prefer config files so your settings are saved and reusable. The `--config-stdin` flag is intended for automation and IPC — it accepts JSON (self-delimiting, so the caller does not need to close stdin). Only one of these may be used at a time. Configuration uses the `[iroh]` section.
+Use `--default-config` to load from the default location, or `-c <path>` for a custom path (both TOML). For normal usage, prefer config files so your settings are saved and reusable. The third form, [`--config-stdin`](#json-config-via-stdin), is for automation. Only one of the three may be used at a time. All settings live in the `[iroh]` section.
 
 > **Security:** Authentication private keys are referenced by path and are not embedded in TOML. The server endpoint `secret` is also rejected in TOML; use `secret_file` instead. Inline server endpoint secrets remain available only through `TUNNEL_RS_SECRET` or JSON `--config-stdin` automation.
 
@@ -370,7 +349,108 @@ Use `--default-config` to load from the default location, or `-c <path>` for a c
 - Server: `~/.config/tunnel-rs/server.toml`
 - Client: `~/.config/tunnel-rs/client.toml`
 
-> **Note:** `--relay-only` is intentionally **CLI-only** and is not supported in config files to avoid accidental activation.
+> **Note:** `--relay-only` — which forces connections through the relays instead of attempting direct ones — is intentionally **CLI-only** and is not supported in config files to avoid accidental activation.
+
+### Server Config Example
+
+```toml
+# Example server configuration
+
+# Required: validates config matches CLI command
+role = "server"
+
+[iroh]
+secret_file = "./server.key"
+# relay_urls = ["https://relay.example.com"]
+max_sessions = 100
+
+# Ed25519 public keys, one per line with optional trailing comments
+authorized_keys_file = "/etc/tunnel-rs/authorized_keys"
+
+[iroh.allowed_sources]
+tcp = ["127.0.0.0/8", "192.168.0.0/16"]
+udp = ["10.0.0.0/8"]
+```
+
+> [!NOTE]
+> See [`server.toml.example`](server.toml.example) for the full example.
+
+```bash
+# Load from default location
+tunnel-rs server --default-config
+
+# Load from custom path
+tunnel-rs server -c ./my-server.toml
+```
+
+### Client Config Example
+
+```toml
+# Example client configuration
+
+# Required: validates config matches CLI command
+role = "client"
+
+[iroh]
+server_node_id = "2xnbkpbc7izsilvewd7c62w7wnwziacmpfwvhcrya5nt76dqkpga"
+request_source = "tcp://127.0.0.1:22"
+target = "127.0.0.1:2222"
+# relay_urls = ["https://relay.example.com"]
+
+# Compact Ed25519 authentication private key
+private_key_file = "~/.config/tunnel-rs/client.key"
+```
+
+> [!NOTE]
+> See [`client.toml.example`](client.toml.example) for the full example.
+
+```bash
+# Load from default location
+tunnel-rs client --default-config
+
+# Load from custom path
+tunnel-rs client -c ./my-client.toml
+```
+
+### JSON Config via stdin
+
+For automation and IPC, `--config-stdin` takes the same structure as JSON. It is
+self-delimiting, so the parent process can keep stdin open after writing it:
+
+```python
+import json, socket, subprocess, time
+
+config = {
+    "role": "client",
+    "iroh": {
+        "server_node_id": "<SERVER_NODE_ID>",
+        "private_key_file": "/run/secrets/tunnel-rs-client.key",
+        "request_source": "tcp://127.0.0.1:22",
+        "target": "127.0.0.1:2222",
+    }
+}
+
+proc = subprocess.Popen(
+    ["tunnel-rs", "client", "--config-stdin"],
+    stdin=subprocess.PIPE,
+)
+proc.stdin.write(json.dumps(config).encode())
+proc.stdin.flush()  # config is parsed immediately, no need to close stdin
+
+# wait for the forwarded port to be ready
+for attempt in range(10):
+    try:
+        with socket.create_connection(("127.0.0.1", 2222), timeout=2):
+            print("tunnel is up")
+            break
+    except OSError:
+        time.sleep(1)
+else:
+    raise RuntimeError("tunnel failed to start")
+
+input("press enter to quit..")
+proc.terminate()
+```
 
 ### Overriding Config Values
 
@@ -407,111 +487,6 @@ send_window = 67108864
 ```
 
 The connection-level receive window uses iroh's default. If `send_window` is omitted but `receive_window` is set, the send window defaults to twice the stream receive window, capped at the 64MB default. See [`server.toml.example`](server.toml.example) and [`client.toml.example`](client.toml.example) for the annotated reference.
-
-### Server Config Example
-
-```toml
-# Example server configuration (iroh mode)
-
-# Required: validates config matches CLI command
-role = "server"
-mode = "iroh"
-
-[iroh]
-secret_file = "./server.key"
-# relay_urls = ["https://relay.example.com"]
-max_sessions = 100
-
-# Ed25519 public keys, one per line with optional trailing comments
-authorized_keys_file = "/etc/tunnel-rs/authorized_keys"
-
-[iroh.allowed_sources]
-tcp = ["127.0.0.0/8", "192.168.0.0/16"]
-udp = ["10.0.0.0/8"]
-```
-
-> [!NOTE]
-> See [`server.toml.example`](server.toml.example) for the full example.
-
-```bash
-# Load from default location (mode inferred from config)
-tunnel-rs server --default-config
-
-# Load from custom path
-tunnel-rs server -c ./my-server.toml
-
-```
-
-### Client Config Example
-
-```toml
-# Example client configuration (iroh mode)
-
-# Required: validates config matches CLI command
-role = "client"
-mode = "iroh"
-
-[iroh]
-server_node_id = "2xnbkpbc7izsilvewd7c62w7wnwziacmpfwvhcrya5nt76dqkpga"
-request_source = "tcp://127.0.0.1:22"
-target = "127.0.0.1:2222"
-# relay_urls = ["https://relay.example.com"]
-
-# Compact Ed25519 authentication private key
-private_key_file = "~/.config/tunnel-rs/client.key"
-```
-
-> [!NOTE]
-> See [`client.toml.example`](client.toml.example) for the full example.
-
-```bash
-# Load from default location (mode inferred from config)
-tunnel-rs client --default-config
-
-# Load from custom path
-tunnel-rs client -c ./my-client.toml
-
-# Automation/IPC: pass JSON config via stdin (no need to close stdin)
-# JSON is self-delimiting, so the parent process can keep stdin open.
-```
-
-Example: spawning a client with `--config-stdin` from Python:
-
-```python
-import json, socket, subprocess, time
-
-config = {
-    "role": "client",
-    "mode": "iroh",
-    "iroh": {
-        "server_node_id": "<SERVER_NODE_ID>",
-        "private_key_file": "/run/secrets/tunnel-rs-client.key",
-        "request_source": "tcp://127.0.0.1:22",
-        "target": "127.0.0.1:2222",
-    }
-}
-
-proc = subprocess.Popen(
-    ["tunnel-rs", "client", "--config-stdin"],
-    stdin=subprocess.PIPE,
-)
-proc.stdin.write(json.dumps(config).encode())
-proc.stdin.flush()  # config is parsed immediately, no need to close stdin
-
-# wait for the forwarded port to be ready
-for attempt in range(10):
-    try:
-        with socket.create_connection(("127.0.0.1", 2222), timeout=2):
-            print("tunnel is up")
-            break
-    except OSError:
-        time.sleep(1)
-else:
-    raise RuntimeError("tunnel failed to start")
-
-input("press enter to quit..")
-proc.terminate()
-```
 
 ## Utility Commands
 

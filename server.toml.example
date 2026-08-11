@@ -3,16 +3,13 @@
 # Usage: tunnel-rs server -c server.toml
 #        tunnel-rs server --default-config
 #
-# Mode is inferred from the 'mode' field below.
 # CLI arguments take precedence over config file values.
-# This file is iroh-only.
 
 # Required: validates config matches CLI command
 role = "server"
-mode = "iroh"
 
-# NOTE: For iroh mode, do NOT set 'source' here.
-# Clients request sources dynamically. Use allowed_sources below to restrict.
+# NOTE: do NOT set 'source' here. Clients request sources dynamically;
+# use allowed_sources below to restrict what they may ask for.
 
 [iroh]
 # Path to secret key file for persistent identity (required).

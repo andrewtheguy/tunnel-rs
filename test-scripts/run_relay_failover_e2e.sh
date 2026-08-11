@@ -244,7 +244,7 @@ iroh = {
     "allowed_sources": {"tcp": ["127.0.0.0/8"]},
     "relay_urls": sys.argv[2:],
 }
-print(json.dumps({"role": "server", "mode": "iroh", "iroh": iroh}))
+print(json.dumps({"role": "server", "iroh": iroh}))
 ' "$WORK/authorized_keys" "$@"
     )"
     printf '%s\n' "$config" |
@@ -303,7 +303,7 @@ iroh = {
     "private_key_file": sys.argv[3],
     "relay_urls": sys.argv[4:],
 }
-print(json.dumps({"role": "client", "mode": "iroh", "iroh": iroh}))
+print(json.dumps({"role": "client", "iroh": iroh}))
 ' "$target_port" "$BACKEND_PORT" "$WORK/client.key" "$@"
     )"
     printf '%s\n' "$config" |
