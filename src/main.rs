@@ -192,6 +192,47 @@ fn normalize_optional_endpoint(value: Option<String>) -> Option<String> {
         .filter(|v| !v.is_empty())
 }
 
+/// Where the server reads the Ed25519 public keys it accepts from.
+enum AuthorizedKeysSource {
+    File(PathBuf),
+    /// Inline entries from a `--config-stdin` config.
+    Inline(Vec<String>),
+}
+
+/// Where the client reads its Ed25519 authentication key from.
+enum PrivateKeySource {
+    File(PathBuf),
+    /// Inline key from a `--config-stdin` config.
+    Inline(String),
+}
+
+/// Load the server's authorized keys, rejecting a source that holds none.
+fn load_authorized_keys(source: AuthorizedKeysSource) -> Result<auth::AuthorizedKeys> {
+    let (keys, origin) = match source {
+        AuthorizedKeysSource::File(path) => {
+            let path = expand_tilde(&path);
+            let origin = path.display().to_string();
+            (auth::load_authorized_keys(&path)?, origin)
+        }
+        AuthorizedKeysSource::Inline(entries) => {
+            let origin = "[iroh].authorized_keys".to_string();
+            (auth::parse_authorized_keys_entries(&entries, &origin)?, origin)
+        }
+    };
+    if keys.is_empty() {
+        anyhow::bail!("No Ed25519 public keys found in {}", origin);
+    }
+    Ok(keys)
+}
+
+/// Load the client's authentication private key.
+fn load_private_key(source: PrivateKeySource) -> Result<auth::ClientAuthKey> {
+    match source {
+        PrivateKeySource::File(path) => auth::load_private_key(&expand_tilde(&path)),
+        PrivateKeySource::Inline(key) => auth::parse_private_key(&key, "[iroh].private_key"),
+    }
+}
+
 /// Resolved server parameters from the CLI and the `[iroh]` config section.
 /// CLI values take precedence over config file values.
 struct ServerIrohParams {
@@ -202,7 +243,7 @@ struct ServerIrohParams {
     secret_file: Option<PathBuf>,
     relay_urls: Vec<String>,
     relay_auth_token: Option<String>,
-    authorized_keys_file: Option<PathBuf>,
+    authorized_keys: Option<AuthorizedKeysSource>,
     transport: TransportTuning,
 }
 
@@ -259,10 +300,12 @@ fn resolve_server_iroh_params(
             .clone()
             .or_else(|| env_var_opt("TUNNEL_RS_RELAY_AUTH_TOKEN"))
             .or(cfg.relay_auth_token.clone()),
-        authorized_keys_file: authorized_keys_file
+        authorized_keys: authorized_keys_file
             .clone()
             .or_else(|| env_var_opt("TUNNEL_RS_AUTHORIZED_KEYS_FILE").map(PathBuf::from))
-            .or(cfg.authorized_keys_file.clone()),
+            .or(cfg.authorized_keys_file.clone())
+            .map(AuthorizedKeysSource::File)
+            .or_else(|| cfg.authorized_keys.clone().map(AuthorizedKeysSource::Inline)),
         transport: cfg.transport.clone(),
     }
 }
@@ -275,7 +318,7 @@ struct ClientIrohParams {
     target: Option<String>,
     relay_urls: Vec<String>,
     relay_auth_token: Option<String>,
-    private_key_file: Option<PathBuf>,
+    private_key: Option<PrivateKeySource>,
     transport: TransportTuning,
 }
 
@@ -314,10 +357,12 @@ fn resolve_client_iroh_params(
             .clone()
             .or_else(|| env_var_opt("TUNNEL_RS_RELAY_AUTH_TOKEN"))
             .or(cfg.relay_auth_token.clone()),
-        private_key_file: private_key_file
+        private_key: private_key_file
             .clone()
             .or_else(|| env_var_opt("TUNNEL_RS_PRIVATE_KEY_FILE").map(PathBuf::from))
-            .or(cfg.private_key_file.clone()),
+            .or(cfg.private_key_file.clone())
+            .map(PrivateKeySource::File)
+            .or_else(|| cfg.private_key.clone().map(PrivateKeySource::Inline)),
         transport: cfg.transport.clone(),
     }
 }
@@ -463,27 +508,20 @@ async fn run_inner() -> Result<()> {
                 secret_file,
                 relay_urls,
                 relay_auth_token,
-                authorized_keys_file,
+                authorized_keys,
                 transport,
             } = resolve_server_iroh_params(&command, cfg.iroh());
             let relay_config = RelayConfig::from_urls_with_token(&relay_urls, relay_auth_token)
                 .map_err(TunnelError::config)?;
             let secret = resolve_iroh_secret(secret, secret_file)?;
-            let authorized_keys_file = authorized_keys_file.ok_or_else(|| {
+            let authorized_keys = authorized_keys.ok_or_else(|| {
                 TunnelError::config(anyhow::anyhow!(
                     "Authentication requires --authorized-keys-file, \
-                     TUNNEL_RS_AUTHORIZED_KEYS_FILE, or [iroh].authorized_keys_file."
+                     TUNNEL_RS_AUTHORIZED_KEYS_FILE, [iroh].authorized_keys_file, \
+                     or [iroh].authorized_keys."
                 ))
             })?;
-            let authorized_keys_file = expand_tilde(&authorized_keys_file);
-            let authorized_keys = auth::load_authorized_keys(&authorized_keys_file)
-                .map_err(TunnelError::config)?;
-            if authorized_keys.is_empty() {
-                return Err(TunnelError::config(anyhow::anyhow!(
-                    "No Ed25519 public keys found in {}",
-                    authorized_keys_file.display()
-                )).into());
-            }
+            let authorized_keys = load_authorized_keys(authorized_keys).map_err(TunnelError::config)?;
 
             log::info!("Authorized client keys: {}", authorized_keys.len());
             validate_transport_tuning(&transport, "iroh.transport")?;
@@ -519,7 +557,7 @@ async fn run_inner() -> Result<()> {
                 target,
                 relay_urls,
                 relay_auth_token,
-                private_key_file,
+                private_key,
                 transport,
             } = resolve_client_iroh_params(&command, cfg.iroh());
             let relay_config = RelayConfig::from_urls_with_token(&relay_urls, relay_auth_token)
@@ -533,14 +571,14 @@ async fn run_inner() -> Result<()> {
             let target = target.ok_or_else(|| TunnelError::config(
                 anyhow::anyhow!("--target is required. Provide the local address to listen on (e.g., --target 127.0.0.1:2222)"),
             ))?;
-            let private_key_file = private_key_file.ok_or_else(|| {
+            let private_key = private_key.ok_or_else(|| {
                 TunnelError::config(anyhow::anyhow!(
                     "Authentication requires --private-key-file, \
-                     TUNNEL_RS_PRIVATE_KEY_FILE, or [iroh].private_key_file."
+                     TUNNEL_RS_PRIVATE_KEY_FILE, [iroh].private_key_file, \
+                     or [iroh].private_key."
                 ))
             })?;
-            let private_key = auth::load_private_key(&expand_tilde(&private_key_file))
-                .map_err(TunnelError::config)?;
+            let private_key = load_private_key(private_key).map_err(TunnelError::config)?;
 
             validate_transport_tuning(&transport, "iroh.transport")
                 .map_err(TunnelError::config)?;

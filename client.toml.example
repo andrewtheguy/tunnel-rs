@@ -29,6 +29,10 @@ server_node_id = "2xnbkpbc7izsilvewd7c62w7wnwziacmpfwvhcrya5nt76dqkpga"
 # It is separate from the ephemeral iroh client identity.
 private_key_file = "~/.config/tunnel-rs/client.key"
 
+# For automation there is also an inline 'private_key' holding the key itself,
+# but it is accepted only from a JSON --config-stdin config, never from a config
+# file such as this one.
+
 # Source address to request from server (required if not specified via CLI --source)
 # Must be in server's allowed_sources list (--allowed-tcp or --allowed-udp)
 # request_source = "tcp://127.0.0.1:22"

@@ -302,7 +302,7 @@ secret_file = "./server.key"
 | `--config-stdin` | false | Read JSON config from stdin for automation/IPC (use `-c` for normal usage) |
 | `--allowed-tcp` | - | Allowed TCP networks in CIDR notation (repeatable) |
 | `--allowed-udp` | - | Allowed UDP networks in CIDR notation (repeatable) |
-| `--authorized-keys-file` | required | Path to SSH-like file containing authorized Ed25519 public keys |
+| `--authorized-keys-file` | required | Path to SSH-like file containing authorized Ed25519 public keys. Required unless the keys come from `[iroh].authorized_keys_file` or, with `--config-stdin`, an inline `[iroh].authorized_keys` |
 | `--max-sessions` | 100 | Maximum concurrent sessions |
 | `--secret-file` | - | Path to secret key file for persistent server identity |
 | `--relay-url` | public | Custom relay server URL(s), repeatable. Every one must be reachable at startup |
@@ -327,7 +327,7 @@ secret_file = "./server.key"
 | `--server-node-id`, `-n` | required | EndpointId of the server |
 | `--source`, `-s` | required | Source address to request from server (tcp://host:port or udp://host:port) |
 | `--target`, `-t` | required | Local address to listen on |
-| `--private-key-file` | required | Path to compact Ed25519 authentication private key |
+| `--private-key-file` | required | Path to compact Ed25519 authentication private key. Required unless the key comes from `[iroh].private_key_file` or, with `--config-stdin`, an inline `[iroh].private_key` |
 | `--relay-url` | public | Custom relay server URL(s), repeatable. Every one must be reachable at startup |
 | `--relay-auth-token` | - | Shared bearer token for the custom relay(s); requires `--relay-url` |
 | `--relay-only` | false | Force all traffic through relay (CLI-only; not supported in config files) |
@@ -341,9 +341,9 @@ secret_file = "./server.key"
 
 ## Configuration Files
 
-Use `--default-config` to load from the default location, or `-c <path>` for a custom path (both TOML). For normal usage, prefer config files so your settings are saved and reusable. The third form, [`--config-stdin`](#json-config-via-stdin), is for automation. Only one of the three may be used at a time. Whichever form you use, `role` (`"server"` or `"client"`) is a required **top-level** field that is checked against the subcommand; every other setting goes under the `[iroh]` section.
+Use `--default-config` to load from the default location, or `-c <path>` for a custom path (both TOML). For normal usage, prefer config files so your settings are saved and reusable. The third form, [`--config-stdin`](#json-config-via-stdin), is for automation. Only one of the three may be used at a time. Whichever form you use, `role` (`"server"` or `"client"`) is a required **top-level** field that is checked against the subcommand; every other setting goes under the `[iroh]` section. Unknown keys are rejected, so a typo fails at startup instead of being silently ignored.
 
-> **Security:** Authentication private keys are referenced by path and are not embedded in TOML. The server endpoint `secret` is also rejected in TOML; use `secret_file` instead. Inline server endpoint secrets remain available only through `TUNNEL_RS_SECRET` or JSON `--config-stdin` automation.
+> **Security:** In TOML, keys are referenced by path only: `private_key_file`, `authorized_keys_file`, and `secret_file`. Their inline counterparts (`private_key`, `authorized_keys`, `secret`) are rejected in config files and available only through JSON [`--config-stdin`](#json-config-via-stdin) automation — plus `TUNNEL_RS_SECRET` for the server endpoint secret.
 
 **Default locations:**
 - Server: `~/.config/tunnel-rs/server.toml`
@@ -451,6 +451,44 @@ else:
 input("press enter to quit..")
 proc.terminate()
 ```
+
+#### Inline keys
+
+Because a stdin config never touches disk, it may carry the keys themselves
+instead of paths — useful when the keys come from a secret manager and you would
+rather not materialize files:
+
+```python
+client_config = {
+    "role": "client",
+    "iroh": {
+        "server_node_id": "<SERVER_NODE_ID>",
+        # bare token, or the whole generated key file including its "#" comments
+        "private_key": "tunnelrsv1authsecret:<urlsafe base64 private seed>",
+        "request_source": "tcp://127.0.0.1:22",
+        "target": "127.0.0.1:2222",
+    },
+}
+
+server_config = {
+    "role": "server",
+    "iroh": {
+        # inline endpoint identity, same as TUNNEL_RS_SECRET
+        "secret": "<base64 server secret key>",
+        # one authorized_keys line per element, comments and all
+        "authorized_keys": [
+            "tunnelrsv1authpub:<urlsafe base64 public key> alice laptop",
+            "tunnelrsv1authpub:<urlsafe base64 public key> bob desktop",
+        ],
+        "allowed_sources": {"tcp": ["127.0.0.0/8"]},
+    },
+}
+```
+
+Each inline field replaces its `_file` counterpart; setting both forms is an
+error. `--private-key-file` / `--authorized-keys-file` on the command line, and
+`TUNNEL_RS_PRIVATE_KEY_FILE` / `TUNNEL_RS_AUTHORIZED_KEYS_FILE` in the
+environment, still win over the inline config values.
 
 ### Overriding Config Values
 

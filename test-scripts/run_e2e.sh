@@ -8,6 +8,10 @@
 #   * a tunnel-rs TCP client    (config fed as JSON on stdin, --config-stdin)
 #   * a tunnel-rs UDP client    (config fed as JSON on stdin, --config-stdin)
 #
+# Keys are passed both ways across those configs: the TCP client points at a
+# private-key file while the server and the UDP client carry their keys inline,
+# which stdin configs allow and TOML files do not.
+#
 # then runs a Python echo client against each tunnel client's local port and
 # verifies the payload makes the full round trip: client -> tunnel -> backend
 # -> tunnel -> client.
@@ -303,12 +307,12 @@ import json, sys
 secret = sys.stdin.readline().rstrip("\n")
 iroh = {
     "secret": secret,
-    "authorized_keys_file": sys.argv[1],
+    "authorized_keys": [sys.argv[1]],
     "allowed_sources": {"tcp": ["127.0.0.0/8"], "udp": ["127.0.0.0/8"]},
 }
 iroh.update(json.loads(sys.stdin.readline()))
 print(json.dumps({"role": "server", "iroh": iroh}))
-' "$WORK/authorized_keys"
+' "$AUTHORIZED_ENTRY"
 )"
 
 log "Starting tunnel-rs server..."
@@ -322,6 +326,9 @@ wait_for_log "$WORK/server.log" "Waiting for clients to connect" "$READY_TIMEOUT
 build_client_config() {
     local protocol="$1" backend_port="$2" target_port="$3"
     local private_key_file="${4:-$WORK/client.key}"
+    # "inline" embeds the key file's contents as 'private_key' instead of
+    # pointing at it; any other value keeps the file-based form.
+    local key_mode="${5:-file}"
     printf '%s\n%s\n' "$ENDPOINT_ID" "$RELAY_CONFIG" |
         python3 -c '
 import json, sys
@@ -331,11 +338,15 @@ iroh = {
     "server_node_id": endpoint_id,
     "request_source": f"{protocol}://127.0.0.1:{backend_port}",
     "target": f"127.0.0.1:{target_port}",
-    "private_key_file": sys.argv[4],
 }
+if sys.argv[5] == "inline":
+    with open(sys.argv[4]) as key_file:
+        iroh["private_key"] = key_file.read()
+else:
+    iroh["private_key_file"] = sys.argv[4]
 iroh.update(json.loads(sys.stdin.readline()))
 print(json.dumps({"role": "client", "iroh": iroh}))
-' "$protocol" "$backend_port" "$target_port" "$private_key_file"
+' "$protocol" "$backend_port" "$target_port" "$private_key_file" "$key_mode"
 }
 
 UNAUTHORIZED_CONFIG="$(build_client_config tcp "$TCP_BACKEND" "$TCP_TARGET" "$WORK/unauthorized.key")"
@@ -370,7 +381,8 @@ fi
 log "Unlisted authentication key rejection: PASS"
 
 CLIENT_TCP_CONFIG="$(build_client_config tcp "$TCP_BACKEND" "$TCP_TARGET")"
-CLIENT_UDP_CONFIG="$(build_client_config udp "$UDP_BACKEND" "$UDP_TARGET")"
+# The UDP client takes the same key inline, exercising the stdin-only form.
+CLIENT_UDP_CONFIG="$(build_client_config udp "$UDP_BACKEND" "$UDP_TARGET" "$WORK/client.key" inline)"
 
 log "Starting tunnel-rs TCP client..."
 start_tunnel client "$CLIENT_TCP_CONFIG" "$WORK/client_tcp.log"

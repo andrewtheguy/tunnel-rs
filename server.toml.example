@@ -59,6 +59,10 @@ max_sessions = 100
 # Example: tunnelrsv1authpub:1bhGIken5UAXTkC7cABRzM4cE98xZl3tilGyYZsoyP8 alice laptop
 authorized_keys_file = "/etc/tunnel-rs/authorized_keys"
 
+# For automation there is also an inline 'authorized_keys' array holding those
+# same lines, but like 'secret' it is accepted only from a JSON --config-stdin
+# config, never from a config file such as this one.
+
 # ============================================================================
 # Allowed source networks that clients can request (CIDR notation)
 # Clients MUST specify --source which must match one of these networks
