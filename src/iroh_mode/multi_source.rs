@@ -45,7 +45,9 @@ impl std::fmt::Debug for MultiSourceServerConfig {
             .field("allowed_udp", &self.allowed_udp)
             .field("max_sessions", &self.max_sessions)
             .field("secret", &self.secret.as_ref().map(|_| "[REDACTED]"))
-            .field("relay_urls", &self.relay_config.custom_urls())
+            // `RelayConfig`'s own Debug shows the resolved mode and redacts the
+            // relay auth token.
+            .field("relay_config", &self.relay_config)
             .field("relay_only", &self.relay_only)
             .field("authorized_keys", &self.authorized_keys)
             .field("transport", &self.transport)
@@ -78,7 +80,8 @@ impl std::fmt::Debug for MultiSourceClientConfig {
             .field("node_id", &self.node_id)
             .field("source", &self.source)
             .field("target", &self.target)
-            .field("relay_urls", &self.relay_config.custom_urls())
+            // Redacts the relay auth token; see `RelayConfig`'s Debug impl.
+            .field("relay_config", &self.relay_config)
             .field("relay_only", &self.relay_only)
             .field("private_key", &self.private_key)
             .field("transport", &self.transport)

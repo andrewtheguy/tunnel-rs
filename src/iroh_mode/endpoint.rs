@@ -108,12 +108,12 @@ pub fn secret_to_endpoint_id(secret: &SecretKey) -> EndpointId {
 /// [`Custom`](Self::Custom) uses the configured relays with n0 internet discovery
 /// disabled (clients use relay hints instead). mDNS local-network discovery is
 /// independent of this and stays on in both modes.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Clone, PartialEq, Eq, Default)]
 pub enum RelayConfig {
     /// iroh's default relay map, with n0 address lookup.
     #[default]
     Default,
-    /// Custom relay set (parsed, sorted, deduped). Never empty.
+    /// Custom relay set (parsed and deduped, in configured order). Never empty.
     ///
     /// `auth_token`, when set, is sent to every custom relay as an
     /// `Authorization: Bearer <token>` header on the WebSocket upgrade (see
@@ -123,6 +123,22 @@ pub enum RelayConfig {
         urls: Vec<RelayUrl>,
         auth_token: Option<String>,
     },
+}
+
+/// Hand-written so the shared relay auth token is never printed. Everything
+/// else (the mode, and the relay URLs that select it) is safe to show and is
+/// what makes a `{:?}` of a server/client config actionable.
+impl std::fmt::Debug for RelayConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Default => f.write_str("Default"),
+            Self::Custom { urls, auth_token } => f
+                .debug_struct("Custom")
+                .field("urls", urls)
+                .field("auth_token", &auth_token.as_ref().map(|_| "[REDACTED]"))
+                .finish(),
+        }
+    }
 }
 
 impl RelayConfig {
@@ -159,15 +175,21 @@ impl RelayConfig {
             }
             return Ok(Self::Default);
         }
-        let mut parsed = urls
+        let mut seen = std::collections::HashSet::new();
+        // Keep the configured order: under `--relay-only`, `connect_to_server`
+        // dials the relays in this order, so the first URL is the preferred one.
+        // Only exact duplicates are dropped, keeping the first occurrence.
+        let parsed = urls
             .iter()
             .map(|url| {
                 url.parse::<RelayUrl>()
                     .with_context(|| format!("Invalid relay URL: {url}"))
             })
+            .filter(|parsed| match parsed {
+                Ok(url) => seen.insert(url.clone()),
+                Err(_) => true,
+            })
             .collect::<Result<Vec<_>>>()?;
-        parsed.sort();
-        parsed.dedup();
         Ok(Self::Custom {
             urls: parsed,
             auth_token,
@@ -403,13 +425,15 @@ fn probe_endpoint_builder(
     auth_token: Option<&str>,
 ) -> Result<EndpointBuilder> {
     let transport_config = build_quic_transport_config(None)?;
-    let map = RelayMap::from_iter([relay_url.clone()]);
-    let map = match auth_token {
-        Some(token) => map.with_auth_token(token.to_string()),
-        None => map,
-    };
+    // Reuse the real relay mode construction (including how the auth token is
+    // attached) so the probe cannot drift from what the endpoint actually does.
+    let relay_mode = RelayConfig::Custom {
+        urls: vec![relay_url.clone()],
+        auth_token: auth_token.map(str::to_string),
+    }
+    .relay_mode();
     let builder = Endpoint::builder(presets::Empty)
-        .relay_mode(RelayMode::Custom(map))
+        .relay_mode(relay_mode)
         .transport_config(transport_config)
         .crypto_provider(Arc::new(rustls::crypto::ring::default_provider()))
         // Relay-only: drop direct IP transports so `online()` is a pure relay
@@ -814,6 +838,33 @@ mod tests {
         let cfg =
             RelayConfig::from_urls(&[RELAY.to_string(), RELAY.to_string()]).unwrap();
         assert_eq!(cfg.custom_urls().len(), 1);
+    }
+
+    #[test]
+    fn custom_urls_keep_configured_order_while_deduping() {
+        // Relay-only dialing walks custom_urls() in order, so the configured
+        // order is the failover order and must survive dedup unsorted.
+        const SECOND: &str = "https://a-relay.example.com./";
+        let cfg = RelayConfig::from_urls(&[
+            RELAY.to_string(),
+            SECOND.to_string(),
+            RELAY.to_string(),
+        ])
+        .unwrap();
+        let urls: Vec<String> = cfg.custom_urls().iter().map(|u| u.to_string()).collect();
+        assert_eq!(urls, vec![RELAY.to_string(), SECOND.to_string()]);
+    }
+
+    #[test]
+    fn debug_redacts_relay_auth_token() {
+        let cfg =
+            RelayConfig::from_urls_with_token(&[RELAY.to_string()], Some("secret".to_string()))
+                .unwrap();
+        let rendered = format!("{cfg:?}");
+        assert!(!rendered.contains("secret"), "token leaked: {rendered}");
+        assert!(rendered.contains("[REDACTED]"), "unexpected debug: {rendered}");
+        assert!(rendered.contains("relay.example.com"), "unexpected debug: {rendered}");
+        assert_eq!(format!("{:?}", RelayConfig::Default), "Default");
     }
 
     #[test]

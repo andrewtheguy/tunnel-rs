@@ -349,8 +349,14 @@ connect_and_echo() {
     return 1
 }
 
+# The message the startup relay probe emits when a configured relay is down.
+# Every negative client scenario below must fail *this* way; requiring it keeps
+# an unrelated startup failure (bad key, port in use, malformed config) from
+# passing as a relay-probe failure.
+RELAY_PROBE_FAILURE='custom relay\(s\) failed to come online'
+
 # Start a client that is EXPECTED to fail to connect. Passes when the process
-# exits without ever establishing the tunnel.
+# exits without ever establishing the tunnel AND reports the relay-probe failure.
 expect_connect_failure() {
     local logfile="$WORK/client.$(date +%s%N).log"
     local target_port rc=0
@@ -363,11 +369,17 @@ expect_connect_failure() {
         return 1
     fi
     kill_pid "$CLIENT_PID"; CLIENT_PID=""
-    if [[ "$rc" -eq 2 ]]; then
-        return 0   # process died before establishing the tunnel, as expected
+    if [[ "$rc" -ne 2 ]]; then
+        note "client neither connected nor exited within ${READY_TIMEOUT}s"
+        return 1
     fi
-    note "client neither connected nor exited within ${READY_TIMEOUT}s"
-    return 1
+    # It exited without connecting - make sure it exited for the expected reason.
+    if ! grep -Eq "$RELAY_PROBE_FAILURE" "$logfile"; then
+        note "client exited without the expected relay-probe failure; log:"
+        cat "$logfile" >&2
+        return 1
+    fi
+    return 0
 }
 
 # ---------------------------------------------------------------------------
