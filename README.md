@@ -37,6 +37,19 @@ Tunnel-rs enables you to forward TCP and UDP traffic between machines without re
 
 tunnel-rs uses iroh for establishing tunnels, providing NAT traversal with relay fallback, automatic discovery, and client authentication. Clients keep ephemeral iroh identities while proving possession of separately authorized Ed25519 keys, so transport identity and application access control remain independent.
 
+## How It Works
+
+1. Server creates an iroh endpoint (with internet discovery on default relays; custom relays disable it and clients use relay hints instead)
+2. Server publishes its address via Pkarr/DNS (default relays only)
+3. Client resolves the server via discovery, or reaches it directly through the configured relays
+4. **QUIC handshake:** Connection uses the fixed ALPN `mf/4` shared by all peers
+5. **Authentication phase:** Client opens the dedicated auth stream; the server sends a fresh random challenge
+6. **Client proves key possession:** Client signs the domain-separated challenge and sends its public key and signature; the server checks the key against `authorized_keys` and verifies the signature (10s timeout)
+   - *If authentication fails, the connection is closed and steps 7–9 do not occur*
+7. **Source request phase:** Client opens source stream with `SourceRequest`
+8. Server validates source against allowed networks and responds
+9. If accepted, traffic forwarding begins
+
 > See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed diagrams and technical deep-dives.
 
 ## Installation
@@ -120,23 +133,32 @@ Access services running in Docker or Kubernetes remotely — without opening por
 
 ---
 
-# Configuration
+# Quick Start
 
-## Persistent Server Identity
+End to end in three steps. [Setup](#setup) below explains what each key is for
+and where it lives.
 
-Server identity is required. Configure a persistent identity for the **server** so clients can reconnect reliably:
+## 1. Generate the keys (one-time)
+
+Client key first: the server will not accept a connection until it already holds
+that client's public entry.
 
 ```bash
-# Generate key and output EndpointId
-tunnel-rs generate-server-key --output ./server.key
+# 1. On the client machine; send the printed public entry to the server admin
+tunnel-rs generate-auth-key --output ./client.key --comment "alice laptop" \
+  > client.authorized_key
 
-# Show EndpointId for existing key
-tunnel-rs show-server-id --secret-file ./server.key
+# 2. On the server machine - authorize that entry
+cat client.authorized_key >> authorized_keys
+
+# 3. On the server machine - generate the persistent identity to dial
+tunnel-rs generate-server-key --output ./server.key
+# Output: EndpointId: 2xnbkpbc7izsilvewd7c62w7wnwziacmpfwvhcrya5nt76dqkpga
 ```
 
-Then reference the key in your server config or CLI:
+## 2. TCP Tunnel (e.g., SSH)
 
-**CLI**:
+**Server** (on server — waits for client connections):
 ```bash
 tunnel-rs server \
   --secret-file ./server.key \
@@ -144,18 +166,57 @@ tunnel-rs server \
   --authorized-keys-file ./authorized_keys
 ```
 
-**Config file** (`server.toml`):
-```toml
-[iroh]
-secret_file = "./server.key"
+Output:
+```
+EndpointId: 2xnbkpbc7izsilvewd7c62w7wnwziacmpfwvhcrya5nt76dqkpga
+Authorized client keys: 1
+Waiting for clients to connect...
 ```
 
-> **Note:** Clients use ephemeral identities by default. Only the server needs a persistent key to maintain a stable EndpointId that clients can connect to.
+**Client** (on client — requests source from server):
+```bash
+tunnel-rs client \
+  --server-node-id <SERVER_ENDPOINT_ID> \
+  --source tcp://127.0.0.1:22 \
+  --target 127.0.0.1:2222 \
+  --private-key-file ./client.key
+```
 
-## Authentication
+Then connect: `ssh -p 2222 user@127.0.0.1`
 
-Clients authenticate after the iroh connection is established by signing a
-fresh server challenge with an Ed25519 key. This authentication identity is
+## 3. UDP Tunnel (e.g., WireGuard/Game/DNS)
+
+**Server**:
+```bash
+tunnel-rs server \
+  --secret-file ./server.key \
+  --allowed-udp 127.0.0.0/8 \
+  --authorized-keys-file ./authorized_keys
+```
+
+**Client**:
+```bash
+tunnel-rs client \
+  --server-node-id <SERVER_ENDPOINT_ID> \
+  --source udp://127.0.0.1:51820 \
+  --target 0.0.0.0:51820 \
+  --private-key-file ./client.key
+```
+
+---
+
+# Setup
+
+The reference behind [Quick Start](#quick-start). Two unrelated keys are
+involved: the **client authentication key**, which proves who is connecting, and
+the **server identity key**, which gives the server a stable EndpointId to dial.
+The client's comes first, since the server will not accept a connection until it
+already holds that client's public entry.
+
+## Client Authentication Key
+
+Clients authenticate after the iroh connection is established by signing a fresh
+server challenge with an Ed25519 key. This authentication identity is
 independent of the client's ephemeral iroh EndpointId.
 
 ```bash
@@ -201,34 +262,36 @@ authorized_keys_file = "/etc/tunnel-rs/authorized_keys"
 private_key_file = "~/.config/tunnel-rs/client.key"
 ```
 
-## Self-Hosting
+## Server Identity
 
-For custom relay servers and fully independent operation without public
-infrastructure, see
-**[iroh-common-architecture](https://github.com/flexaccessdev/iroh-common-architecture)** —
-the iroh transport docs shared with
-[ezvpn](https://github.com/flexaccessdev/ezvpn) and
-[flextunnel](https://github.com/flexaccessdev/flextunnel):
-[self-hosting](https://github.com/flexaccessdev/iroh-common-architecture/blob/main/self-hosting.md)
-(running your own relay, including the single-port Cloudflare Tunnel setup) and
-[relays and address lookup](https://github.com/flexaccessdev/iroh-common-architecture/blob/main/relays-and-address-lookup.md)
-(the design). tunnel-rs is the **reference program for relay-only setups** — use
-its relay-only e2e script to validate a freshly deployed relay.
+Server identity is required. Configure a persistent identity for the **server**
+so its EndpointId survives restarts and clients can reconnect reliably:
 
-Two behaviors to know before configuring relays:
+```bash
+# Generate key and output EndpointId
+tunnel-rs generate-server-key --output ./server.key
 
-- **Custom relays disable internet discovery automatically.** Nothing is
-  published to or resolved from n0's public infrastructure, so the configured
-  relay URLs are the only way the two sides find each other — configure both
-  sides with the **full** relay list. The relays are connection *hints*, not a
-  transport choice: hole punching still runs, and traffic moves to a direct path
-  whenever one is available. Pass `--relay-only` (CLI-only) to force every byte
-  through the relays instead.
-- **Every configured relay is probed individually at startup, and all must come
-  online** or the process refuses to start. A dead backup relay is a startup
-  failure rather than a failover path that silently does not exist. Losing a
-  relay *after* startup is survivable — the endpoint re-homes onto a surviving
-  one within ~30s.
+# Show EndpointId for existing key
+tunnel-rs show-server-id --secret-file ./server.key
+```
+
+Then reference the key in your server config or CLI:
+
+**CLI**:
+```bash
+tunnel-rs server \
+  --secret-file ./server.key \
+  --allowed-tcp 127.0.0.0/8 \
+  --authorized-keys-file ./authorized_keys
+```
+
+**Config file** (`server.toml`):
+```toml
+[iroh]
+secret_file = "./server.key"
+```
+
+> **Note:** Server identity is required. Clients use ephemeral iroh identities by default — only the server needs a persistent key, so that it keeps a stable EndpointId clients can connect to.
 
 ---
 
@@ -249,72 +312,6 @@ Two behaviors to know before configuring relays:
 
 For deeper architecture diagrams and protocol flows, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-## Quick Start
-
-### 1. Setup (One-Time)
-
-Generate the server identity and a client authentication key:
-
-```bash
-# On server machine - generate persistent identity
-tunnel-rs generate-server-key --output ./server.key
-# Output: EndpointId: 2xnbkpbc7izsilvewd7c62w7wnwziacmpfwvhcrya5nt76dqkpga
-
-# On the client machine; send the printed public entry to the server admin
-tunnel-rs generate-auth-key --output ./client.key --comment "alice laptop" \
-  > client.authorized_key
-
-# On the server machine
-cat client.authorized_key >> authorized_keys
-```
-
-### 2. TCP Tunnel (e.g., SSH)
-
-**Server** (on server — waits for client connections):
-```bash
-tunnel-rs server \
-  --secret-file ./server.key \
-  --allowed-tcp 127.0.0.0/8 \
-  --authorized-keys-file ./authorized_keys
-```
-
-Output:
-```
-EndpointId: 2xnbkpbc7izsilvewd7c62w7wnwziacmpfwvhcrya5nt76dqkpga
-Authorized client keys: 1
-Waiting for clients to connect...
-```
-
-**Client** (on client — requests source from server):
-```bash
-tunnel-rs client \
-  --server-node-id <SERVER_ENDPOINT_ID> \
-  --source tcp://127.0.0.1:22 \
-  --target 127.0.0.1:2222 \
-  --private-key-file ./client.key
-```
-
-Then connect: `ssh -p 2222 user@127.0.0.1`
-
-### 3. UDP Tunnel (e.g., WireGuard/Game/DNS)
-
-**Server**:
-```bash
-tunnel-rs server \
-  --secret-file ./server.key \
-  --allowed-udp 127.0.0.0/8 \
-  --authorized-keys-file ./authorized_keys
-```
-
-**Client**:
-```bash
-tunnel-rs client \
-  --server-node-id <SERVER_ENDPOINT_ID> \
-  --source udp://127.0.0.1:51820 \
-  --target 0.0.0.0:51820 \
-  --private-key-file ./client.key
-```
-
 ## CLI Options
 
 ### server
@@ -324,11 +321,6 @@ tunnel-rs client \
 | `--config`, `-c` | - | Path to TOML config file |
 | `--default-config` | false | Load config from `~/.config/tunnel-rs/server.toml` |
 | `--config-stdin` | false | Read JSON config from stdin for automation/IPC (use `-c` for normal usage) |
-
-### server iroh
-
-| Option | Default | Description |
-|--------|---------|-------------|
 | `--allowed-tcp` | - | Allowed TCP networks in CIDR notation (repeatable) |
 | `--allowed-udp` | - | Allowed UDP networks in CIDR notation (repeatable) |
 | `--authorized-keys-file` | required | Path to SSH-like file containing authorized Ed25519 public keys |
@@ -353,11 +345,6 @@ tunnel-rs client \
 | `--config`, `-c` | - | Path to TOML config file |
 | `--default-config` | false | Load config from `~/.config/tunnel-rs/client.toml` |
 | `--config-stdin` | false | Read JSON config from stdin for automation/IPC (use `-c` for normal usage) |
-
-### client iroh
-
-| Option | Default | Description |
-|--------|---------|-------------|
 | `--server-node-id`, `-n` | required | EndpointId of the server |
 | `--source`, `-s` | required | Source address to request from server (tcp://host:port or udp://host:port) |
 | `--target`, `-t` | required | Local address to listen on |
@@ -526,11 +513,9 @@ input("press enter to quit..")
 proc.terminate()
 ```
 
----
+## Utility Commands
 
-# Utility Commands
-
-## generate-auth-key
+### generate-auth-key
 
 Generate a compact Ed25519 client authentication key and print the matching
 server authorized-key entry:
@@ -555,9 +540,7 @@ stdout and the authorized-key entry to stderr — remember to restrict
 permissions yourself when redirecting to a file. Either way, copy the printed
 `tunnelrsv1authpub:...` line into the server's `authorized_keys` file.
 
-## generate-server-key
-
-*For iroh mode.*
+### generate-server-key
 
 ```bash
 tunnel-rs generate-server-key --output ./server.key
@@ -575,7 +558,7 @@ tunnel-rs generate-server-key --output ./server.key --force
 
 Without `--json`, the secret key is written to the required `--output` target (created with `0600` permissions on Unix), and the EndpointId is printed to stdout. Use `-` as the output to write the key to stdout instead — in that case the EndpointId is printed to stderr so it stays off the key stream. Existing files are not overwritten unless `--force` is passed. With `--json`, no file is written and both keys are emitted to stdout.
 
-## show-server-id
+### show-server-id
 
 ```bash
 tunnel-rs show-server-id --secret-file ./server.key
@@ -631,16 +614,37 @@ while true; do
 done
 ```
 
-## How It Works
+---
 
-### iroh Mode
-1. Server creates an iroh endpoint (with internet discovery on default relays; custom relays disable it and clients use relay hints instead)
-2. Server publishes its address via Pkarr/DNS (default relays only)
-3. Client resolves the server via discovery, or reaches it directly through the configured relays
-4. **QUIC handshake:** Connection uses the fixed ALPN `mf/4` shared by all peers
-5. **Authentication phase:** Client opens the dedicated auth stream; the server sends a fresh random challenge
-6. **Client proves key possession:** Client signs the domain-separated challenge and sends its public key and signature; the server checks the key against `authorized_keys` and verifies the signature (10s timeout)
-   - *If authentication fails, the connection is closed and steps 7–9 do not occur*
-7. **Source request phase:** Client opens source stream with `SourceRequest`
-8. Server validates source against allowed networks and responds
-9. If accepted, traffic forwarding begins
+# Self-Hosting
+
+Optional. Out of the box tunnel-rs uses n0's public relays and needs no
+infrastructure of your own — this section is for when you want none of theirs
+either.
+
+For custom relay servers and fully independent operation without public
+infrastructure, see
+**[iroh-common-architecture](https://github.com/flexaccessdev/iroh-common-architecture)** —
+the iroh transport docs shared with
+[ezvpn](https://github.com/flexaccessdev/ezvpn) and
+[flextunnel](https://github.com/flexaccessdev/flextunnel):
+[self-hosting](https://github.com/flexaccessdev/iroh-common-architecture/blob/main/self-hosting.md)
+(running your own relay, including the single-port Cloudflare Tunnel setup) and
+[relays and address lookup](https://github.com/flexaccessdev/iroh-common-architecture/blob/main/relays-and-address-lookup.md)
+(the design). tunnel-rs is the **reference program for relay-only setups** — use
+its relay-only e2e script to validate a freshly deployed relay.
+
+Two behaviors to know before configuring relays:
+
+- **Custom relays disable internet discovery automatically.** Nothing is
+  published to or resolved from n0's public infrastructure, so the configured
+  relay URLs are the only way the two sides find each other — configure both
+  sides with the **full** relay list. The relays are connection *hints*, not a
+  transport choice: hole punching still runs, and traffic moves to a direct path
+  whenever one is available. Pass `--relay-only` (CLI-only) to force every byte
+  through the relays instead.
+- **Every configured relay is probed individually at startup, and all must come
+  online** or the process refuses to start. A dead backup relay is a startup
+  failure rather than a failover path that silently does not exist. Losing a
+  relay *after* startup is survivable — the endpoint re-homes onto a surviving
+  one within ~30s.

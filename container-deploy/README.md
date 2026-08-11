@@ -39,11 +39,12 @@ own, and each client picks a service inside those networks at connect time. One
 deployed server serves every service in its allowed CIDRs, for any number of
 simultaneous clients — you do not deploy one tunnel per service.
 
-Both sides need keys before anything runs: a server identity (stable EndpointId)
-and at least one authorized client key. See
-[Persistent Server Identity](../README.md#persistent-server-identity) and
-[Authentication](../README.md#authentication); the generation commands appear in
-context in the two walkthroughs below.
+Both sides need keys before anything runs: a
+[client authentication key](../README.md#client-authentication-key), and a
+[server identity](../README.md#server-identity) that authorizes it and gives
+clients a stable EndpointId to dial. The walkthroughs below generate both on the
+operator's machine, so the order there does not matter; the generation commands
+appear in context in each.
 
 ## Docker
 
