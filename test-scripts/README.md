@@ -17,12 +17,16 @@ echo client (uv/python)                          echo server (uv/python)
 For both **TCP** and **UDP** it sends a payload to the tunnel client's local
 port and asserts the echo server's reply makes the full round trip.
 
-The script generates the identity and auth token with the commands' `--json`
-mode, uses Python's `json` module to parse those results and serialize the
-runtime configurations, and pipes each configuration directly to
-`--config-stdin`. No key, token, or secret-bearing config is written to the
-temporary working directory. The Python backends and test clients run through
-**`uv run`** (PEP 723 inline metadata, no third-party dependencies).
+The script generates the server identity and compact Ed25519 client
+authentication keys, uses Python's `json` module to serialize the runtime
+configurations, and pipes each configuration directly to `--config-stdin`.
+It checks the versioned private-key format, public-key comment, and `0600`
+permissions; verifies that an unlisted key is rejected with the authentication
+exit code; and confirms that clients sharing one authentication key still use
+distinct ephemeral Iroh identities. Authentication key files live only in the
+automatically removed temporary working directory. The Python backends and
+test clients run through **`uv run`** (PEP 723 inline metadata, no third-party
+dependencies).
 
 ## Files
 

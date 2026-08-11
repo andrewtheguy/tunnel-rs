@@ -4,7 +4,6 @@
 //! Clients can request specific sources (tcp://host:port or udp://host:port),
 //! and servers validate requests against allowed CIDR lists.
 
-use std::collections::HashSet;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -32,8 +31,8 @@ pub struct MultiSourceServerConfig {
     pub relay_urls: Vec<String>,
     /// Whether to use relay-only mode (disables direct P2P).
     pub relay_only: bool,
-    /// Set of valid authentication tokens. **Sensitive field - redacted in Debug output.**
-    pub auth_tokens: HashSet<String>,
+    /// Ed25519 public keys authorized to authenticate clients.
+    pub authorized_keys: crate::auth::AuthorizedKeys,
     /// Transport layer tuning (congestion control, buffer sizes).
     pub transport: TransportTuning,
 }
@@ -47,10 +46,7 @@ impl std::fmt::Debug for MultiSourceServerConfig {
             .field("secret", &self.secret.as_ref().map(|_| "[REDACTED]"))
             .field("relay_urls", &self.relay_urls)
             .field("relay_only", &self.relay_only)
-            .field(
-                "auth_tokens",
-                &format!("[{} tokens]", self.auth_tokens.len()),
-            )
+            .field("authorized_keys", &self.authorized_keys)
             .field("transport", &self.transport)
             .finish()
     }
@@ -68,8 +64,8 @@ pub struct MultiSourceClientConfig {
     pub relay_urls: Vec<String>,
     /// Whether to use relay-only mode (disables direct P2P).
     pub relay_only: bool,
-    /// Authentication token for server access. **Sensitive field - redacted in Debug output.**
-    pub auth_token: String,
+    /// Ed25519 key used only for application authentication.
+    pub private_key: crate::auth::ClientAuthKey,
     /// Transport layer tuning (congestion control, buffer sizes).
     pub transport: TransportTuning,
 }
@@ -82,13 +78,13 @@ impl std::fmt::Debug for MultiSourceClientConfig {
             .field("target", &self.target)
             .field("relay_urls", &self.relay_urls)
             .field("relay_only", &self.relay_only)
-            .field("auth_token", &"[REDACTED]")
+            .field("private_key", &self.private_key)
             .field("transport", &self.transport)
             .finish()
     }
 }
 
-use crate::auth::is_token_valid;
+use crate::auth::{generate_challenge, AuthorizedKeys, Challenge, ClientAuthKey};
 
 use crate::iroh_mode::endpoint::{
     TUNNEL_ALPN, connect_to_server, create_client_endpoint, create_server_endpoint,
@@ -103,9 +99,11 @@ use crate::net::{
     resolve_listen_addrs, validate_allowed_networks,
 };
 use crate::signaling::{
-    decode_auth_request, decode_auth_response, decode_source_request, decode_source_response,
+    decode_auth_challenge, decode_auth_init, decode_auth_request, decode_auth_response,
+    decode_source_request, decode_source_response, encode_auth_challenge, encode_auth_init,
     encode_auth_request, encode_auth_response, encode_source_request, encode_source_response,
-    read_length_prefixed, AuthRequest, AuthResponse, SourceRequest, SourceResponse,
+    read_length_prefixed, AuthChallenge, AuthInit, AuthRequest, AuthResponse, SourceRequest,
+    SourceResponse,
 };
 
 /// Default maximum concurrent sessions for multi-source mode.
@@ -114,7 +112,10 @@ const DEFAULT_MAX_SESSIONS: usize = 100;
 /// Timeout for receiving authentication request after connection.
 const AUTH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
-/// Connection close code for authentication failure (invalid token).
+/// Maximum time to let a rejected client receive the explicit auth response.
+const AUTH_REJECTION_DELIVERY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Connection close code for authentication failure.
 const AUTH_FAILED_CODE: u32 = 1;
 
 /// Connection close code for authentication timeout (no auth within deadline).
@@ -128,7 +129,7 @@ const AUTH_TIMEOUT_CODE: u32 = 2;
 ///
 /// This mode allows clients to request specific sources (tcp://host:port or udp://host:port).
 /// The server validates requests against allowed_tcp and allowed_udp CIDR lists.
-/// Authentication is enforced via pre-shared tokens - clients must provide a valid token in their request.
+/// Authentication is enforced by Ed25519 challenge-response after the iroh connection is established.
 pub async fn run_multi_source_server(config: MultiSourceServerConfig) -> Result<()> {
     let relay_only = config.relay_only;
 
@@ -143,11 +144,9 @@ pub async fn run_multi_source_server(config: MultiSourceServerConfig) -> Result<
         );
     }
 
-    if config.auth_tokens.is_empty() {
+    if config.authorized_keys.is_empty() {
         anyhow::bail!(
-            "At least one authentication token must be configured.\n\
-            Set TUNNEL_RS_AUTH_TOKENS environment variable or use --auth-tokens-file <FILE>.\n\
-            Generate tokens with: tunnel-rs generate-auth-token"
+            "At least one Ed25519 public key must be configured in the authorized-keys file."
         );
     }
 
@@ -173,19 +172,17 @@ pub async fn run_multi_source_server(config: MultiSourceServerConfig) -> Result<
     log::info!("Allowed TCP networks: {:?}", config.allowed_tcp);
     log::info!("Allowed UDP networks: {:?}", config.allowed_udp);
     log::info!("Max concurrent sessions: {}", max_sessions);
-    log::info!("Auth tokens configured: {}", config.auth_tokens.len());
+    log::info!("Authorized client keys: {}", config.authorized_keys.len());
 
-    // Wrap auth_tokens in Arc for cheap cloning across tasks
-    let auth_tokens = Arc::new(config.auth_tokens);
+    let authorized_keys = Arc::new(config.authorized_keys);
     let allowed_tcp = config.allowed_tcp;
     let allowed_udp = config.allowed_udp;
 
     log::info!("\nOn the client side, run:");
     log::info!(
-        "  TUNNEL_RS_AUTH_TOKEN=<token> tunnel-rs client --server-node-id {} --source tcp://target:port --target 127.0.0.1:port\n",
+        "  tunnel-rs client --private-key-file ./client.key --server-node-id {} --source tcp://target:port --target 127.0.0.1:port\n",
         endpoint_id
     );
-    log::info!("Note: TUNNEL_RS_AUTH_TOKEN (or --auth-token-file) is required to connect");
     log::info!("Waiting for clients to connect...");
 
     // Session management with semaphore for concurrency limit
@@ -220,7 +217,7 @@ pub async fn run_multi_source_server(config: MultiSourceServerConfig) -> Result<
         let allowed_tcp = allowed_tcp.clone();
         let allowed_udp = allowed_udp.clone();
         let semaphore = session_semaphore.clone();
-        let auth_tokens = Arc::clone(&auth_tokens);
+        let authorized_keys = Arc::clone(&authorized_keys);
 
         connection_tasks.spawn(async move {
             if let Err(e) = handle_multi_source_connection(
@@ -228,7 +225,7 @@ pub async fn run_multi_source_server(config: MultiSourceServerConfig) -> Result<
                 allowed_tcp,
                 allowed_udp,
                 semaphore,
-                auth_tokens,
+                authorized_keys,
             )
             .await
             {
@@ -252,7 +249,7 @@ async fn handle_multi_source_connection(
     allowed_tcp: Vec<String>,
     allowed_udp: Vec<String>,
     semaphore: Arc<tokio::sync::Semaphore>,
-    auth_tokens: Arc<HashSet<String>>,
+    authorized_keys: Arc<AuthorizedKeys>,
 ) -> Result<()> {
     let remote_id = conn.remote_id();
 
@@ -264,22 +261,49 @@ async fn handle_multi_source_connection(
             .await
             .context("Failed to accept auth stream")?;
 
-        // Read AuthRequest
+        // QUIC does not expose a new stream to the peer until the initiator
+        // writes to it. Read the client's versioned init before challenging.
+        let init_bytes = read_length_prefixed(&mut recv_stream)
+            .await
+            .context("Failed to read auth init")?;
+        decode_auth_init(&init_bytes).context("Invalid auth init")?;
+
+        let challenge = generate_challenge();
+        let encoded = encode_auth_challenge(&AuthChallenge::new(challenge.to_vec()))?;
+        send_stream.write_all(&encoded).await?;
+
+        // Read the client's proof after issuing the challenge.
         let request_bytes = read_length_prefixed(&mut recv_stream)
             .await
             .context("Failed to read auth request")?;
         let request = decode_auth_request(&request_bytes).context("Invalid auth request")?;
 
-        // Validate token
-        let token_str = request.auth_token.as_str();
-        if !is_token_valid(token_str, &auth_tokens) {
-            log::warn!("Invalid auth token from {}", remote_id);
-            let response = AuthResponse::rejected("Invalid authentication token");
+        let authorized_comment = match authorized_keys.verify_proof(
+            &challenge,
+            &request.public_key,
+            &request.signature,
+        ) {
+            Ok(result) => result,
+            Err(error) => {
+                log::warn!("Malformed authentication proof from {}: {}", remote_id, error);
+                None
+            }
+        };
+        let Some(authorized_comment) = authorized_comment else {
+            log::warn!("Invalid public-key authentication proof from {}", remote_id);
+            let response = AuthResponse::rejected("Invalid authentication proof");
             let encoded = encode_auth_response(&response)?;
             send_stream.write_all(&encoded).await?;
             send_stream.finish()?;
-            anyhow::bail!("Invalid auth token");
-        }
+            // `finish` only queues the response. Give QUIC time to deliver it
+            // before the connection-level auth failure close discards buffers.
+            let _ = tokio::time::timeout(
+                AUTH_REJECTION_DELIVERY_TIMEOUT,
+                send_stream.stopped(),
+            )
+            .await;
+            anyhow::bail!("Invalid authentication proof");
+        };
 
         // Send success response
         let response = AuthResponse::accepted();
@@ -287,7 +311,15 @@ async fn handle_multi_source_connection(
         send_stream.write_all(&encoded).await?;
         send_stream.finish()?;
 
-        log::info!("Client {} authenticated successfully", remote_id);
+        if authorized_comment.is_empty() {
+            log::info!("Client {} authenticated successfully", remote_id);
+        } else {
+            log::info!(
+                "Client {} authenticated successfully as {}",
+                remote_id,
+                authorized_comment
+            );
+        }
         Ok::<_, anyhow::Error>(())
     })
     .await;
@@ -386,7 +418,7 @@ async fn handle_multi_source_connection(
 /// Handle a single stream within a multi-source connection.
 /// Reads SourceRequest, validates source against allowed networks, sends SourceResponse, then forwards traffic.
 /// Note: Authentication is handled at the connection level via a dedicated auth stream;
-/// SourceRequest does not contain an auth_token field.
+/// SourceRequest does not contain authentication credentials.
 async fn handle_multi_source_stream(
     mut send_stream: iroh::endpoint::SendStream,
     mut recv_stream: iroh::endpoint::RecvStream,
@@ -485,12 +517,31 @@ async fn handle_multi_source_stream(
 /// Must be called immediately after connection before opening source streams.
 async fn authenticate_connection(
     conn: &iroh::endpoint::Connection,
-    auth_token: &str,
+    private_key: &ClientAuthKey,
 ) -> Result<()> {
     let (mut send_stream, mut recv_stream) = open_bi_with_retry(conn).await?;
 
-    // Send AuthRequest
-    let request = AuthRequest::new(auth_token);
+    // Make the client-initiated QUIC stream visible to the server before
+    // waiting for the server-generated challenge.
+    let encoded = encode_auth_init(&AuthInit::new())?;
+    send_stream.write_all(&encoded).await?;
+
+    let challenge_bytes = tokio::time::timeout(AUTH_TIMEOUT, read_length_prefixed(&mut recv_stream))
+        .await
+        .map_err(|_| TunnelError::auth(anyhow::anyhow!("Auth challenge timed out")))?
+        .context("Failed to read auth challenge")?;
+    let challenge = decode_auth_challenge(&challenge_bytes).context("Invalid auth challenge")?;
+    let challenge: Challenge = challenge.challenge.try_into().map_err(|challenge: Vec<u8>| {
+        TunnelError::auth(anyhow::anyhow!(
+            "Invalid auth challenge length: expected 32 bytes, got {}",
+            challenge.len()
+        ))
+    })?;
+
+    let request = AuthRequest::new(
+        private_key.public_key().to_vec(),
+        private_key.sign_challenge(&challenge).to_vec(),
+    );
     let encoded = encode_auth_request(&request)?;
     send_stream.write_all(&encoded).await?;
     send_stream.finish()?;
@@ -546,7 +597,8 @@ pub async fn run_multi_source_client(config: MultiSourceClientConfig) -> Result<
     log::info!("Requesting source: {}", config.source);
     log::info!("Creating iroh endpoint (ephemeral identity)...");
 
-    // Client uses ephemeral identity - auth is done via token in protocol
+    // Client keeps an ephemeral iroh identity. The application authentication
+    // key is used only on the post-connect auth stream.
     let endpoint = create_client_endpoint(
         &config.relay_urls,
         relay_only,
@@ -568,7 +620,7 @@ pub async fn run_multi_source_client(config: MultiSourceClientConfig) -> Result<
     let _path_watcher = watch_connection_paths(&conn);
 
     // Authenticate immediately after connection
-    authenticate_connection(&conn, &config.auth_token).await?;
+    authenticate_connection(&conn, &config.private_key).await?;
 
     let conn = Arc::new(conn);
     let tunnel_established = Arc::new(AtomicBool::new(false));

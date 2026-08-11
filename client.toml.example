@@ -19,16 +19,18 @@ server_node_id = "2xnbkpbc7izsilvewd7c62w7wnwziacmpfwvhcrya5nt76dqkpga"
 # ============================================================================
 # Authentication (REQUIRED)
 # ============================================================================
-# Token provided by the server admin for authentication
-# Token format: exactly 47 characters (i + 46 Base64URL chars, no padding)
-# Generate with: tunnel-rs generate-auth-token
+# Compact Ed25519 private key used only for post-connect authentication.
+# Generate it with:
+#   tunnel-rs generate-auth-key --output ~/.config/tunnel-rs/client.key --comment "alice laptop"
+# Give the printed authorized-key line to the server administrator.
 #
-# IMPORTANT: Use 'auth_token_file' (NOT 'secret' or 'secret_file'
-# which are server-only options for persistent identity)
-#
-# SECURITY: Plaintext 'auth_token' is not allowed in config files.
-# Use 'auth_token_file' here (recommended). For containers/automation, set TUNNEL_RS_AUTH_TOKEN environment variable instead.
-auth_token_file = "~/.config/tunnel-rs/token.txt"
+# The key file contains a creation stamp and public-key comment followed by one
+# short private-key line (all base64 is unpadded URL-safe):
+#   # created: 2024-09-13T22:22:33Z
+#   # public key: tunnelrsv1authpub:<urlsafe base64 public key> alice laptop
+#   tunnelrsv1authsecret:<urlsafe base64 private seed>
+# It is separate from the ephemeral iroh client identity.
+private_key_file = "~/.config/tunnel-rs/client.key"
 
 # Source address to request from server (required if not specified via CLI --source)
 # Must be in server's allowed_sources list (--allowed-tcp or --allowed-udp)
@@ -52,25 +54,6 @@ auth_token_file = "~/.config/tunnel-rs/token.txt"
 # discovery = "none"
 # WARNING: discovery="none" is not recommended with multiple custom relays;
 # independent relays do not know which relay is the server's current home.
-
-# ============================================================================
-# Encrypted Inline Secrets (Optional)
-# ============================================================================
-# Instead of _file variants, you can encrypt secrets directly in this config
-# using age encryption. This is useful for managing multiple configs with a
-# single shared private key.
-#
-# 1. Generate a key: tunnel-rs config-encryption generate-key --output ~/.config/tunnel-rs/age.key
-# 2. Encrypt a value: echo -n "token" | tunnel-rs config-encryption encrypt-value --recipient age1...
-# 3. Paste the ageenc:... output as a TOML string value.
-#
-# encryption_key_file is required at runtime to decrypt ageenc: values.
-# encryption_recipient is only used by `encrypt-value` to know which public key to encrypt for.
-#
-# encryption_key_file = "~/.config/tunnel-rs/age.key"
-# encryption_recipient = "age1..."
-#
-# auth_token = "ageenc:YWdlLWVuY3J5cHRpb24ub3Jn..."
 
 # ============================================================================
 # Transport Tuning (Optional)

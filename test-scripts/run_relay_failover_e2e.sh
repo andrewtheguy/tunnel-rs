@@ -160,7 +160,7 @@ PY
 }
 
 # ---------------------------------------------------------------------------
-# Ports, identity, auth token
+# Ports, identity, client authentication key
 # ---------------------------------------------------------------------------
 RELAY1_PORT="$(pick_port)"
 RELAY2_PORT="$(pick_port)"
@@ -173,10 +173,8 @@ read -r ENDPOINT_ID SECRET < <(
     "$BIN" generate-server-key --json |
         python3 -c 'import json, sys; value = json.load(sys.stdin); print(value["public_key"], value["private_key"])'
 )
-TOKEN="$(
-    "$BIN" generate-auth-token --json |
-        python3 -c 'import json, sys; print(json.load(sys.stdin)["auth_tokens"][0])'
-)"
+"$BIN" generate-auth-key --output "$WORK/client.key" --comment "failover e2e client" \
+    > "$WORK/authorized_keys"
 log "EndpointId: $ENDPOINT_ID"
 
 # ---------------------------------------------------------------------------
@@ -230,19 +228,18 @@ start_server() {
     SERVER_LOG="$WORK/server.$(date +%s%N).log"
     local config
     config="$(
-        printf '%s\n%s\n' "$SECRET" "$TOKEN" |
+        printf '%s\n' "$SECRET" |
             python3 -c '
 import json, sys
 secret = sys.stdin.readline().rstrip("\n")
-token = sys.stdin.readline().rstrip("\n")
 iroh = {
     "secret": secret,
-    "auth_tokens": [token],
+    "authorized_keys_file": sys.argv[1],
     "allowed_sources": {"tcp": ["127.0.0.0/8"]},
-    "relay_urls": sys.argv[1:],
+    "relay_urls": sys.argv[2:],
 }
 print(json.dumps({"role": "server", "mode": "iroh", "iroh": iroh}))
-' "$RELAY1_URL" "$RELAY2_URL"
+' "$WORK/authorized_keys" "$RELAY1_URL" "$RELAY2_URL"
     )"
     printf '%s\n' "$config" |
         setsid "$BIN" server --config-stdin --relay-only >"$SERVER_LOG" 2>&1 &
@@ -260,22 +257,21 @@ start_client() {
     local target_port="$1" logfile="$2"; shift 2
     local config
     config="$(
-        printf '%s\n%s\n' "$ENDPOINT_ID" "$TOKEN" |
+        printf '%s\n' "$ENDPOINT_ID" |
             python3 -c '
 import json, sys
 target_port = sys.argv[1]
 backend_port = sys.argv[2]
 endpoint_id = sys.stdin.readline().rstrip("\n")
-token = sys.stdin.readline().rstrip("\n")
 iroh = {
     "server_node_id": endpoint_id,
     "request_source": f"tcp://127.0.0.1:{backend_port}",
     "target": f"127.0.0.1:{target_port}",
-    "auth_token": token,
-    "relay_urls": sys.argv[3:],
+    "private_key_file": sys.argv[3],
+    "relay_urls": sys.argv[4:],
 }
 print(json.dumps({"role": "client", "mode": "iroh", "iroh": iroh}))
-' "$target_port" "$BACKEND_PORT" "$@"
+' "$target_port" "$BACKEND_PORT" "$WORK/client.key" "$@"
     )"
     printf '%s\n' "$config" |
         setsid "$BIN" client --config-stdin --relay-only >"$logfile" 2>&1 &

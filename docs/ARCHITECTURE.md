@@ -59,7 +59,7 @@ graph LR
         C2[net.rs<br/>Address parsing & ACL checks]
         D[endpoint.rs<br/>iroh endpoint setup]
         E[secret.rs<br/>Identity management]
-        E2[auth.rs<br/>Auth tokens]
+        E2[auth.rs<br/>Ed25519 challenge-response]
         F[signaling/codec.rs<br/>Handshake messages]
     end
 
@@ -206,10 +206,11 @@ sequenceDiagram
 
     Note over C,S: Authentication Phase
     C->>S: Open auth stream
-    C->>S: AuthRequest {token}
-    alt Token Valid
+    S->>C: AuthChallenge {random nonce}
+    C->>S: AuthRequest {public key, signature}
+    alt Key Authorized and Signature Valid
         S-->>C: AuthResponse {accepted: true}
-    else Token Invalid
+    else Proof Invalid
         S-->>C: AuthResponse {accepted: false, reason}
         S->>S: Close connection (error code 1)
     else Auth Timeout
@@ -352,8 +353,8 @@ graph TB
         D[request_source / target<br/>client only]
         E[allowed_sources / max_sessions<br/>server only]
         F[secret_file / secret<br/>server only]
-        G[auth_token* / auth_tokens*]
-        H[encryption_key_file]
+        G[authorized_keys_file<br/>server only]
+        H[private_key_file<br/>client only]
         I[relay_urls]
         J[transport<br/>cc + window sizes + ACK threshold]
     end
@@ -374,54 +375,36 @@ graph TB
 
 ### iroh Credential Mapping
 
-`iroh` mode authenticates clients with auth tokens. The QUIC ALPN is a fixed value (`mf/4`) shared by all peers and is not configurable; access control is handled by auth tokens.
+`iroh` mode authenticates clients with separate Ed25519 keys. The QUIC ALPN is a fixed value (`mf/4`) shared by all peers and is not configurable; access control happens on the first application stream after the iroh handshake.
 
-| Credential | Env Vars / CLI Flags | Config Keys (TOML: use `_file` variants or age-encrypted inline) | Expected Usage |
+| Credential | Env Vars / CLI Flags | Config Key | Expected Usage |
 |------------|-----------|-------------|----------------|
-| **Auth Token** | Server: `TUNNEL_RS_AUTH_TOKENS` or `--auth-tokens-file`<br>Client: `TUNNEL_RS_AUTH_TOKEN` or `--auth-token-file` | Server: `[iroh].auth_tokens_file` or age-encrypted `[iroh].auth_tokens`<br>Client: `[iroh].auth_token_file` or age-encrypted `[iroh].auth_token` | Per-client credential checked on the auth stream after handshake. Use separate values per client for revocation/rotation. |
+| **Client Auth Key** | Server: `TUNNEL_RS_AUTHORIZED_KEYS_FILE` or `--authorized-keys-file`<br>Client: `TUNNEL_RS_PRIVATE_KEY_FILE` or `--private-key-file` | Server: `[iroh].authorized_keys_file`<br>Client: `[iroh].private_key_file` | The client signs a fresh server challenge. The key is not used as the iroh transport identity. |
 
 Example usage with files (recommended):
 
 ```bash
-# Server — save tokens to files with restricted permissions
-printf '%s\n' "$ALICE_AUTH_TOKEN" "$BOB_AUTH_TOKEN" > auth_tokens.txt && chmod 600 auth_tokens.txt
-tunnel-rs server --auth-tokens-file ./auth_tokens.txt ...
+# Alice — generate a compact private key and capture its public entry
+tunnel-rs generate-auth-key --output alice.key --comment alice > alice.pub
+
+# Server — authorize the public entry
+cat alice.pub >> authorized_keys
+tunnel-rs server --authorized-keys-file ./authorized_keys ...
 
 # Alice's client
-echo "$ALICE_AUTH_TOKEN" > auth_token.txt && chmod 600 auth_token.txt
-tunnel-rs client --auth-token-file ./auth_token.txt ...
+tunnel-rs client --private-key-file ./alice.key ...
 ```
 
-Example usage with environment variables (for containers/automation):
-
-```bash
-# Server
-export TUNNEL_RS_AUTH_TOKENS="$ALICE_AUTH_TOKEN,$BOB_AUTH_TOKEN"
-tunnel-rs server ...
-
-# Alice's client
-export TUNNEL_RS_AUTH_TOKEN="$ALICE_AUTH_TOKEN"
-tunnel-rs client ...
-```
-
-Example config usage (plaintext tokens are not allowed in TOML config files — use `_file` variants or age-encrypted inline values):
+Example config usage:
 
 ```toml
 # server.toml — using _file variants
 [iroh]
-auth_tokens_file = "/etc/tunnel-rs/auth_tokens.txt"
+authorized_keys_file = "/etc/tunnel-rs/authorized_keys"
 
 # client.toml — using _file variants
 [iroh]
-auth_token_file = "~/.config/tunnel-rs/token.txt"
-```
-
-```toml
-# client.toml — using age-encrypted inline values
-[iroh]
-encryption_key_file = "~/.config/tunnel-rs/age.key"
-
-auth_token = "ageenc:YWdlLWVuY3J5cHRpb24ub3JnL3Yx..."
+private_key_file = "~/.config/tunnel-rs/client.key"
 ```
 
 ### Configuration Loading Flow
@@ -531,8 +514,8 @@ graph TB
         A[Server Secret Key] --> B[Ed25519 Private Key]
         B --> C[EndpointId - Public Key]
         C --> D[Client Connects]
-        D --> E[Auth Token Validation]
-        E --> F{Valid Token?}
+        D --> E[Ed25519 Challenge-Response]
+        E --> F{Valid Authorized Proof?}
         F -->|Yes| G[Authenticated]
         F -->|No| H[Rejected]
     end
@@ -543,19 +526,19 @@ graph TB
     style H fill:#FFCCBC
 ```
 
-### Token Authentication (iroh Mode)
+### Ed25519 Public-Key Authentication
 
-Iroh mode authenticates clients with auth tokens. The QUIC ALPN is a fixed value (`mf/4`) shared by all peers; access control is handled by auth tokens. Clients must provide a valid auth token via a dedicated auth stream within a 10-second timeout.
+The QUIC ALPN remains the fixed value `mf/4`. Once the iroh connection is
+established, the client opens a dedicated authentication stream. The server
+issues a fresh 32-byte random challenge, and the client signs a
+domain-separated transcript with its Ed25519 authentication key. This key is
+separate from the ephemeral iroh client identity.
 
-#### Auth Token
-
-- **Auth Token** (server: `TUNNEL_RS_AUTH_TOKENS` env var / `--auth-tokens-file` / `[iroh].auth_tokens_file`; client: `TUNNEL_RS_AUTH_TOKEN` env var / `--auth-token-file` / `[iroh].auth_token_file`): Per-client token validated on the auth stream. In code, auth tokens are 47-char `i...` tokens. Use separate values per client for revocation.
-
-1. **Server Configuration**: Server sets `TUNNEL_RS_AUTH_TOKENS` with one or more pre-shared tokens (comma-separated)
-2. **Client Configuration**: Client sets `TUNNEL_RS_AUTH_TOKEN` with the token received from the server admin
-3. **Protocol Flow**: Client opens a dedicated auth stream immediately after connection and sends an `AuthRequest`. **No source requests are accepted until authentication succeeds.**
-4. **Validation**: Server validates the token using `is_token_valid()` within a 10-second timeout
-5. **Rejection**: Invalid tokens are rejected with an `AuthResponse` containing the rejection reason, and the connection is closed with an error code.
+1. **Server Configuration**: `authorized_keys_file` points to public entries in `tunnelrsv1authpub:URLSAFE_BASE64[ comment]` form, where a single space delimits the optional comment.
+2. **Client Configuration**: `private_key_file` points to the compact, versioned private-key file generated by `generate-auth-key`.
+3. **Protocol Flow**: The server sends `AuthChallenge`; the client returns `AuthRequest { public_key, signature }`. **No source requests are accepted until authentication succeeds.**
+4. **Validation**: `auth.rs` checks that the public key is authorized and strictly verifies the Ed25519 signature within the 10-second auth timeout.
+5. **Rejection**: Unknown keys, malformed proofs, and invalid signatures close the connection with an authentication error.
 
 This validation prevents unauthorized clients from holding open connections or attempting source requests.
 
@@ -570,14 +553,16 @@ sequenceDiagram
 
     Note over C,S: Auth Phase (10s timeout)
     C->>S: Open auth stream
-    C->>S: AuthRequest {version, auth_token}
-    S->>A: is_token_valid(auth_token, auth_tokens)
-    alt Token is valid
-        A-->>S: true
+    S->>C: AuthChallenge {version, random challenge}
+    C->>A: Sign domain-separated challenge
+    C->>S: AuthRequest {version, public_key, signature}
+    S->>A: Check authorized key and verify signature
+    alt Proof is valid
+        A-->>S: Authorized-key comment
         S->>C: AuthResponse {accepted: true}
         Note over S,C: Connection authenticated
-    else Token is invalid
-        A-->>S: false
+    else Proof is invalid
+        A-->>S: Rejected
         S->>C: AuthResponse {accepted: false, reason}
         S->>S: Close connection (error code 1)
         Note over S,C: Connection closed with rejection
@@ -594,16 +579,14 @@ sequenceDiagram
     Note over S,C: Proceed with tunnel data transfer
 ```
 
-### Token Security Notes (iroh Mode)
+### Public-Key Authentication Security Notes
 
-- Tokens are **bearer credentials**: possession is sufficient for access. Use one token per client to enable revocation.
-- Token strength comes from **randomness, not format**: 32 random bytes (256 bits of entropy). Treat tokens like high‑entropy secrets.
-- Tokens are sent only **after** the QUIC/TLS 1.3 handshake, so the auth stream is encrypted in transit.
-- The CRC16-CCITT-FALSE checksum is **for typo detection only**, not cryptographic security.
-- Tokens are Base64URL-encoded and validated as ASCII.
-- The QUIC ALPN is a fixed value (`mf/4`) shared by all peers and is not a secret; access control is handled by auth tokens.
-- Avoid logging or sharing tokens; the `AuthToken` wrapper redacts values in Debug output, but treat them like passwords.
-- Prefer token files with restricted permissions (e.g., `0600`) and rotate tokens if exposure is suspected.
+- The private key never crosses the wire; only its public key and a signature over a fresh challenge are sent.
+- A new random challenge prevents replaying a proof from another connection.
+- Domain separation prevents the signature from being valid for an unrelated Ed25519 protocol.
+- Removing a public entry from `authorized_keys` revokes that client after the server is restarted.
+- Compact private-key files are created with `0600` permissions on Unix and include their public entry as a comment for administration.
+- The fixed `mf/4` ALPN is not a secret and is unchanged by the authentication mechanism.
 
 ### Threat Model
 
@@ -612,15 +595,15 @@ graph TB
     subgraph "Protected Against"
         A[Eavesdropping<br/>TLS 1.3 encryption]
         B[MITM<br/>Peer authentication]
-        C[Replay Attacks<br/>QUIC nonces]
+        C[Replay Attacks<br/>Fresh auth challenges]
         D[Tampering<br/>Authenticated encryption]
-        E2[Unauthorized Access<br/>Token Authentication - iroh mode]
+        E2[Unauthorized Access<br/>Ed25519 Public-Key Authentication]
     end
 
     subgraph "User Responsibility"
         F[Secret Key Protection<br/>iroh server]
         G[EndpointId Verification<br/>Trust on first use]
-        H[Auth Token Security<br/>Treat tokens like passwords]
+        H[Client Private-Key Security]
     end
 
     style A fill:#C8E6C9
@@ -636,7 +619,7 @@ graph TB
 
 ### Secret Key Management (Server Only)
 
-In iroh mode, only the **server** needs a persistent secret key to maintain a stable EndpointId. Clients use ephemeral identities and authenticate via tokens.
+In iroh mode, only the **server** needs a persistent transport secret key to maintain a stable EndpointId. Clients use ephemeral iroh identities. Their separate persistent Ed25519 keys are used only for application authentication after the transport handshake.
 
 ```mermaid
 sequenceDiagram
@@ -864,8 +847,8 @@ transient failures (retry) from permanent errors (stop):
 |------|----------|---------|
 | 0 | Success | Normal termination |
 | 1 | General error | Unexpected/uncategorized failures |
-| 2 | Configuration | Missing `--source`, invalid token format |
-| 3 | Authentication | Token rejected by server, auth response timeout |
+| 2 | Configuration | Missing `--source`, invalid key format |
+| 3 | Authentication | Signature rejected by server, auth response timeout |
 | 10 | Connection failed | Relay timeout, endpoint offline, server unreachable |
 | 11 | Connection lost | QUIC connection closed after tunnel was established |
 

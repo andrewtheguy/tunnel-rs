@@ -5,7 +5,6 @@
 mod auth;
 mod buffer;
 mod config;
-mod encryption;
 mod error;
 mod iroh_mode;
 mod net;
@@ -83,13 +82,9 @@ enum Command {
         #[arg(long)]
         relay_only: bool,
 
-        /// Path to file containing authentication tokens (one per line, # comments allowed).
+        /// Path to an SSH-like file containing authorized Ed25519 public keys.
         #[arg(long, value_name = "FILE")]
-        auth_tokens_file: Option<PathBuf>,
-
-        /// Path to age identity file for decrypting age-encrypted config values
-        #[arg(long)]
-        encryption_key_file: Option<PathBuf>,
+        authorized_keys_file: Option<PathBuf>,
     },
     /// Run as client (connects to server and exposes local port)
     #[command(arg_required_else_help = true)]
@@ -127,13 +122,9 @@ enum Command {
         #[arg(long)]
         relay_only: bool,
 
-        /// Path to file containing authentication token
+        /// Path to the compact tunnel-rs Ed25519 private key used for authentication.
         #[arg(long)]
-        auth_token_file: Option<PathBuf>,
-
-        /// Path to age identity file for decrypting age-encrypted config values
-        #[arg(long)]
-        encryption_key_file: Option<PathBuf>,
+        private_key_file: Option<PathBuf>,
     },
     /// Generate a server private key for persistent identity
     ///
@@ -160,53 +151,24 @@ enum Command {
         #[arg(short, long)]
         secret_file: PathBuf,
     },
-    /// Generate a client authentication token
+    /// Generate a compact Ed25519 client authentication key.
     ///
-    /// Tokens are shared with clients for authentication (like API keys).
-    /// Server configures accepted tokens via TUNNEL_RS_AUTH_TOKENS env var or --auth-tokens-file.
-    GenerateAuthToken {
-        /// Number of tokens to generate (default: 1)
-        #[arg(short, long, default_value = "1")]
-        count: usize,
-
-        /// Print the generated token(s) as JSON
-        #[arg(long)]
-        json: bool,
-    },
-    /// Age encryption commands for config file secrets
-    ConfigEncryption {
-        #[command(subcommand)]
-        action: ConfigEncryptionCommand,
-    },
-}
-
-#[derive(Subcommand)]
-enum ConfigEncryptionCommand {
-    /// Generate an age encryption keypair
-    ///
-    /// Without --output, prints both keys to stdout. With --output, saves the
-    /// private key to a file and prints the public key (recipient) to stdout.
-    GenerateKey {
-        /// Path where to save the age identity (private key) file
+    /// Without --output the private key file is written to stdout and the
+    /// authorized-key entry to stderr. With --output the private key is saved
+    /// to that path (0600 on Unix) and the authorized-key entry is printed to
+    /// stdout.
+    GenerateAuthKey {
+        /// Path where to save the compact base64 private key ("-" means stdout).
         #[arg(short, long)]
         output: Option<PathBuf>,
 
-        /// Overwrite existing file if it exists (requires --output)
+        /// Comment appended to the printed authorized-key entry.
+        #[arg(short, long, default_value = "")]
+        comment: String,
+
+        /// Overwrite an existing private key file.
         #[arg(long, requires = "output")]
         force: bool,
-    },
-    /// Encrypt a value for use in config files (reads plaintext from stdin)
-    ///
-    /// Outputs an `ageenc:` prefixed single-line string that can be used directly
-    /// as a TOML config value.
-    EncryptValue {
-        /// Age recipient (public key, starts with "age1...")
-        #[arg(short, long)]
-        recipient: Option<String>,
-
-        /// Config file to read encryption_recipient from (alternative to --recipient)
-        #[arg(short, long)]
-        config: Option<PathBuf>,
     },
 }
 
@@ -215,7 +177,9 @@ fn env_var_opt(name: &str) -> Option<String> {
 }
 
 fn normalize_optional_endpoint(value: Option<String>) -> Option<String> {
-    value.and_then(|v| if v.trim().is_empty() { None } else { Some(v) })
+    value
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
 }
 
 /// Resolved parameters for iroh server mode.
@@ -227,8 +191,7 @@ struct ServerIrohParams {
     secret: Option<String>,
     secret_file: Option<PathBuf>,
     relay_urls: Vec<String>,
-    auth_tokens: Vec<String>,
-    auth_tokens_file: Option<PathBuf>,
+    authorized_keys_file: Option<PathBuf>,
     transport: TransportTuning,
 }
 
@@ -247,8 +210,7 @@ fn resolve_server_iroh_params(
         max_sessions,
         secret_file,
         relay_urls,
-        auth_tokens_file,
-        encryption_key_file: _,
+        authorized_keys_file,
         ..
     } = cli
     else {
@@ -261,10 +223,6 @@ fn resolve_server_iroh_params(
     } else {
         (cfg.secret.clone(), cfg.secret_file.clone())
     };
-
-    let env_auth_tokens: Vec<String> = env_var_opt("TUNNEL_RS_AUTH_TOKENS")
-        .map(|v| v.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
-        .unwrap_or_default();
 
     ServerIrohParams {
         allowed_tcp: if allowed_tcp.is_empty() {
@@ -285,12 +243,10 @@ fn resolve_server_iroh_params(
         } else {
             relay_urls.clone()
         },
-        auth_tokens: if !env_auth_tokens.is_empty() {
-            env_auth_tokens
-        } else {
-            cfg.auth_tokens.clone().unwrap_or_default()
-        },
-        auth_tokens_file: auth_tokens_file.clone().or(cfg.auth_tokens_file.clone()),
+        authorized_keys_file: authorized_keys_file
+            .clone()
+            .or_else(|| env_var_opt("TUNNEL_RS_AUTHORIZED_KEYS_FILE").map(PathBuf::from))
+            .or(cfg.authorized_keys_file.clone()),
         transport: cfg.transport.clone(),
     }
 }
@@ -302,8 +258,7 @@ struct ClientIrohParams {
     source: Option<String>,
     target: Option<String>,
     relay_urls: Vec<String>,
-    auth_token: Option<String>,
-    auth_token_file: Option<PathBuf>,
+    private_key_file: Option<PathBuf>,
     transport: TransportTuning,
 }
 
@@ -320,19 +275,11 @@ fn resolve_client_iroh_params(
         source,
         target,
         relay_urls,
-        auth_token_file,
-        encryption_key_file: _,
+        private_key_file,
         ..
     } = cli
     else {
         unreachable!("resolve_client_iroh_params called with non-client command");
-    };
-
-    let env_auth_token = env_var_opt("TUNNEL_RS_AUTH_TOKEN");
-    let (auth_token, auth_token_file) = if env_auth_token.is_some() || auth_token_file.is_some() {
-        (env_auth_token, auth_token_file.clone())
-    } else {
-        (cfg.auth_token.clone(), cfg.auth_token_file.clone())
     };
 
     ClientIrohParams {
@@ -345,8 +292,10 @@ fn resolve_client_iroh_params(
         } else {
             relay_urls.clone()
         },
-        auth_token,
-        auth_token_file,
+        private_key_file: private_key_file
+            .clone()
+            .or_else(|| env_var_opt("TUNNEL_RS_PRIVATE_KEY_FILE").map(PathBuf::from))
+            .or(cfg.private_key_file.clone()),
         transport: cfg.transport.clone(),
     }
 }
@@ -476,31 +425,14 @@ async fn run_inner() -> Result<()> {
             default_config,
             config_stdin,
             relay_only,
-            encryption_key_file,
             ..
         } => {
-            let (mut cfg, source) =
+            let (cfg, source) =
                 resolve_server_config(config.clone(), *default_config, *config_stdin).await?;
-
             if source != ConfigSource::None {
                 cfg.validate(source)?;
             }
 
-            // Decrypt age-encrypted values if present
-            let enc_key = encryption_key_file
-                .clone()
-                .or_else(|| env_var_opt("TUNNEL_RS_ENCRYPTION_KEY_FILE").map(PathBuf::from))
-                .or_else(|| {
-                    cfg.iroh
-                        .as_ref()
-                        .and_then(|i| i.encryption_key_file.clone())
-                })
-                .map(|p| expand_tilde(&p));
-            if let Some(ref mut iroh) = cfg.iroh {
-                iroh.decrypt_secrets(enc_key.as_deref())?;
-            }
-
-            let iroh_cfg = cfg.iroh();
             let ServerIrohParams {
                 allowed_tcp,
                 allowed_udp,
@@ -508,30 +440,27 @@ async fn run_inner() -> Result<()> {
                 secret,
                 secret_file,
                 relay_urls,
-                        auth_tokens,
-                auth_tokens_file,
+                authorized_keys_file,
                 transport,
-            } = resolve_server_iroh_params(&command, iroh_cfg);
-
-            let relay_only = *relay_only;
-
+            } = resolve_server_iroh_params(&command, cfg.iroh());
             let secret = resolve_iroh_secret(secret, secret_file)?;
-
-            // Load auth tokens for authentication
-            let auth_tokens_file_expanded = auth_tokens_file.as_ref().map(|p| expand_tilde(p));
-            let auth_tokens =
-                auth::load_auth_tokens(&auth_tokens, auth_tokens_file_expanded.as_deref())?;
-
-            if auth_tokens.is_empty() {
-                anyhow::bail!(
-                    "Authentication required: set TUNNEL_RS_AUTH_TOKENS environment variable or use --auth-tokens-file.\n\
-                    Clients will need to provide a token via TUNNEL_RS_AUTH_TOKEN or --auth-token-file."
-                );
+            let authorized_keys_file = authorized_keys_file.ok_or_else(|| {
+                TunnelError::config(anyhow::anyhow!(
+                    "Authentication requires --authorized-keys-file, \
+                     TUNNEL_RS_AUTHORIZED_KEYS_FILE, or [iroh].authorized_keys_file."
+                ))
+            })?;
+            let authorized_keys_file = expand_tilde(&authorized_keys_file);
+            let authorized_keys = auth::load_authorized_keys(&authorized_keys_file)
+                .map_err(TunnelError::config)?;
+            if authorized_keys.is_empty() {
+                return Err(TunnelError::config(anyhow::anyhow!(
+                    "No Ed25519 public keys found in {}",
+                    authorized_keys_file.display()
+                )).into());
             }
 
-            log::info!("Auth tokens: {} token(s) configured", auth_tokens.len());
-
-            // Validate transport tuning window sizes
+            log::info!("Authorized client keys: {}", authorized_keys.len());
             validate_transport_tuning(&transport, "iroh.transport")?;
 
             iroh_mode::run_multi_source_server(iroh_mode::MultiSourceServerConfig {
@@ -540,8 +469,8 @@ async fn run_inner() -> Result<()> {
                 max_sessions,
                 secret: Some(secret),
                 relay_urls,
-                relay_only,
-                        auth_tokens,
+                relay_only: *relay_only,
+                authorized_keys,
                 transport,
             })
             .await
@@ -551,43 +480,22 @@ async fn run_inner() -> Result<()> {
             default_config,
             config_stdin,
             relay_only,
-            encryption_key_file,
             ..
         } => {
-            let (mut cfg, source) =
+            let (cfg, source) =
                 resolve_client_config(config.clone(), *default_config, *config_stdin).await?;
-
             if source != ConfigSource::None {
                 cfg.validate(source)?;
             }
 
-            // Decrypt age-encrypted values if present
-            let enc_key = encryption_key_file
-                .clone()
-                .or_else(|| env_var_opt("TUNNEL_RS_ENCRYPTION_KEY_FILE").map(PathBuf::from))
-                .or_else(|| {
-                    cfg.iroh
-                        .as_ref()
-                        .and_then(|i| i.encryption_key_file.clone())
-                })
-                .map(|p| expand_tilde(&p));
-            if let Some(ref mut iroh) = cfg.iroh {
-                iroh.decrypt_secrets(enc_key.as_deref())?;
-            }
-
-            let iroh_cfg = cfg.iroh();
             let ClientIrohParams {
                 server_node_id,
                 source,
                 target,
                 relay_urls,
-                        auth_token,
-                auth_token_file,
+                private_key_file,
                 transport,
-            } = resolve_client_iroh_params(&command, iroh_cfg);
-
-            let relay_only = *relay_only;
-
+            } = resolve_client_iroh_params(&command, cfg.iroh());
             let server_node_id = server_node_id.ok_or_else(|| TunnelError::config(
                 anyhow::anyhow!("server_node_id is required. Provide via --server-node-id or in config file."),
             ))?;
@@ -597,33 +505,15 @@ async fn run_inner() -> Result<()> {
             let target = target.ok_or_else(|| TunnelError::config(
                 anyhow::anyhow!("--target is required. Provide the local address to listen on (e.g., --target 127.0.0.1:2222)"),
             ))?;
-
-            // Resolve auth token from env var or file
-            let auth_token = match (auth_token, auth_token_file) {
-                (Some(_), Some(_)) => {
-                    return Err(TunnelError::config(anyhow::anyhow!(
-                        "Cannot combine TUNNEL_RS_AUTH_TOKEN with --auth-token-file (or auth_token and auth_token_file in config)."
-                    )).into());
-                }
-                (Some(token), None) => token,
-                (None, Some(file)) => {
-                    let expanded = expand_tilde(&file);
-                    auth::load_auth_token_from_file(&expanded)
-                        .map_err(TunnelError::config)?
-                }
-                (None, None) => {
-                    return Err(TunnelError::config(anyhow::anyhow!(
-                        "Auth token is required. Set TUNNEL_RS_AUTH_TOKEN environment variable or use --auth-token-file."
-                    )).into());
-                }
-            };
-
-            // Validate token format before connecting (fail fast)
-            auth::validate_token(&auth_token)
-                .context("Invalid auth token format. Generate a valid token with: tunnel-rs generate-auth-token")
+            let private_key_file = private_key_file.ok_or_else(|| {
+                TunnelError::config(anyhow::anyhow!(
+                    "Authentication requires --private-key-file, \
+                     TUNNEL_RS_PRIVATE_KEY_FILE, or [iroh].private_key_file."
+                ))
+            })?;
+            let private_key = auth::load_private_key(&expand_tilde(&private_key_file))
                 .map_err(TunnelError::config)?;
 
-            // Validate transport tuning window sizes
             validate_transport_tuning(&transport, "iroh.transport")
                 .map_err(TunnelError::config)?;
 
@@ -632,8 +522,8 @@ async fn run_inner() -> Result<()> {
                 source,
                 target,
                 relay_urls,
-                relay_only,
-                        auth_token,
+                relay_only: *relay_only,
+                private_key,
                 transport,
             })
             .await
@@ -652,91 +542,13 @@ async fn run_inner() -> Result<()> {
             }
         }
         Command::ShowServerId { secret_file } => secret::show_id(expand_tilde(secret_file)),
-        Command::GenerateAuthToken { count, json } => {
-            let tokens: Vec<String> = (0..*count).map(|_| auth::generate_token()).collect();
-            if *json {
-                println!(
-                    "{}",
-                    serde_json::to_string(&serde_json::json!({ "auth_tokens": tokens }))?
-                );
-            } else {
-                for token in tokens {
-                    println!("{}", token);
-                }
-            }
-            Ok(())
+        Command::GenerateAuthKey {
+            output,
+            comment,
+            force,
+        } => {
+            let output = output.as_deref().map(expand_tilde);
+            auth::generate_auth_key(output.as_deref(), comment, *force)
         }
-        Command::ConfigEncryption { action } => match action {
-            ConfigEncryptionCommand::GenerateKey { output, force } => {
-                let (secret_key, public_key) = encryption::generate_keypair();
-                if let Some(path) = output {
-                    let path = expand_tilde(path);
-                    encryption::write_identity_file(&path, &secret_key, &public_key, *force)?;
-                    log::info!("Encryption key saved to: {}", path.display());
-                    println!("{}", public_key);
-                } else {
-                    let now = jiff::Zoned::now().strftime("%Y-%m-%dT%H:%M:%S%:z");
-                    println!("# created: {}", now);
-                    println!("# public key: {}", public_key);
-                    println!("{}", secret_key);
-                }
-                Ok(())
-            }
-            ConfigEncryptionCommand::EncryptValue { recipient, config } => {
-                let recipient_str = match (recipient, config) {
-                    (Some(_), Some(_)) => {
-                        anyhow::bail!(
-                            "Cannot combine --recipient and --config. Use only one."
-                        );
-                    }
-                    (Some(r), None) => r.clone(),
-                    (None, Some(config_path)) => {
-                        let expanded = expand_tilde(config_path);
-                        let content = std::fs::read_to_string(&expanded).with_context(|| {
-                            format!("Failed to read config: {}", expanded.display())
-                        })?;
-
-                        #[derive(serde::Deserialize)]
-                        struct MinimalConfig {
-                            iroh: Option<MinimalIroh>,
-                        }
-                        #[derive(serde::Deserialize)]
-                        struct MinimalIroh {
-                            encryption_recipient: Option<String>,
-                        }
-
-                        let cfg: MinimalConfig =
-                            toml::from_str(&content).with_context(|| {
-                                format!("Failed to parse config: {}", expanded.display())
-                            })?;
-                        cfg.iroh
-                            .and_then(|i| i.encryption_recipient)
-                            .ok_or_else(|| {
-                                anyhow::anyhow!(
-                                    "No [iroh].encryption_recipient found in {}",
-                                    expanded.display()
-                                )
-                            })?
-                    }
-                    (None, None) => {
-                        anyhow::bail!(
-                            "Provide --recipient or --config to specify the age public key"
-                        );
-                    }
-                };
-
-                let mut plaintext = String::new();
-                std::io::Read::read_to_string(&mut std::io::stdin(), &mut plaintext)
-                    .context("Failed to read plaintext from stdin")?;
-                let plaintext = plaintext.trim_end();
-                if plaintext.is_empty() {
-                    anyhow::bail!("No input provided on stdin");
-                }
-
-                let encrypted = encryption::encrypt_value(plaintext, &recipient_str)?;
-                println!("{}", encrypted);
-                Ok(())
-            }
-        },
     }
 }
