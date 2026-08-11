@@ -13,6 +13,7 @@
 //! ```
 
 use std::collections::HashMap;
+use std::io::IsTerminal;
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -270,13 +271,32 @@ pub fn generate_keypair(comment: &str) -> Result<(String, String)> {
 }
 
 /// Render the private-key file for a freshly generated keypair.
+///
+/// The first header names the key kind, so a stray key file is identifiable
+/// without knowing the token prefixes apart.
 fn private_key_file(authorized_key: &str, private_key: &str) -> String {
     format!(
-        "# created: {}\n# public key: {}\n{}\n",
+        "# tunnel-rs client authentication key (Ed25519 private key)\n\
+         # Created: {}\n\
+         # Public key: {}\n\
+         {}\n",
         rfc3339_utc(SystemTime::now()),
         authorized_key,
         private_key
     )
+}
+
+/// Report a generated key's public half on stderr, unless stdout is a terminal.
+///
+/// Shared with [`crate::secret`]. When the key file goes to stdout it already
+/// names its public half in a header, so on a terminal this copy would only
+/// print the same value twice. When stdout is redirected
+/// (`generate-auth-key > client.key`) the copy is the only place the entry
+/// appears, and `2> authorized_keys` still captures it.
+pub fn report_public_half(line: &str) {
+    if !std::io::stdout().is_terminal() {
+        eprintln!("{}", line);
+    }
 }
 
 /// Generate a keypair, writing the private key to `path` (or to stdout when
@@ -287,13 +307,14 @@ fn private_key_file(authorized_key: &str, private_key: &str) -> String {
 /// `generate-auth-key --output client.key > authorized_keys` works. Without one
 /// the whole private-key file goes to stdout and the authorized-key entry to
 /// stderr, so `generate-auth-key > client.key` works and still shows the entry.
+/// On a terminal the stderr line is dropped; see [`report_public_half`].
 pub fn generate_auth_key(path: Option<&Path>, comment: &str, force: bool) -> Result<()> {
     let (private_key, authorized_key) = generate_keypair(comment)?;
     let private_key_file = private_key_file(&authorized_key, &private_key);
 
     let Some(path) = path.filter(|path| path.as_os_str() != "-") else {
         print!("{}", private_key_file);
-        eprintln!("{}", authorized_key);
+        report_public_half(&authorized_key);
         return Ok(());
     };
 
@@ -376,7 +397,7 @@ fn decode_public_key(encoded: &str) -> Result<PublicKeyBytes> {
 /// Format a timestamp as an RFC 3339 UTC instant, e.g. `2024-09-13T22:22:33Z`.
 ///
 /// Shared with [`crate::secret`], whose generated server keys carry the same
-/// `# created:` header.
+/// `# Created:` header.
 pub fn rfc3339_utc(time: SystemTime) -> String {
     let seconds = time
         .duration_since(UNIX_EPOCH)
@@ -726,10 +747,14 @@ mod tests {
 
         let content = std::fs::read_to_string(&path).unwrap();
         let mut lines = content.lines();
+        assert_eq!(
+            lines.next(),
+            Some("# tunnel-rs client authentication key (Ed25519 private key)")
+        );
         let created = lines.next().unwrap();
-        assert!(created.starts_with("# created: "));
+        assert!(created.starts_with("# Created: "));
         assert!(created.ends_with('Z'));
-        let authorized_entry = lines.next().unwrap().strip_prefix("# public key: ").unwrap();
+        let authorized_entry = lines.next().unwrap().strip_prefix("# Public key: ").unwrap();
         assert!(authorized_entry.starts_with(PUBLIC_KEY_PREFIX));
         assert!(authorized_entry.ends_with(" alice laptop"));
         assert!(lines.next().unwrap().starts_with(PRIVATE_KEY_PREFIX));

@@ -8,7 +8,7 @@ use serde::Serialize;
 use std::path::Path;
 use std::time::SystemTime;
 
-use crate::auth::rfc3339_utc;
+use crate::auth::{report_public_half, rfc3339_utc};
 use crate::iroh_mode::endpoint::{load_secret, secret_to_endpoint_id};
 
 #[derive(Serialize)]
@@ -34,11 +34,15 @@ fn generate_server_key() -> GeneratedServerKey {
 /// Render the secret key file for a freshly generated server key.
 ///
 /// The headers mirror the client authentication key file, so `head` on either
-/// one shows which identity the key belongs to and when it was created. Key
-/// loading skips `#` lines, so the file stays usable as an inline `secret`.
+/// one shows which kind of key it is, which identity it belongs to, and when it
+/// was created. Key loading skips `#` lines, so the file stays usable as an
+/// inline `secret`.
 fn secret_key_file(generated: &GeneratedServerKey) -> String {
     format!(
-        "# created: {}\n# EndpointId: {}\n{}\n",
+        "# tunnel-rs server secret key (iroh endpoint identity)\n\
+         # Created: {}\n\
+         # EndpointId: {}\n\
+         {}\n",
         rfc3339_utc(SystemTime::now()),
         generated.public_key,
         generated.private_key
@@ -91,7 +95,8 @@ fn write_secret_file(path: &Path, secret_content: &str, force: bool) -> Result<(
 /// With a file destination the key file lands on disk with `0600` permissions
 /// and the EndpointId goes to stdout. Without one the whole key file goes to
 /// stdout and the EndpointId to stderr, so `generate-server-key > server.key`
-/// works and still shows the id — the same split as `generate-auth-key`.
+/// works and still shows the id — the same split as `generate-auth-key`. On a
+/// terminal the stderr line is dropped; see [`report_public_half`].
 pub fn generate_secret(output: Option<&Path>, force: bool) -> Result<()> {
     let generated = generate_server_key();
     let key_file = secret_key_file(&generated);
@@ -99,7 +104,7 @@ pub fn generate_secret(output: Option<&Path>, force: bool) -> Result<()> {
 
     let Some(path) = output.filter(|path| path.as_os_str() != "-") else {
         print!("{}", key_file);
-        eprintln!("{}", public_info);
+        report_public_half(&public_info);
         return Ok(());
     };
 
@@ -154,9 +159,10 @@ mod tests {
         let file = secret_key_file(&generated);
         let lines: Vec<&str> = file.lines().collect();
 
-        assert!(lines[0].starts_with("# created: "));
-        assert_eq!(lines[1], format!("# EndpointId: {}", generated.public_key));
-        assert_eq!(lines[2], generated.private_key);
+        assert_eq!(lines[0], "# tunnel-rs server secret key (iroh endpoint identity)");
+        assert!(lines[1].starts_with("# Created: "));
+        assert_eq!(lines[2], format!("# EndpointId: {}", generated.public_key));
+        assert_eq!(lines[3], generated.private_key);
         // The commented file still loads as a key, so it works as an inline secret.
         let secret = load_secret_from_string(&file).unwrap();
         assert_eq!(secret_to_endpoint_id(&secret).to_string(), generated.public_key);

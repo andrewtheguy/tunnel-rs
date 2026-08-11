@@ -784,7 +784,8 @@ mod tests {
         let secret = SecretKey::generate();
         let base64_key = BASE64.encode(secret.to_bytes());
         let key_file = format!(
-            "# created: 2026-08-11T00:00:00Z\n# EndpointId: {}\n\n{}\n",
+            "# tunnel-rs server secret key (iroh endpoint identity)\n\
+             # Created: 2026-08-11T00:00:00Z\n# EndpointId: {}\n\n{}\n",
             secret.public(),
             base64_key
         );
@@ -801,7 +802,7 @@ mod tests {
 
     #[test]
     fn secret_key_with_only_headers_is_rejected() {
-        let error = load_secret_from_string("# created: 2026-08-11T00:00:00Z\n")
+        let error = load_secret_from_string("# Created: 2026-08-11T00:00:00Z\n")
             .expect_err("a file without a key line must be rejected");
         assert!(
             error.to_string().contains("No secret key found"),
