@@ -555,7 +555,9 @@ and the authorized-key entry is printed to stdout, so
 `generate-auth-key --output client.key > authorized_keys` captures the entry.
 Without `--output` (or with `--output -`) the roles swap: the key file goes to
 stdout and the authorized-key entry to stderr — remember to restrict
-permissions yourself when redirecting to a file. Either way, copy the printed
+permissions yourself when redirecting to a file. The stderr copy is skipped when
+stdout is a terminal, where the key file's own `# public key:` header already
+shows it. Either way, copy the printed
 `tunnelrsv1authpub:...` line into the server's `authorized_keys` file. With
 `--json`, no file is written and both halves are emitted to stdout as one object
 — handy for feeding a `--config-stdin` config's inline `authorized_keys` /
@@ -593,7 +595,9 @@ With `--output` the key file is created with `0600` permissions on Unix and the
 EndpointId is printed to stdout. Without `--output` (or with `--output -`) the
 roles swap, exactly as in `generate-auth-key`: the key file goes to stdout and
 the EndpointId to stderr — remember to restrict permissions yourself when
-redirecting to a file. Existing files are not overwritten unless `--force` is
+redirecting to a file. The stderr copy is skipped when stdout is a terminal,
+where the `# EndpointId:` header already shows it. Existing files are not
+overwritten unless `--force` is
 passed. With `--json`, no file is written and both keys are emitted to stdout as
 one object.
 

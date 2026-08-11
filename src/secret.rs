@@ -8,7 +8,7 @@ use serde::Serialize;
 use std::path::Path;
 use std::time::SystemTime;
 
-use crate::auth::rfc3339_utc;
+use crate::auth::{report_public_half, rfc3339_utc};
 use crate::iroh_mode::endpoint::{load_secret, secret_to_endpoint_id};
 
 #[derive(Serialize)]
@@ -91,7 +91,8 @@ fn write_secret_file(path: &Path, secret_content: &str, force: bool) -> Result<(
 /// With a file destination the key file lands on disk with `0600` permissions
 /// and the EndpointId goes to stdout. Without one the whole key file goes to
 /// stdout and the EndpointId to stderr, so `generate-server-key > server.key`
-/// works and still shows the id — the same split as `generate-auth-key`.
+/// works and still shows the id — the same split as `generate-auth-key`. On a
+/// terminal the stderr line is dropped; see [`report_public_half`].
 pub fn generate_secret(output: Option<&Path>, force: bool) -> Result<()> {
     let generated = generate_server_key();
     let key_file = secret_key_file(&generated);
@@ -99,7 +100,7 @@ pub fn generate_secret(output: Option<&Path>, force: bool) -> Result<()> {
 
     let Some(path) = output.filter(|path| path.as_os_str() != "-") else {
         print!("{}", key_file);
-        eprintln!("{}", public_info);
+        report_public_half(&public_info);
         return Ok(());
     };
 
