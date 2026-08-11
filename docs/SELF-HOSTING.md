@@ -40,32 +40,32 @@ Use a custom relay server instead of the public iroh relay infrastructure.
 Configuring any custom relay disables internet discovery automatically.
 
 ```bash
-# Both sides must use the same relay(s) (tokens via files — recommended)
+# Both sides must use the same relay(s)
 tunnel-rs server \
   --relay-url https://relay.example.com \
   --allowed-tcp 127.0.0.0/8 \
-  --auth-tokens-file ./auth_tokens.txt
+  --authorized-keys-file ./authorized_keys
 
 tunnel-rs client \
   --relay-url https://relay.example.com \
   --server-node-id <ID> \
   --source tcp://127.0.0.1:22 \
   --target 127.0.0.1:2222 \
-  --auth-token-file ./auth_token.txt
+  --private-key-file ./client.key
 
 # Force relay-only (no direct P2P) - CLI-only flag (not supported in config files)
 tunnel-rs server \
   --relay-url https://relay.example.com \
   --relay-only \
   --allowed-tcp 127.0.0.0/8 \
-  --auth-tokens-file ./auth_tokens.txt
+  --authorized-keys-file ./authorized_keys
 ```
 
 With custom relays (internet discovery auto-disabled), clients and the server
 find each other through the shared relay URLs or through mDNS on the same
 local network.
 
-> **Tip:** For container deployments, use environment variables instead of files: `TUNNEL_RS_AUTH_TOKENS`, `TUNNEL_RS_SECRET` (server); `TUNNEL_RS_AUTH_TOKEN` (client).
+Use `TUNNEL_RS_AUTHORIZED_KEYS_FILE` and `TUNNEL_RS_PRIVATE_KEY_FILE` when container paths are supplied through environment variables.
 
 ### Running iroh-relay (Quick Start)
 
@@ -78,7 +78,7 @@ iroh-relay --dev -c test-scripts/relay-dev.toml
 ```
 
 > [!NOTE]
-> **No relay-level client whitelisting:** The self-hosted relay server must allow all client IDs (like the public iroh relay) because tunnel-rs clients use ephemeral EndpointIds that change on each run. Rely on tunnel-rs auth tokens for access control instead. See [Dynamic Client Whitelisting](ROADMAP.md#dynamic-client-whitelisting-for-self-hosted-relay) for a planned enhancement.
+> **No relay-level client whitelisting:** The self-hosted relay server must allow all client IDs (like the public iroh relay) because tunnel-rs clients use ephemeral EndpointIds that change on each run. Rely on tunnel-rs Ed25519 application authentication for access control instead. See [Dynamic Client Whitelisting](ROADMAP.md#dynamic-client-whitelisting-for-self-hosted-relay) for a planned enhancement.
 
 ## Full Self-Hosted Infrastructure
 
@@ -204,23 +204,23 @@ cloudflared tunnel run --token <token>
 ### Using Your Infrastructure
 
 ```bash
-# Server (tokens via files — recommended)
+# Server
 tunnel-rs server \
   --relay-url https://relay.example.com \
   --secret-file ./server.key \
   --allowed-tcp 127.0.0.0/8 \
-  --auth-tokens-file ./auth_tokens.txt
+  --authorized-keys-file ./authorized_keys
 
-# Client (tokens via files — recommended)
+# Client
 tunnel-rs client \
   --relay-url https://relay.example.com \
   --server-node-id <ID> \
   --source tcp://127.0.0.1:22 \
   --target 127.0.0.1:2222 \
-  --auth-token-file ./auth_token.txt
+  --private-key-file ./client.key
 ```
 
-> **Tip:** For container deployments, use environment variables (`TUNNEL_RS_AUTH_TOKENS`, `TUNNEL_RS_AUTH_TOKEN`) instead of files.
+For container deployments, the equivalent path variables are `TUNNEL_RS_AUTHORIZED_KEYS_FILE` and `TUNNEL_RS_PRIVATE_KEY_FILE`.
 
 ## Relay Behavior
 

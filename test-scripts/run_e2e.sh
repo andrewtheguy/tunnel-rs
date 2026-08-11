@@ -194,16 +194,14 @@ PY
 log "Ports: tcp_backend=$TCP_BACKEND udp_backend=$UDP_BACKEND tcp_target=$TCP_TARGET udp_target=$UDP_TARGET"
 
 # ---------------------------------------------------------------------------
-# Server identity + auth token
+# Server identity + client authentication key
 # ---------------------------------------------------------------------------
 read -r ENDPOINT_ID SECRET < <(
     "$BIN" generate-server-key --json |
         python3 -c 'import json, sys; value = json.load(sys.stdin); print(value["public_key"], value["private_key"])'
 )
-TOKEN="$(
-    "$BIN" generate-auth-token --json |
-        python3 -c 'import json, sys; print(json.load(sys.stdin)["auth_tokens"][0])'
-)"
+"$BIN" generate-auth-key --output "$WORK/client.key" --comment "e2e client" \
+    > "$WORK/authorized_keys"
 log "EndpointId: $ENDPOINT_ID"
 
 # Optional custom-relay configuration and matching --relay-only CLI args
@@ -239,19 +237,18 @@ wait_for_log "$WORK/echo_udp.log" "READY udp" 30
 # tunnel-rs server (in-memory JSON config piped to stdin)
 # ---------------------------------------------------------------------------
 SERVER_CONFIG="$(
-    printf '%s\n%s\n%s\n' "$SECRET" "$TOKEN" "$RELAY_CONFIG" |
+    printf '%s\n%s\n' "$SECRET" "$RELAY_CONFIG" |
         python3 -c '
 import json, sys
 secret = sys.stdin.readline().rstrip("\n")
-token = sys.stdin.readline().rstrip("\n")
 iroh = {
     "secret": secret,
-    "auth_tokens": [token],
+    "authorized_keys_file": sys.argv[1],
     "allowed_sources": {"tcp": ["127.0.0.0/8"], "udp": ["127.0.0.0/8"]},
 }
 iroh.update(json.loads(sys.stdin.readline()))
 print(json.dumps({"role": "server", "mode": "iroh", "iroh": iroh}))
-'
+' "$WORK/authorized_keys"
 )"
 
 log "Starting tunnel-rs server..."
@@ -264,21 +261,20 @@ wait_for_log "$WORK/server.log" "Waiting for clients to connect" "$READY_TIMEOUT
 # ---------------------------------------------------------------------------
 build_client_config() {
     local protocol="$1" backend_port="$2" target_port="$3"
-    printf '%s\n%s\n%s\n' "$ENDPOINT_ID" "$TOKEN" "$RELAY_CONFIG" |
+    printf '%s\n%s\n' "$ENDPOINT_ID" "$RELAY_CONFIG" |
         python3 -c '
 import json, sys
-protocol, backend_port, target_port = sys.argv[1:]
+protocol, backend_port, target_port = sys.argv[1:4]
 endpoint_id = sys.stdin.readline().rstrip("\n")
-token = sys.stdin.readline().rstrip("\n")
 iroh = {
     "server_node_id": endpoint_id,
     "request_source": f"{protocol}://127.0.0.1:{backend_port}",
     "target": f"127.0.0.1:{target_port}",
-    "auth_token": token,
+    "private_key_file": sys.argv[4],
 }
 iroh.update(json.loads(sys.stdin.readline()))
 print(json.dumps({"role": "client", "mode": "iroh", "iroh": iroh}))
-' "$protocol" "$backend_port" "$target_port"
+' "$protocol" "$backend_port" "$target_port" "$WORK/client.key"
 }
 
 CLIENT_TCP_CONFIG="$(build_client_config tcp "$TCP_BACKEND" "$TCP_TARGET")"
@@ -288,7 +284,7 @@ log "Starting tunnel-rs TCP client..."
 start_tunnel client "$CLIENT_TCP_CONFIG" "$WORK/client_tcp.log"
 log "Starting tunnel-rs UDP client..."
 start_tunnel client "$CLIENT_UDP_CONFIG" "$WORK/client_udp.log"
-unset CLIENT_TCP_CONFIG CLIENT_UDP_CONFIG RELAY_CONFIG SECRET TOKEN
+unset CLIENT_TCP_CONFIG CLIENT_UDP_CONFIG RELAY_CONFIG SECRET
 
 wait_for_log "$WORK/client_tcp.log" "Listening on TCP" "$READY_TIMEOUT"
 wait_for_log "$WORK/client_udp.log" "Listening on UDP" "$READY_TIMEOUT"

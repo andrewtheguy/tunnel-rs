@@ -28,7 +28,7 @@ pub const RELAY_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Fixed ALPN protocol identifier for tunnel connections.
 ///
 /// Both server and client must agree on this exact value for the QUIC handshake
-/// to succeed. Access control is enforced separately via auth tokens.
+/// to succeed. Access control is enforced separately via public-key authentication.
 pub const TUNNEL_ALPN: &[u8] = b"mf/4";
 
 /// QUIC keep-alive interval for tunnel connections.

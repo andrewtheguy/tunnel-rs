@@ -30,7 +30,7 @@ mode = "iroh"
 
 [iroh]
 server_node_id = "..."
-auth_token_file = "~/.config/tunnel-rs/token.txt"
+private_key_file = "~/.config/tunnel-rs/client.key"
 
 [[iroh.tunnels]]
 source = "tcp://127.0.0.1:22"
@@ -58,47 +58,47 @@ target = "127.0.0.1:5353"
 
 ---
 
-#### External Auth Token Source
+#### External Authorized-Key Source
 
 **Status:** Idea
 
-Allow the server to fetch valid auth tokens from an external HTTP REST service at runtime, instead of only loading them from static files or environment variables at startup. This enables centralized token management where tokens can be added or revoked without restarting the server.
+Allow the server to fetch authorized Ed25519 public keys from an external HTTP REST service at runtime instead of loading a static file only at startup. This enables centralized key management where clients can be added or revoked without restarting the server.
 
 **Proposed Features:**
-- **Remote token endpoint**: Server periodically queries a configurable HTTP endpoint (e.g., `--auth-tokens-url https://auth.example.com/tokens`) to retrieve the current set of valid tokens
-- **Polling interval**: Configurable refresh interval (e.g., `--auth-tokens-poll-interval 60s`, default: 60s)
+- **Remote key endpoint**: Server periodically queries a configurable HTTP endpoint to retrieve authorized public keys
+- **Polling interval**: Configurable refresh interval (default: 60s)
 - **Caching with fallback**: Cache the last successful response so the server continues operating if the external service is temporarily unavailable
-- **Startup behavior**: Fetch tokens on startup; fail fast if the endpoint is unreachable and no fallback tokens are configured
+- **Startup behavior**: Fetch keys on startup; fail fast if the endpoint is unreachable and no fallback keys are configured
 
 **Example:**
 ```bash
 tunnel-rs server \
   --secret-file ./server.key \
   --allowed-tcp 127.0.0.0/8 \
-  --auth-tokens-url https://auth.example.com/api/tokens
+  --authorized-keys-url https://auth.example.com/api/authorized-keys
 ```
 
 **Expected response format:**
 ```json
 {
-  "tokens": [
-    "iXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
-    "iYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY"
+  "authorized_keys": [
+    "ed25519 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= alice",
+    "ed25519 BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB= bob"
   ]
 }
 ```
 
 **Use Cases:**
-- Centralized token management across multiple tunnel-rs servers
-- Revoking a compromised token without restarting any servers
+- Centralized key authorization across multiple tunnel-rs servers
+- Revoking a compromised client key without restarting any servers
 - Integration with existing identity providers, admin dashboards, or secret managers
 - Container orchestration systems that manage secrets externally (e.g., Vault, AWS Secrets Manager)
 
 **Complexity:** Medium
-- Requires `Arc<RwLock<HashSet<String>>>` for thread-safe token set updates
+- Requires atomically replaceable authorized-key state
 - Background task for periodic polling (tokio interval)
 - HTTP client dependency (reqwest)
-- Decision: whether existing sessions with revoked tokens should be terminated or only future connections denied
+- Decision: whether existing sessions with revoked keys should be terminated or only future connections denied
 
 ---
 
@@ -118,7 +118,7 @@ When self-hosting an iroh relay server, there is currently no easy way to whitel
 The iroh-relay server supports dynamic access control via `AccessConfig::Restricted`, which takes a callback function that checks each `EndpointId` and returns `Access::Allow` or `Access::Deny`. The solution involves dynamic coordination between the tunnel-rs server and the self-hosted relay:
 
 1. **Client connects to tunnel-rs server** with ephemeral EndpointId
-2. **Tunnel-rs server authenticates client** via auth token (existing mechanism)
+2. **Tunnel-rs server authenticates client** via Ed25519 challenge-response
 3. **Server registers client's EndpointId** with the relay's dynamic whitelist
 4. **Client can now use the relay** for NAT traversal
 
@@ -139,7 +139,7 @@ pub enum Access {
 
 **Implementation approach:**
 - Relay server exposes an API or shared state for dynamic whitelist updates
-- Tunnel-rs server adds client EndpointIds after successful auth token validation
+- Tunnel-rs server adds client EndpointIds after successful public-key authentication
 - Tunnel-rs server removes EndpointIds when clients disconnect
 - The `AccessConfig::Restricted` callback queries this dynamic whitelist
 
@@ -151,7 +151,7 @@ pub enum Access {
 **Use Cases:**
 - Private self-hosted relay infrastructure
 - Enterprise deployments requiring relay-level access control
-- Additional defense-in-depth beyond tunnel-rs auth tokens
+- Additional defense-in-depth beyond tunnel-rs application authentication
 
 **Simpler alternative since iroh 0.98 — endpoint-side `EndpointHooks`:**
 
@@ -164,9 +164,9 @@ pub trait EndpointHooks {
 }
 ```
 
-Installed on the tunnel-rs server's own endpoint via `Endpoint::Builder::hooks(...)`. Runs after the QUIC TLS handshake, so the remote's verified `EndpointId` is known. Rejecting here closes the connection with a QUIC close frame *before* it consumes an `accept_bi()` slot or reaches the application token check in `multi_source.rs`.
+Installed on the tunnel-rs server's own endpoint via `Endpoint::Builder::hooks(...)`. Runs after the QUIC TLS handshake, so the remote's verified `EndpointId` is known. Rejecting here closes the connection with a QUIC close frame *before* it consumes an `accept_bi()` slot or reaches the application public-key check in `multi_source.rs`.
 
-This still doesn't replace the pre-shared token in `src/auth.rs` (the hook only sees connection metadata, not stream bytes), but it can be a second factor: an `--allowed-endpoint-ids` flag would allow operators to pin which client identities a given server will talk to. Tradeoff: clients still need ephemeral or long-lived `EndpointId`s the server knows in advance, which loses some of the "ephemeral identity" benefit. Worth offering as an *opt-in* hardening for environments that can manage a peer ID list.
+This does not replace the Ed25519 challenge-response in `src/auth.rs` (the hook only sees transport metadata, not stream bytes), but it could be a second factor. An `--allowed-endpoint-ids` flag would require stable client transport identities, however, losing the current ephemeral-identity benefit. It is therefore only suitable as opt-in hardening.
 
 ---
 
@@ -207,7 +207,7 @@ EOF
 tunnel-rs server \
   --secret-file ./server.key \
   --allowed-tcp 10.0.0.0/8 \
-  --auth-tokens-file ./auth_tokens.txt \
+  --authorized-keys-file ./authorized_keys \
   --external-address 203.0.113.5:30000
 ```
 

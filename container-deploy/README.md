@@ -19,13 +19,13 @@ tunnel-rs uses a **client-initiated** model similar to SSH `-L` tunneling:
 
 **Server** (runs in container, waits for connections):
 - Uses `--allowed-tcp` / `--allowed-udp` with **CIDR notation** (e.g., `10.0.0.0/8`) to whitelist networks
-- Uses `TUNNEL_RS_AUTH_TOKENS` env var or `--auth-tokens-file` to authenticate clients by pre-shared token
+- Uses `--authorized-keys-file` to authenticate Ed25519 client keys
 - Does NOT specify ports — clients choose the destination
 
 **Client** (initiates connection from remote machine):
 - Uses `--source` with **protocol + address** (e.g., `tcp://postgres:5432` or `udp://kube-dns.kube-system.svc.cluster.local:53`) to request a specific service
 - Uses `--target` to specify local listen address
-- Uses `TUNNEL_RS_AUTH_TOKEN` env var to authenticate with the server
+- Uses `--private-key-file` to prove possession of an authorized Ed25519 key
 
 ## Quick Start
 
@@ -34,21 +34,21 @@ tunnel-rs uses a **client-initiated** model similar to SSH `-L` tunneling:
 tunnel-rs generate-server-key --output server.key
 # Output: EndpointId: <SERVER_NODE_ID>
 
-# 2. Create an authentication token
-AUTH_TOKEN=$(tunnel-rs generate-auth-token)
-echo $AUTH_TOKEN  # Share this with authorized clients
+# 2. Create a client authentication key and server entry
+tunnel-rs generate-auth-key --output client.key --comment "remote client" \
+  > authorized_keys
 
-# 3. Server: allow connections with token authentication
-export TUNNEL_RS_AUTH_TOKENS="$AUTH_TOKEN"
+# 3. Server: allow connections from the generated public key
 tunnel-rs server \
   --secret-file ./server.key \
   --allowed-tcp 127.0.0.0/8 \
-  --allowed-tcp 192.168.0.0/16
+  --allowed-tcp 192.168.0.0/16 \
+  --authorized-keys-file ./authorized_keys
 # Output: EndpointId: <SERVER_NODE_ID>
 
 # 4. Client: connect and request a service
-export TUNNEL_RS_AUTH_TOKEN="$AUTH_TOKEN"
 tunnel-rs client \
+  --private-key-file ./client.key \
   --server-node-id <SERVER_NODE_ID> \
   --source tcp://127.0.0.1:22 \
   --target 127.0.0.1:2222
@@ -59,7 +59,7 @@ tunnel-rs client \
 > [!NOTE]
 > The Docker setup below has not been tested yet. Please report any issues.
 
-Expose services via tunnel-rs with token authentication:
+Expose services via tunnel-rs with Ed25519 public-key authentication:
 
 ```bash
 cd container-deploy/docker
@@ -68,9 +68,10 @@ cd container-deploy/docker
 docker run --rm ghcr.io/andrewtheguy/tunnel-rs:latest \
   generate-server-key --output - > server.key
 
-# 2. Create an authentication token
-AUTH_TOKEN=$(docker run --rm ghcr.io/andrewtheguy/tunnel-rs:latest generate-auth-token)
-echo "$AUTH_TOKEN" > tokens.txt
+# 2. Generate a client authentication key and server entry
+docker run --rm -v "$PWD:/keys" ghcr.io/andrewtheguy/tunnel-rs:latest \
+  generate-auth-key --output /keys/client.key --comment "remote client" \
+  > authorized_keys
 
 # 3. Start services
 docker compose up -d
@@ -80,14 +81,15 @@ docker compose logs tunnel-server | grep EndpointId
 # EndpointId: <SERVER_NODE_ID>
 
 # 5. On remote machine - connect to web service
-export TUNNEL_RS_AUTH_TOKEN="$AUTH_TOKEN"
 tunnel-rs client \
+  --private-key-file ./client.key \
   --server-node-id <SERVER_NODE_ID> \
   --source tcp://web:80 \
   --target 127.0.0.1:8080
 
 # 6. Or connect to database
 tunnel-rs client \
+  --private-key-file ./client.key \
   --server-node-id <SERVER_NODE_ID> \
   --source tcp://db:5432 \
   --target 127.0.0.1:5432
@@ -103,13 +105,14 @@ Access ClusterIP services from outside the cluster — like SSH tunneling but ov
 # 1. Generate server key
 tunnel-rs generate-server-key --output server.key
 
-# 2. Create an authentication token
-AUTH_TOKEN=$(tunnel-rs generate-auth-token)
+# 2. Create a client authentication key and server entry
+tunnel-rs generate-auth-key --output client.key --comment "remote client" \
+  > authorized_keys
 
 # 3. Create secrets
 kubectl create secret generic tunnel-server-secrets \
   --from-file=server.key=./server.key \
-  --from-literal=tokens.txt="$AUTH_TOKEN"
+  --from-file=authorized_keys=./authorized_keys
 
 # 4. Deploy
 kubectl apply -f kubernetes/tunnel-deployment.yaml
@@ -121,22 +124,23 @@ kubectl logs -l app=tunnel-server | grep EndpointId
 **Client examples** (run on your local machine):
 
 ```bash
-export TUNNEL_RS_AUTH_TOKEN="$AUTH_TOKEN"
-
 # Tunnel to PostgreSQL
 tunnel-rs client \
+  --private-key-file ./client.key \
   --server-node-id <SERVER_NODE_ID> \
   --source tcp://postgres.database.svc:5432 \
   --target 127.0.0.1:5432
 
 # Tunnel to Redis
 tunnel-rs client \
+  --private-key-file ./client.key \
   --server-node-id <SERVER_NODE_ID> \
   --source tcp://redis.cache.svc:6379 \
   --target 127.0.0.1:6379
 
 # Tunnel to a web dashboard
 tunnel-rs client \
+  --private-key-file ./client.key \
   --server-node-id <SERVER_NODE_ID> \
   --source tcp://kubernetes-dashboard.kubernetes-dashboard.svc:443 \
   --target 127.0.0.1:8443
@@ -155,8 +159,8 @@ Tunnel UDP services like DNS (something `kubectl port-forward` can't do):
 
 ```bash
 # Expose cluster DNS
-export TUNNEL_RS_AUTH_TOKEN="$AUTH_TOKEN"
 tunnel-rs client \
+  --private-key-file ./client.key \
   --server-node-id <SERVER_NODE_ID> \
   --source udp://kube-dns.kube-system.svc.cluster.local:53 \
   --target 127.0.0.1:5353

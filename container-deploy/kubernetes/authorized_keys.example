@@ -1,0 +1,6 @@
+# Authorized Ed25519 client keys
+# Generate a compact client key and one entry with:
+# tunnel-rs generate-auth-key --output client.key --comment "alice laptop"
+#
+# Format: ed25519 <base64-encoded 32-byte public key> [comment]
+# ed25519 AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA= alice laptop

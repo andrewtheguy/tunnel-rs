@@ -11,10 +11,11 @@
 #      docker run --rm ghcr.io/andrewtheguy/tunnel-rs:latest \
 #        generate-server-key --output - > server.key
 #
-#   2. Generate authentication token:
-#      docker run --rm ghcr.io/andrewtheguy/tunnel-rs:latest \
-#        generate-auth-token > tokens.txt
-#      # Share this token with authorized clients
+#   2. Generate a client authentication key and authorized-key entry:
+#      docker run --rm -v "$PWD:/keys" ghcr.io/andrewtheguy/tunnel-rs:latest \
+#        generate-auth-key --output /keys/client.key --comment "remote client" \
+#        > authorized_keys
+#      # Copy client.key securely to the client machine.
 #
 #   3. Start the services:
 #      docker compose up -d
@@ -24,15 +25,15 @@
 #
 #   5. On the remote machine, connect to any service:
 #      # Connect to web service
-#      TUNNEL_RS_AUTH_TOKEN=<AUTH_TOKEN> \
-#        tunnel-rs client \
+#      tunnel-rs client \
+#        --private-key-file ./client.key \
 #        --server-node-id <SERVER_NODE_ID> \
 #        --source tcp://web:80 \
 #        --target 127.0.0.1:8080
 #
 #      # Connect to database
-#      TUNNEL_RS_AUTH_TOKEN=<AUTH_TOKEN> \
-#        tunnel-rs client \
+#      tunnel-rs client \
+#        --private-key-file ./client.key \
 #        --server-node-id <SERVER_NODE_ID> \
 #        --source tcp://db:5432 \
 #        --target 127.0.0.1:5432
@@ -63,11 +64,11 @@ services:
       - "192.168.0.0/16" # Docker bridge networks
       - --secret-file
       - /secrets/server.key
-      - --auth-tokens-file
-      - /secrets/tokens.txt
+      - --authorized-keys-file
+      - /secrets/authorized_keys
     volumes:
       - ./server.key:/secrets/server.key:ro
-      - ./tokens.txt:/secrets/tokens.txt:ro
+      - ./authorized_keys:/secrets/authorized_keys:ro
     depends_on:
       - web
       - db

@@ -91,7 +91,7 @@ mod tests {
 
     #[test]
     fn test_downcast_from_anyhow() {
-        let err: anyhow::Error = TunnelError::auth(anyhow::anyhow!("bad token")).into();
+        let err: anyhow::Error = TunnelError::auth(anyhow::anyhow!("bad signature")).into();
         let tunnel_err = err.downcast_ref::<TunnelError>().unwrap();
         assert_eq!(tunnel_err.category, ErrorCategory::Auth);
     }
@@ -106,8 +106,8 @@ mod tests {
     fn test_alternate_format_does_not_duplicate_message() {
         // A leaf error with no further source must render exactly once under `{:#}`.
         let err: anyhow::Error =
-            TunnelError::config(anyhow::anyhow!("Auth token is required.")).into();
-        assert_eq!(format!("{:#}", err), "Auth token is required.");
+            TunnelError::config(anyhow::anyhow!("Private key is required.")).into();
+        assert_eq!(format!("{:#}", err), "Private key is required.");
     }
 
     #[test]
@@ -115,12 +115,12 @@ mod tests {
         // Context added on the inner error is still surfaced exactly once each.
         use anyhow::Context;
         let inner = Err::<(), _>(anyhow::anyhow!("invalid base64"))
-            .context("Invalid auth token format")
+            .context("Invalid authentication key format")
             .unwrap_err();
         let err: anyhow::Error = TunnelError::config(inner).into();
         assert_eq!(
             format!("{:#}", err),
-            "Invalid auth token format: invalid base64"
+            "Invalid authentication key format: invalid base64"
         );
     }
 }

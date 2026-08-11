@@ -3,8 +3,8 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-/// Version 3: Iroh multi-source handshake protocol (with early connection-level auth)
-pub const IROH_MULTI_VERSION: u16 = 3;
+/// Version 4: Ed25519 challenge-response authentication.
+pub const IROH_MULTI_VERSION: u16 = 4;
 
 /// Maximum length for rejection reason to prevent excessively large messages.
 pub const MAX_REJECT_REASON_LENGTH: usize = 512;
@@ -25,45 +25,6 @@ fn truncate_reason(reason: String, max_len: usize) -> String {
 // ============================================================================
 // Iroh Multi-Source Handshake Protocol
 // ============================================================================
-
-/// Wrapper type for authentication tokens that redacts the value in Debug output.
-///
-/// This prevents accidental token exposure in logs or error messages.
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct AuthToken(String);
-
-impl AuthToken {
-    /// Create a new AuthToken from a string.
-    pub fn new(token: impl Into<String>) -> Self {
-        Self(token.into())
-    }
-
-    /// Get the token value as a string slice.
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl std::fmt::Debug for AuthToken {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "AuthToken(***)")
-    }
-}
-
-impl AsRef<str> for AuthToken {
-    fn as_ref(&self) -> &str {
-        &self.0
-    }
-}
-
-impl std::ops::Deref for AuthToken {
-    type Target = str;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
 
 /// Source request sent by receiver after iroh connection established.
 /// Used in iroh multi-source mode to request a specific forwarding target.
@@ -116,20 +77,36 @@ impl SourceResponse {
     }
 }
 
-/// Authentication request sent by client immediately after iroh connection.
-/// Must be sent on the first bidirectional stream opened by the client.
+/// Fresh authentication challenge sent by the server on the auth stream.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthChallenge {
+    pub version: u16,
+    pub challenge: Vec<u8>,
+}
+
+impl AuthChallenge {
+    pub fn new(challenge: Vec<u8>) -> Self {
+        Self {
+            version: IROH_MULTI_VERSION,
+            challenge,
+        }
+    }
+}
+
+/// Ed25519 proof sent by the client after receiving an authentication challenge.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthRequest {
     pub version: u16,
-    /// Authentication token for server validation
-    pub auth_token: AuthToken,
+    pub public_key: Vec<u8>,
+    pub signature: Vec<u8>,
 }
 
 impl AuthRequest {
-    pub fn new(auth_token: impl Into<String>) -> Self {
+    pub fn new(public_key: Vec<u8>, signature: Vec<u8>) -> Self {
         Self {
             version: IROH_MULTI_VERSION,
-            auth_token: AuthToken::new(auth_token),
+            public_key,
+            signature,
         }
     }
 }
@@ -262,6 +239,21 @@ pub fn encode_auth_request(req: &AuthRequest) -> Result<Vec<u8>> {
     encode_length_prefixed(req, "AuthRequest")
 }
 
+/// Encode an AuthChallenge as length-prefixed JSON bytes.
+pub fn encode_auth_challenge(challenge: &AuthChallenge) -> Result<Vec<u8>> {
+    encode_length_prefixed(challenge, "AuthChallenge")
+}
+
+/// Decode an AuthChallenge from length-prefixed JSON bytes.
+pub fn decode_auth_challenge(data: &[u8]) -> Result<AuthChallenge> {
+    decode_length_prefixed(
+        data,
+        IROH_MULTI_VERSION,
+        |challenge: &AuthChallenge| challenge.version,
+        "AuthChallenge",
+    )
+}
+
 /// Decode an AuthRequest from length-prefixed JSON bytes.
 pub fn decode_auth_request(data: &[u8]) -> Result<AuthRequest> {
     decode_length_prefixed(
@@ -316,76 +308,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_auth_token_debug_redacts_value() {
-        let token = AuthToken::new("super_secret_token");
-        let debug_output = format!("{:?}", token);
-        assert_eq!(debug_output, "AuthToken(***)");
-        assert!(!debug_output.contains("super_secret"));
-    }
-
-    #[test]
-    fn test_auth_token_accessors() {
-        let token = AuthToken::new("my_token_value_");
-        assert_eq!(token.as_str(), "my_token_value_");
-        assert_eq!(token.as_ref(), "my_token_value_");
-        assert_eq!(&*token, "my_token_value_"); // Deref
-    }
-
-    #[test]
-    fn test_auth_token_serde_roundtrip() {
-        let token = AuthToken::new("test_token_12345");
-        let json = serde_json::to_string(&token).unwrap();
-        // Should serialize as plain string (transparent)
-        assert_eq!(json, "\"test_token_12345\"");
-
-        let parsed: AuthToken = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.as_str(), "test_token_12345");
-    }
-
-    #[test]
     fn test_source_request_serde_roundtrip() {
         let request = SourceRequest::new("tcp://127.0.0.1:22".to_string());
         let encoded = encode_source_request(&request).unwrap();
         let decoded = decode_source_request(&encoded).unwrap();
         assert_eq!(decoded.source, "tcp://127.0.0.1:22");
         assert_eq!(decoded.version, IROH_MULTI_VERSION);
-    }
-
-    #[test]
-    fn test_auth_token_empty_string() {
-        let token = AuthToken::new("");
-        // Accessors should return empty string
-        assert_eq!(token.as_str(), "");
-        assert_eq!(token.as_ref(), "");
-        assert_eq!(&*token, ""); // Deref
-                                 // Debug should still be redacted
-        let debug_output = format!("{:?}", token);
-        assert_eq!(debug_output, "AuthToken(***)");
-    }
-
-    #[test]
-    fn test_auth_token_special_characters_unicode() {
-        // Test with special characters and unicode
-        let special_token = "tök€n-with_spëcial.chars!@#$%^&*()🔐";
-        let token = AuthToken::new(special_token);
-        // Accessors should return original value unchanged
-        assert_eq!(token.as_str(), special_token);
-        assert_eq!(token.as_ref(), special_token);
-        assert_eq!(&*token, special_token); // Deref
-                                            // Debug should still be redacted (not expose unicode/special chars)
-        let debug_output = format!("{:?}", token);
-        assert_eq!(debug_output, "AuthToken(***)");
-        assert!(!debug_output.contains("tök€n"));
-        assert!(!debug_output.contains("🔐"));
-    }
-
-    #[test]
-    fn test_auth_token_special_characters_serde_roundtrip() {
-        let special_token = "tök€n-with_spëcial.chars!@#🔐";
-        let token = AuthToken::new(special_token);
-        let json = serde_json::to_string(&token).unwrap();
-        let parsed: AuthToken = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.as_str(), special_token);
     }
 
     #[test]
@@ -502,11 +430,21 @@ mod tests {
 
     #[test]
     fn test_auth_request_roundtrip() {
-        let req = AuthRequest::new("my_secret_token");
+        let req = AuthRequest::new(vec![1; 32], vec![2; 64]);
         let encoded = encode_auth_request(&req).unwrap();
         let decoded = decode_auth_request(&encoded).unwrap();
         assert_eq!(decoded.version, IROH_MULTI_VERSION);
-        assert_eq!(decoded.auth_token.as_str(), "my_secret_token");
+        assert_eq!(decoded.public_key, vec![1; 32]);
+        assert_eq!(decoded.signature, vec![2; 64]);
+    }
+
+    #[test]
+    fn test_auth_challenge_roundtrip() {
+        let challenge = AuthChallenge::new(vec![3; 32]);
+        let encoded = encode_auth_challenge(&challenge).unwrap();
+        let decoded = decode_auth_challenge(&encoded).unwrap();
+        assert_eq!(decoded.version, IROH_MULTI_VERSION);
+        assert_eq!(decoded.challenge, vec![3; 32]);
     }
 
     #[test]
@@ -521,12 +459,12 @@ mod tests {
 
     #[test]
     fn test_auth_response_rejected_roundtrip() {
-        let resp = AuthResponse::rejected("bad token");
+        let resp = AuthResponse::rejected("bad signature");
         let encoded = encode_auth_response(&resp).unwrap();
         let decoded = decode_auth_response(&encoded).unwrap();
         assert_eq!(decoded.version, IROH_MULTI_VERSION);
         assert!(!decoded.accepted);
-        assert_eq!(decoded.reason.as_deref(), Some("bad token"));
+        assert_eq!(decoded.reason.as_deref(), Some("bad signature"));
     }
 
     #[test]
