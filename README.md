@@ -314,7 +314,7 @@ secret_file = "./server.key"
 | Env Var | Description |
 |---------|-------------|
 | `TUNNEL_RS_AUTHORIZED_KEYS_FILE` | Path to the server authorized-keys file |
-| `TUNNEL_RS_SECRET` | Base64-encoded secret key for persistent server identity (use this or `--secret-file`) |
+| `TUNNEL_RS_SECRET` | Base64-encoded secret key for persistent server identity, either the bare key or a whole generated key file (use this or `--secret-file`) |
 | `TUNNEL_RS_RELAY_AUTH_TOKEN` | Shared bearer token for the custom relay(s) (use this instead of `--relay-auth-token` to keep it out of the process list) |
 
 ### client
@@ -473,7 +473,8 @@ client_config = {
 server_config = {
     "role": "server",
     "iroh": {
-        # inline endpoint identity, same as TUNNEL_RS_SECRET
+        # inline endpoint identity, same as TUNNEL_RS_SECRET; bare key or the
+        # whole generated key file including its "#" comments
         "secret": "<base64 server secret key>",
         # one authorized_keys line per element, comments and all
         "authorized_keys": [
@@ -543,6 +544,10 @@ tunnel-rs generate-auth-key --output ./client.key --force
 
 # Without --output the key file goes to stdout (the authorized-key entry to stderr)
 tunnel-rs generate-auth-key --comment "alice laptop" > ./client.key
+
+# Emit both halves as JSON without writing a file
+tunnel-rs generate-auth-key --comment "alice laptop" --json
+# Output: {"authorized_key":"tunnelrsv1authpub:... alice laptop","private_key":"tunnelrsv1authsecret:..."}
 ```
 
 With `--output` the private key file is created with `0600` permissions on Unix
@@ -551,7 +556,10 @@ and the authorized-key entry is printed to stdout, so
 Without `--output` (or with `--output -`) the roles swap: the key file goes to
 stdout and the authorized-key entry to stderr — remember to restrict
 permissions yourself when redirecting to a file. Either way, copy the printed
-`tunnelrsv1authpub:...` line into the server's `authorized_keys` file.
+`tunnelrsv1authpub:...` line into the server's `authorized_keys` file. With
+`--json`, no file is written and both halves are emitted to stdout as one object
+— handy for feeding a `--config-stdin` config's inline `authorized_keys` /
+`private_key`.
 
 ### generate-server-key
 
@@ -562,19 +570,41 @@ tunnel-rs generate-server-key --output ./server.key
 tunnel-rs generate-server-key --json
 # Output: {"public_key":"...","private_key":"..."}
 
-# Write the key to stdout instead of a file (e.g. to capture it in a script)
-tunnel-rs generate-server-key --output -
+# Without --output the key file goes to stdout
+tunnel-rs generate-server-key > ./server.key
 
 # Overwrite an existing key file
 tunnel-rs generate-server-key --output ./server.key --force
 ```
 
-Without `--json`, the secret key is written to the required `--output` target (created with `0600` permissions on Unix), and the EndpointId is printed to stdout. Use `-` as the output to write the key to stdout instead — in that case the EndpointId is printed to stderr so it stays off the key stream. Existing files are not overwritten unless `--force` is passed. With `--json`, no file is written and both keys are emitted to stdout.
+The key file carries the EndpointId in a comment above the key, so `head` on it
+tells you which identity it is:
+
+```text
+# created: 2026-08-11T19:05:43Z
+# EndpointId: 2xnbkpbc7izsilvewd7c62w7wnwziacmpfwvhcrya5nt76dqkpga
+frBCAKqLx5GKmHQkN7DqFYJcEsZdteyKPmIS7a91nqQ=
+```
+
+Comment lines are skipped wherever a secret key is read, so the whole file also
+works as `TUNNEL_RS_SECRET` or as an inline `secret` in a `--config-stdin` config.
+
+With `--output` the key file is created with `0600` permissions on Unix and the
+EndpointId is printed to stdout. Without `--output` (or with `--output -`) the
+roles swap, exactly as in `generate-auth-key`: the key file goes to stdout and
+the EndpointId to stderr — remember to restrict permissions yourself when
+redirecting to a file. Existing files are not overwritten unless `--force` is
+passed. With `--json`, no file is written and both keys are emitted to stdout as
+one object.
 
 ### show-server-id
 
 ```bash
 tunnel-rs show-server-id --secret-file ./server.key
+
+# Machine-readable form
+tunnel-rs show-server-id --secret-file ./server.key --json
+# Output: {"public_key":"..."}
 ```
 
 ## Security

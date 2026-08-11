@@ -19,6 +19,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD as BASE64, Engine};
 use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
+use serde::Serialize;
 
 pub const CHALLENGE_LENGTH: usize = 32;
 pub const PUBLIC_KEY_LENGTH: usize = 32;
@@ -335,6 +336,30 @@ pub fn generate_auth_key(path: Option<&Path>, comment: &str, force: bool) -> Res
     Ok(())
 }
 
+/// A generated client authentication keypair, as printed by
+/// `generate-auth-key --json`.
+#[derive(Serialize)]
+struct GeneratedAuthKey {
+    /// The authorized-keys line, comment included, for the server's file.
+    authorized_key: String,
+    /// The client's private key, in the same form as the key file's key line.
+    private_key: String,
+}
+
+/// Generate a keypair and print both halves as a single JSON object, for
+/// automation that captures the key material instead of writing a file.
+pub fn generate_auth_key_json(comment: &str) -> Result<()> {
+    let (private_key, authorized_key) = generate_keypair(comment)?;
+    println!(
+        "{}",
+        serde_json::to_string(&GeneratedAuthKey {
+            authorized_key,
+            private_key,
+        })?
+    );
+    Ok(())
+}
+
 fn decode_public_key(encoded: &str) -> Result<PublicKeyBytes> {
     let bytes = BASE64
         .decode(encoded)
@@ -349,7 +374,10 @@ fn decode_public_key(encoded: &str) -> Result<PublicKeyBytes> {
 }
 
 /// Format a timestamp as an RFC 3339 UTC instant, e.g. `2024-09-13T22:22:33Z`.
-fn rfc3339_utc(time: SystemTime) -> String {
+///
+/// Shared with [`crate::secret`], whose generated server keys carry the same
+/// `# created:` header.
+pub fn rfc3339_utc(time: SystemTime) -> String {
     let seconds = time
         .duration_since(UNIX_EPOCH)
         .map(|since_epoch| since_epoch.as_secs())

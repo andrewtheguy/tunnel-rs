@@ -266,6 +266,30 @@ if [[ ! "$(sed -n '3p' "$WORK/stdout.key")" =~ ^tunnelrsv1authsecret:[A-Za-z0-9_
     exit 1
 fi
 log "Compact key format, public-key comment, stdout default, and 0600 permissions: PASS"
+
+# Server keys use the same layout: headers above the key, stdout by default.
+"$BIN" generate-server-key > "$WORK/server_stdout.key" 2> "$WORK/server_stdout.id"
+SERVER_STDOUT_ID="$(sed 's/^EndpointId: //' "$WORK/server_stdout.id")"
+if [[ "$(sed -n '2p' "$WORK/server_stdout.key")" != "# EndpointId: $SERVER_STDOUT_ID" ]]; then
+    echo "ERROR: server key file header does not match the reported EndpointId" >&2
+    exit 1
+fi
+# Loading must skip the header comments, both from a file and inline.
+if [[ "$("$BIN" show-server-id --secret-file "$WORK/server_stdout.key")" != "$SERVER_STDOUT_ID" ]]; then
+    echo "ERROR: server key file with headers does not load back to its EndpointId" >&2
+    exit 1
+fi
+if [[ "$("$BIN" show-server-id --secret-file "$WORK/server_stdout.key" --json)" \
+    != "{\"public_key\":\"$SERVER_STDOUT_ID\"}" ]]; then
+    echo "ERROR: show-server-id --json has an unexpected shape" >&2
+    exit 1
+fi
+"$BIN" generate-server-key --output "$WORK/server_file.key" > /dev/null
+if [[ "$(stat -c '%a' "$WORK/server_file.key")" != "600" ]]; then
+    echo "ERROR: generated server key permissions are not 0600" >&2
+    exit 1
+fi
+log "Server key EndpointId header, stdout default, and 0600 permissions: PASS"
 log "EndpointId: $ENDPOINT_ID"
 
 # Optional custom-relay configuration and matching --relay-only CLI args

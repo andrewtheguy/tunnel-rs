@@ -139,17 +139,20 @@ enum Command {
     /// Generate a server private key for persistent identity
     ///
     /// The private key gives the server a stable EndpointId that clients connect to.
+    /// Without --output the key file is written to stdout and the EndpointId to
+    /// stderr. With --output the key file is saved to that path (0600 on Unix)
+    /// and the EndpointId is printed to stdout.
     /// Use show-server-id to display the public EndpointId derived from this key.
     GenerateServerKey {
-        /// Path where to save the private key file
-        #[arg(short, long, required_unless_present = "json", conflicts_with = "json")]
+        /// Path where to save the private key file ("-" means stdout).
+        #[arg(short, long, conflicts_with = "json")]
         output: Option<PathBuf>,
 
         /// Overwrite existing file if it exists
         #[arg(long, requires = "output")]
         force: bool,
 
-        /// Print the public and private keys as JSON instead of saving a file
+        /// Print the public and private keys as JSON instead of a key file
         #[arg(long)]
         json: bool,
     },
@@ -160,6 +163,10 @@ enum Command {
         /// Path to the private key file
         #[arg(short, long)]
         secret_file: PathBuf,
+
+        /// Print the EndpointId as JSON
+        #[arg(long)]
+        json: bool,
     },
     /// Generate a compact Ed25519 client authentication key.
     ///
@@ -169,7 +176,7 @@ enum Command {
     /// stdout.
     GenerateAuthKey {
         /// Path where to save the compact base64 private key ("-" means stdout).
-        #[arg(short, long)]
+        #[arg(short, long, conflicts_with = "json")]
         output: Option<PathBuf>,
 
         /// Comment appended to the printed authorized-key entry.
@@ -179,6 +186,11 @@ enum Command {
         /// Overwrite an existing private key file.
         #[arg(long, requires = "output")]
         force: bool,
+
+        /// Print the authorized-key entry and private key as JSON instead of a
+        /// key file
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -602,19 +614,25 @@ async fn run_inner() -> Result<()> {
             if *json {
                 secret::generate_secret_json()
             } else {
-                secret::generate_secret(expand_tilde(
-                    output.as_ref().expect("clap requires --output without --json"),
-                ), *force)
+                let output = output.as_deref().map(expand_tilde);
+                secret::generate_secret(output.as_deref(), *force)
             }
         }
-        Command::ShowServerId { secret_file } => secret::show_id(expand_tilde(secret_file)),
+        Command::ShowServerId { secret_file, json } => {
+            secret::show_id(&expand_tilde(secret_file), *json)
+        }
         Command::GenerateAuthKey {
             output,
             comment,
             force,
+            json,
         } => {
-            let output = output.as_deref().map(expand_tilde);
-            auth::generate_auth_key(output.as_deref(), comment, *force)
+            if *json {
+                auth::generate_auth_key_json(comment)
+            } else {
+                let output = output.as_deref().map(expand_tilde);
+                auth::generate_auth_key(output.as_deref(), comment, *force)
+            }
         }
     }
 }
