@@ -6,7 +6,7 @@ This document provides a comprehensive overview of the tunnel-rs architecture, i
 
 - [System Overview](#system-overview)
 - [Features](#features)
-- [iroh Mode Architecture](#iroh-mode-architecture)
+- [Tunnel Architecture](#tunnel-architecture)
 - [Configuration System](#configuration-system)
 - [Security Model](#security-model)
 - [Protocol Support](#protocol-support)
@@ -98,38 +98,17 @@ graph TD
     style A4 fill:#FFCCBC
 ```
 
-### NAT Traversal Capabilities
+### NAT Traversal
 
-```mermaid
-graph LR
-    subgraph "NAT Types"
-        A[Full Cone]
-        B[Restricted Cone]
-        C[Port Restricted]
-        D[Symmetric]
-    end
-
-    subgraph "iroh"
-        E1[✓ Direct/Relay]
-        E2[✓ Direct/Relay]
-        E3[✓ Direct/Relay]
-        E4[✓ Relay]
-    end
-
-    A --> E1
-    B --> E2
-    C --> E3
-    D --> E4
-
-    style E1 fill:#C8E6C9
-    style E2 fill:#C8E6C9
-    style E3 fill:#C8E6C9
-    style E4 fill:#C8E6C9
-```
+Provided entirely by iroh and shared with ezvpn and flextunnel: which NAT types
+reach a direct path, why symmetric NAT usually stays on the relay, why container
+networking depends on the CNI rather than on Kubernetes itself, and what that
+means for relay bandwidth. See
+[NAT traversal and the QUIC transport](https://github.com/flexaccessdev/iroh-common-architecture/blob/main/nat-traversal-and-transport.md).
 
 ---
 
-## iroh Mode Architecture
+## Tunnel Architecture
 
 ### Architecture Overview
 
@@ -305,29 +284,30 @@ graph TB
 
 ### Endpoint Management
 
+The relay/discovery design is shared with ezvpn and flextunnel and is documented
+once in
+[iroh-common-architecture / relays-and-address-lookup.md](https://github.com/flexaccessdev/iroh-common-architecture/blob/main/relays-and-address-lookup.md).
+In short: `RelayConfig` (`src/iroh_mode/endpoint.rs`) resolves the raw config
+once into `Default` or `Custom`, and that single choice decides both the relay
+map and whether n0 internet discovery runs. Discovery is not independently
+configurable. Every custom relay is probed individually before the real endpoint
+binds, and startup fails if any of them is unreachable.
+
 ```mermaid
 graph TB
     subgraph "Endpoint Creation"
-        A[Load/Generate Secret] --> B[Create Endpoint Builder]
-        B --> C{Relay URLs?}
-        C -->|Yes| D[Add Custom Relays]
-        C -->|No| E[Use Default Relays]
-        D --> F{Relay Only? (CLI-only)}
+        A[Load/Generate Secret] --> B[Resolve RelayConfig]
+        B --> C{Custom relay URLs?}
+        C -->|Yes| D[Probe each relay in parallel<br/>all must come online]
+        D --> D2[Custom relay map<br/>n0 discovery OFF]
+        C -->|No| E[Default relay map<br/>n0 DNS lookup ON<br/>pkarr publish if persistent identity]
+        D2 --> F{Relay Only? (CLI-only)}
         E --> F
-        F -->|Yes| G[Disable IP transports]
-        F -->|No| H[Keep IP + relay transports]
-        G --> I{DNS Server?}
-        H --> I
-        I -->|Yes| J[Add Custom DNS]
-        I -->|No| K[Use Default DNS]
-        J --> L[Build Endpoint]
-        K --> L
-    end
-
-    subgraph "Discovery"
-        L --> M[Publish to Pkarr/DNS]
-        M --> N[Enable mDNS]
-        N --> O[Endpoint Ready]
+        F -->|Yes| G[Clear IP transports<br/>no address lookup at all]
+        F -->|No| H[Keep IP + relay transports<br/>enable mDNS]
+        G --> L[Build + bind Endpoint]
+        H --> L
+        L --> O[Wait for online, then Ready]
     end
 
     style A fill:#FFE0B2
@@ -345,7 +325,6 @@ graph TB
 graph TB
     subgraph "Config File"
         A[role: server/client]
-        B[mode: iroh]
     end
 
     subgraph "iroh Options"
@@ -360,7 +339,6 @@ graph TB
     end
 
     A --> S[Validation]
-    B --> S
     S --> C
     S --> D
     S --> E
@@ -373,9 +351,9 @@ graph TB
     style S fill:#FFF9C4
 ```
 
-### iroh Credential Mapping
+### Credential Mapping
 
-`iroh` mode authenticates clients with separate Ed25519 keys. The QUIC ALPN is a fixed value (`mf/4`) shared by all peers and is not configurable; access control happens on the first application stream after the iroh handshake.
+tunnel-rs authenticates clients with separate Ed25519 keys. The QUIC ALPN is a fixed value (`mf/4`) shared by all peers and is not configurable; access control happens on the first application stream after the iroh handshake.
 
 | Credential | Env Vars / CLI Flags | Config Key | Expected Usage |
 |------------|-----------|-------------|----------------|
@@ -473,44 +451,26 @@ graph TB
 
 ### Encryption Stack
 
-```mermaid
-graph TB
-    subgraph "Application Data"
-        A[TCP/UDP Payload]
-    end
-    
-    subgraph "QUIC Layer"
-        B[QUIC Stream Encryption]
-        C[TLS 1.3]
-        D[Per-Stream Keys]
-    end
-    
-    subgraph "Transport"
-        E[QUIC Packets]
-        F[Authenticated Encryption]
-    end
-    
-    subgraph "Network"
-        G[UDP Datagrams]
-    end
-    
-    A --> B
-    B --> C
-    C --> D
-    D --> E
-    E --> F
-    F --> G
-    
-    style C fill:#C8E6C9
-    style D fill:#C8E6C9
-    style F fill:#C8E6C9
-```
+All traffic is end-to-end encrypted by QUIC/TLS 1.3 between the two endpoints;
+relay operators forward ciphertext and see only connection metadata. The stack is
+iroh's and identical across tunnel-rs, ezvpn, and flextunnel — see
+[NAT traversal and the QUIC transport](https://github.com/flexaccessdev/iroh-common-architecture/blob/main/nat-traversal-and-transport.md#encryption-stack).
+
+ALPN is split between the two layers. The *mechanism* — carrying the protocol
+identifier in the TLS 1.3 handshake and failing the connection when the two sides
+disagree — is TLS's, and iroh exposes it as the ALPN passed to
+`Endpoint::connect` and `alpns()`. The *value* is tunnel-rs's own choice: the
+fixed `mf/4` (`TUNNEL_ALPN` in `src/iroh_mode/endpoint.rs`), shared by every
+tunnel-rs peer and not configurable, which keeps peers of the other two programs
+from completing a handshake at all. It is not a secret and grants nothing; the
+Ed25519 challenge-response below is what authorizes the *user* rather than the
+endpoint.
 
 ### Identity and Authentication
 
 ```mermaid
 graph TB
-    subgraph "iroh Mode"
+    subgraph "Identity and Authentication"
         A[Server Secret Key] --> B[Ed25519 Private Key]
         B --> C[EndpointId - Public Key]
         C --> D[Client Connects]
@@ -619,7 +579,7 @@ graph TB
 
 ### Secret Key Management (Server Only)
 
-In iroh mode, only the **server** needs a persistent transport secret key to maintain a stable EndpointId. Clients use ephemeral iroh identities. Their separate persistent Ed25519 keys are used only for application authentication after the transport handshake.
+Only the **server** needs a persistent transport secret key to maintain a stable EndpointId. Clients use ephemeral iroh identities. Their separate persistent Ed25519 keys are used only for application authentication after the transport handshake.
 
 ```mermaid
 sequenceDiagram
@@ -781,14 +741,13 @@ graph LR
 
 ### Endpoint (iroh)
 
-The `iroh::Endpoint` provides:
-
-- **Discovery**: Automatic peer discovery via Pkarr/DNS/mDNS (internet
-  discovery is disabled automatically when custom relays are configured;
-  clients then reach the server through relay hints)
-- **Relay**: Fallback relay servers for NAT traversal
-- **QUIC**: Built-in QUIC transport with hole punching
-- **Identity**: Ed25519-based peer identity and authentication
+`iroh::Endpoint` supplies discovery, NAT traversal, relay fallback, the QUIC
+transport, and Ed25519 endpoint identity. tunnel-rs configures it in
+`src/iroh_mode/endpoint.rs` and adds nothing to the transport itself. For what
+the endpoint does and how it behaves, see
+[NAT traversal and the QUIC transport](https://github.com/flexaccessdev/iroh-common-architecture/blob/main/nat-traversal-and-transport.md)
+and
+[relays and address lookup](https://github.com/flexaccessdev/iroh-common-architecture/blob/main/relays-and-address-lookup.md).
 
 ---
 
@@ -796,47 +755,27 @@ The `iroh::Endpoint` provides:
 
 ### Connection Establishment Times
 
-> **Note:** These are illustrative, environment-dependent ranges (network conditions, NAT type, relay availability, and DNS). Treat as rough guidance, not guarantees.
-
-```mermaid
-graph LR
-    subgraph "iroh"
-        A[Discovery: 1-3s]
-        B[Connection: 0.5-2s]
-        C[Total: 1.5-5s]
-    end
-
-    style C fill:#FFF9C4
-```
+Establishment timings (discovery, hole punching, relay fallback) are iroh's and
+shared across the three programs — see
+[performance characteristics](https://github.com/flexaccessdev/iroh-common-architecture/blob/main/nat-traversal-and-transport.md#performance-characteristics).
 
 ### Throughput Characteristics
 
+Specific to tunnel-rs's tunneling layer:
+
 - **TCP Tunneling**: Limited by QUIC stream flow control, congestion control, and optional ACK frequency tuning
 - **UDP Tunneling**: Additional framing overhead (2 bytes per packet)
-- **Relay Mode**: Higher latency, potentially lower throughput
-- **Direct Mode**: Near-native performance with encryption overhead
+
+Direct-vs-relay path performance is a property of the iroh transport — see
+[performance characteristics](https://github.com/flexaccessdev/iroh-common-architecture/blob/main/nat-traversal-and-transport.md#performance-characteristics).
 
 ---
 
 ## Error Handling
 
-### Connection Failures
-
-```mermaid
-graph TB
-    A[Connection Attempt] --> B{Success?}
-    B -->|Yes| C[Established]
-    B -->|No| E{Relay available?}
-
-    E -->|Yes| F[Fallback to relay]
-    E -->|No| G[Connection failed]
-
-    F --> C
-
-    style C fill:#C8E6C9
-    style F fill:#FFF9C4
-    style G fill:#FFCCBC
-```
+Connection establishment and its relay fallback are handled by iroh (see
+[NAT traversal and the QUIC transport](https://github.com/flexaccessdev/iroh-common-architecture/blob/main/nat-traversal-and-transport.md)).
+What follows is how tunnel-rs surfaces the outcome.
 
 ### Exit Codes (Client Mode)
 
@@ -880,5 +819,11 @@ Retry guidance:
 
 ## References
 
+- [iroh-common-architecture](https://github.com/flexaccessdev/iroh-common-architecture) —
+  shared iroh transport design for tunnel-rs, ezvpn, and flextunnel: [NAT
+  traversal and the QUIC transport](https://github.com/flexaccessdev/iroh-common-architecture/blob/main/nat-traversal-and-transport.md),
+  [relays and address lookup](https://github.com/flexaccessdev/iroh-common-architecture/blob/main/relays-and-address-lookup.md),
+  [relay self-hosting](https://github.com/flexaccessdev/iroh-common-architecture/blob/main/self-hosting.md),
+  the discovery findings, and the relay connection trace
 - [iroh Documentation](https://iroh.computer/)
 - [RFC 9000 - QUIC](https://datatracker.ietf.org/doc/html/rfc9000)

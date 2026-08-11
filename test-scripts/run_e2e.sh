@@ -307,7 +307,7 @@ iroh = {
     "allowed_sources": {"tcp": ["127.0.0.0/8"], "udp": ["127.0.0.0/8"]},
 }
 iroh.update(json.loads(sys.stdin.readline()))
-print(json.dumps({"role": "server", "mode": "iroh", "iroh": iroh}))
+print(json.dumps({"role": "server", "iroh": iroh}))
 ' "$WORK/authorized_keys"
 )"
 
@@ -334,7 +334,7 @@ iroh = {
     "private_key_file": sys.argv[4],
 }
 iroh.update(json.loads(sys.stdin.readline()))
-print(json.dumps({"role": "client", "mode": "iroh", "iroh": iroh}))
+print(json.dumps({"role": "client", "iroh": iroh}))
 ' "$protocol" "$backend_port" "$target_port" "$private_key_file"
 }
 
