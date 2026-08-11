@@ -91,6 +91,12 @@ impl AuthInit {
     }
 }
 
+impl Default for AuthInit {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Fresh authentication challenge sent by the server on the auth stream.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthChallenge {

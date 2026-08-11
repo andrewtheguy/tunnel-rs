@@ -43,6 +43,7 @@ Configuring any custom relay disables internet discovery automatically.
 # Both sides must use the same relay(s)
 tunnel-rs server \
   --relay-url https://relay.example.com \
+  --secret-file ./server.key \
   --allowed-tcp 127.0.0.0/8 \
   --authorized-keys-file ./authorized_keys
 
@@ -56,6 +57,7 @@ tunnel-rs client \
 # Force relay-only (no direct P2P) - CLI-only flag (not supported in config files)
 tunnel-rs server \
   --relay-url https://relay.example.com \
+  --secret-file ./server.key \
   --relay-only \
   --allowed-tcp 127.0.0.0/8 \
   --authorized-keys-file ./authorized_keys

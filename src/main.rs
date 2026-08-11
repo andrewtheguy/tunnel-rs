@@ -174,7 +174,9 @@ fn env_var_opt(name: &str) -> Option<String> {
 }
 
 fn normalize_optional_endpoint(value: Option<String>) -> Option<String> {
-    value.filter(|v| !v.trim().is_empty())
+    value
+        .map(|v| v.trim().to_string())
+        .filter(|v| !v.is_empty())
 }
 
 /// Resolved parameters for iroh server mode.

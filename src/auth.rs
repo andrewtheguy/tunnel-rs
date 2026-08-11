@@ -251,10 +251,12 @@ pub fn generate_key_file(path: &Path, comment: &str, force: bool) -> Result<()> 
             .mode(0o600)
             .open(path)
             .context("Failed to open authentication private key file")?;
-        file.write_all(private_key_file.as_bytes())
-            .context("Failed to write authentication private key file")?;
+        // `mode(0o600)` only applies when the file is created, so tighten the
+        // permissions of a pre-existing (--force) file before writing the key.
         file.set_permissions(std::fs::Permissions::from_mode(0o600))
             .context("Failed to set authentication private key file permissions")?;
+        file.write_all(private_key_file.as_bytes())
+            .context("Failed to write authentication private key file")?;
     }
 
     #[cfg(not(unix))]
