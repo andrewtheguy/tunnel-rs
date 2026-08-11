@@ -173,6 +173,26 @@ wait_for_log() {
     return 1
 }
 
+# Wait until a log contains a regex at least $3 times, or time out after $4 secs.
+wait_for_log_count() {
+    local logfile="$1" pattern="$2" expected="$3" timeout="$4"
+    local max_attempts=$(( timeout * 2 )) attempt=0 count=0
+    while (( attempt < max_attempts )); do
+        if [[ -f "$logfile" ]]; then
+            count="$(grep -Ec "$pattern" "$logfile" || true)"
+            if (( count >= expected )); then
+                return 0
+            fi
+        fi
+        sleep 0.5
+        attempt=$(( attempt + 1 ))
+    done
+    echo "ERROR: timed out after ${timeout}s waiting for $expected matches of /$pattern/ in $logfile (got $count)" >&2
+    echo "----- $logfile -----" >&2
+    cat "$logfile" >&2 || true
+    return 1
+}
+
 # ---------------------------------------------------------------------------
 # Allocate free localhost ports (kept bound until the picker exits to minimise
 # collisions between the four).
@@ -202,6 +222,29 @@ read -r ENDPOINT_ID SECRET < <(
 )
 "$BIN" generate-auth-key --output "$WORK/client.key" --comment "e2e client" \
     > "$WORK/authorized_keys"
+"$BIN" generate-auth-key --output "$WORK/unauthorized.key" --comment "unauthorized e2e client" \
+    > "$WORK/unauthorized.authorized_key"
+
+AUTHORIZED_ENTRY="$(<"$WORK/authorized_keys")"
+PRIVATE_KEY_HEADER="$(sed -n '1p' "$WORK/client.key")"
+PRIVATE_KEY_VALUE="$(sed -n '2p' "$WORK/client.key")"
+if [[ "$PRIVATE_KEY_HEADER" != "# public key: $AUTHORIZED_ENTRY" ]]; then
+    echo "ERROR: private-key public comment does not match the authorized-key entry" >&2
+    exit 1
+fi
+if [[ ! "$AUTHORIZED_ENTRY" =~ ^ed25519\ [A-Za-z0-9+/]{43}=\ e2e\ client$ ]]; then
+    echo "ERROR: generated authorized-key entry has an unexpected format" >&2
+    exit 1
+fi
+if [[ ! "$PRIVATE_KEY_VALUE" =~ ^tunnel-rs-ed25519-private-key-v1:[A-Za-z0-9+/]{43}=$ ]]; then
+    echo "ERROR: generated private key is not in the compact versioned format" >&2
+    exit 1
+fi
+if [[ "$(stat -c '%a' "$WORK/client.key")" != "600" ]]; then
+    echo "ERROR: generated private key permissions are not 0600" >&2
+    exit 1
+fi
+log "Compact key format, public-key comment, and 0600 permissions: PASS"
 log "EndpointId: $ENDPOINT_ID"
 
 # Optional custom-relay configuration and matching --relay-only CLI args
@@ -261,6 +304,7 @@ wait_for_log "$WORK/server.log" "Waiting for clients to connect" "$READY_TIMEOUT
 # ---------------------------------------------------------------------------
 build_client_config() {
     local protocol="$1" backend_port="$2" target_port="$3"
+    local private_key_file="${4:-$WORK/client.key}"
     printf '%s\n%s\n' "$ENDPOINT_ID" "$RELAY_CONFIG" |
         python3 -c '
 import json, sys
@@ -274,8 +318,39 @@ iroh = {
 }
 iroh.update(json.loads(sys.stdin.readline()))
 print(json.dumps({"role": "client", "mode": "iroh", "iroh": iroh}))
-' "$protocol" "$backend_port" "$target_port" "$WORK/client.key"
+' "$protocol" "$backend_port" "$target_port" "$private_key_file"
 }
+
+UNAUTHORIZED_CONFIG="$(build_client_config tcp "$TCP_BACKEND" "$TCP_TARGET" "$WORK/unauthorized.key")"
+log "Verifying that an unlisted Ed25519 key is rejected..."
+start_tunnel client "$UNAUTHORIZED_CONFIG" "$WORK/client_unauthorized.log"
+UNAUTHORIZED_PID="${PIDS[${#PIDS[@]} - 1]}"
+unset UNAUTHORIZED_CONFIG
+set +e
+wait "$UNAUTHORIZED_PID"
+UNAUTHORIZED_STATUS=$?
+set -e
+if [[ "$UNAUTHORIZED_STATUS" -ne 3 ]]; then
+    echo "ERROR: unauthorized client exited with $UNAUTHORIZED_STATUS instead of auth status 3" >&2
+    cat "$WORK/client_unauthorized.log" >&2 || true
+    exit 1
+fi
+if ! grep -q "Authentication rejected: Invalid authentication proof" \
+        "$WORK/client_unauthorized.log"; then
+    echo "ERROR: unauthorized client did not receive the explicit rejection response" >&2
+    cat "$WORK/client_unauthorized.log" >&2 || true
+    exit 1
+fi
+if ! grep -q "Invalid public-key authentication proof" "$WORK/server.log"; then
+    echo "ERROR: server did not log the rejected public-key proof" >&2
+    cat "$WORK/server.log" >&2 || true
+    exit 1
+fi
+if grep -q "Listening on TCP" "$WORK/client_unauthorized.log"; then
+    echo "ERROR: client with an unlisted authentication key opened a listener" >&2
+    exit 1
+fi
+log "Unlisted authentication key rejection: PASS"
 
 CLIENT_TCP_CONFIG="$(build_client_config tcp "$TCP_BACKEND" "$TCP_TARGET")"
 CLIENT_UDP_CONFIG="$(build_client_config udp "$UDP_BACKEND" "$UDP_TARGET")"
@@ -288,6 +363,18 @@ unset CLIENT_TCP_CONFIG CLIENT_UDP_CONFIG RELAY_CONFIG SECRET
 
 wait_for_log "$WORK/client_tcp.log" "Listening on TCP" "$READY_TIMEOUT"
 wait_for_log "$WORK/client_udp.log" "Listening on UDP" "$READY_TIMEOUT"
+wait_for_log_count "$WORK/server.log" \
+    "Client [0-9a-f]+ authenticated successfully as e2e client" 2 "$READY_TIMEOUT"
+
+mapfile -t AUTHENTICATED_ENDPOINT_IDS < <(
+    sed -nE 's/.*Client ([0-9a-f]+) authenticated successfully as e2e client.*/\1/p' \
+        "$WORK/server.log" | sort -u
+)
+if (( ${#AUTHENTICATED_ENDPOINT_IDS[@]} < 2 )); then
+    echo "ERROR: clients sharing an auth key did not use distinct ephemeral Iroh identities" >&2
+    exit 1
+fi
+log "Shared auth key with distinct ephemeral Iroh client identities: PASS"
 
 # ---------------------------------------------------------------------------
 # Run the echo test clients through the tunnel

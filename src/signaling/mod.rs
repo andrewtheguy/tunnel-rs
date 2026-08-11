@@ -4,8 +4,9 @@ pub mod codec;
 
 // Auth-related (iroh multi-source authentication)
 pub use codec::{
-    decode_auth_challenge, decode_auth_request, decode_auth_response, encode_auth_challenge,
-    encode_auth_request, encode_auth_response, AuthChallenge, AuthRequest, AuthResponse,
+    decode_auth_challenge, decode_auth_init, decode_auth_request, decode_auth_response,
+    encode_auth_challenge, encode_auth_init, encode_auth_request, encode_auth_response,
+    AuthChallenge, AuthInit, AuthRequest, AuthResponse,
 };
 
 // Source-related (iroh multi-source requests)

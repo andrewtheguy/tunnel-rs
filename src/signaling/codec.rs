@@ -77,6 +77,20 @@ impl SourceResponse {
     }
 }
 
+/// Client greeting that opens the auth stream before the server challenges it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthInit {
+    pub version: u16,
+}
+
+impl AuthInit {
+    pub fn new() -> Self {
+        Self {
+            version: IROH_MULTI_VERSION,
+        }
+    }
+}
+
 /// Fresh authentication challenge sent by the server on the auth stream.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthChallenge {
@@ -237,6 +251,21 @@ pub fn decode_source_response(data: &[u8]) -> Result<SourceResponse> {
 /// Encode an AuthRequest as length-prefixed JSON bytes.
 pub fn encode_auth_request(req: &AuthRequest) -> Result<Vec<u8>> {
     encode_length_prefixed(req, "AuthRequest")
+}
+
+/// Encode the client message that makes the auth stream visible to the server.
+pub fn encode_auth_init(init: &AuthInit) -> Result<Vec<u8>> {
+    encode_length_prefixed(init, "AuthInit")
+}
+
+/// Decode the client auth-stream initialization message.
+pub fn decode_auth_init(data: &[u8]) -> Result<AuthInit> {
+    decode_length_prefixed(
+        data,
+        IROH_MULTI_VERSION,
+        |init: &AuthInit| init.version,
+        "AuthInit",
+    )
 }
 
 /// Encode an AuthChallenge as length-prefixed JSON bytes.
@@ -427,6 +456,14 @@ mod tests {
     // ========================================================================
     // AuthRequest / AuthResponse roundtrip tests
     // ========================================================================
+
+    #[test]
+    fn test_auth_init_roundtrip() {
+        let init = AuthInit::new();
+        let encoded = encode_auth_init(&init).unwrap();
+        let decoded = decode_auth_init(&encoded).unwrap();
+        assert_eq!(decoded.version, IROH_MULTI_VERSION);
+    }
 
     #[test]
     fn test_auth_request_roundtrip() {

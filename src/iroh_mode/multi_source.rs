@@ -99,10 +99,11 @@ use crate::net::{
     resolve_listen_addrs, validate_allowed_networks,
 };
 use crate::signaling::{
-    decode_auth_challenge, decode_auth_request, decode_auth_response, decode_source_request,
-    decode_source_response, encode_auth_challenge, encode_auth_request, encode_auth_response,
-    encode_source_request, encode_source_response, read_length_prefixed, AuthChallenge,
-    AuthRequest, AuthResponse, SourceRequest, SourceResponse,
+    decode_auth_challenge, decode_auth_init, decode_auth_request, decode_auth_response,
+    decode_source_request, decode_source_response, encode_auth_challenge, encode_auth_init,
+    encode_auth_request, encode_auth_response, encode_source_request, encode_source_response,
+    read_length_prefixed, AuthChallenge, AuthInit, AuthRequest, AuthResponse, SourceRequest,
+    SourceResponse,
 };
 
 /// Default maximum concurrent sessions for multi-source mode.
@@ -110,6 +111,9 @@ const DEFAULT_MAX_SESSIONS: usize = 100;
 
 /// Timeout for receiving authentication request after connection.
 const AUTH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Maximum time to let a rejected client receive the explicit auth response.
+const AUTH_REJECTION_DELIVERY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// Connection close code for authentication failure.
 const AUTH_FAILED_CODE: u32 = 1;
@@ -257,6 +261,13 @@ async fn handle_multi_source_connection(
             .await
             .context("Failed to accept auth stream")?;
 
+        // QUIC does not expose a new stream to the peer until the initiator
+        // writes to it. Read the client's versioned init before challenging.
+        let init_bytes = read_length_prefixed(&mut recv_stream)
+            .await
+            .context("Failed to read auth init")?;
+        decode_auth_init(&init_bytes).context("Invalid auth init")?;
+
         let challenge = generate_challenge();
         let encoded = encode_auth_challenge(&AuthChallenge::new(challenge.to_vec()))?;
         send_stream.write_all(&encoded).await?;
@@ -284,6 +295,13 @@ async fn handle_multi_source_connection(
             let encoded = encode_auth_response(&response)?;
             send_stream.write_all(&encoded).await?;
             send_stream.finish()?;
+            // `finish` only queues the response. Give QUIC time to deliver it
+            // before the connection-level auth failure close discards buffers.
+            let _ = tokio::time::timeout(
+                AUTH_REJECTION_DELIVERY_TIMEOUT,
+                send_stream.stopped(),
+            )
+            .await;
             anyhow::bail!("Invalid authentication proof");
         };
 
@@ -502,6 +520,11 @@ async fn authenticate_connection(
     private_key: &ClientAuthKey,
 ) -> Result<()> {
     let (mut send_stream, mut recv_stream) = open_bi_with_retry(conn).await?;
+
+    // Make the client-initiated QUIC stream visible to the server before
+    // waiting for the server-generated challenge.
+    let encoded = encode_auth_init(&AuthInit::new())?;
+    send_stream.write_all(&encoded).await?;
 
     let challenge_bytes = tokio::time::timeout(AUTH_TIMEOUT, read_length_prefixed(&mut recv_stream))
         .await
