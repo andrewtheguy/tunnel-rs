@@ -28,15 +28,19 @@ spec:
       dnsPolicy: ClusterFirstWithHostNet
       containers:
         - name: tunnel
-          image: ghcr.io/andrewtheguy/tunnel-rs:latest
+          image: ghcr.io/andrewtheguy/tunnel-rs:v0.5.0
+          # REPLACE the CIDRs below with your cluster's real pod and service
+          # ranges: any authorized client can reach every address inside them.
+          # The defaults are deliberately broad so this manifest starts anywhere.
+          # How to look yours up: ../README.md#kubernetes
           args:
             - server
             - --allowed-tcp
-            - "10.0.0.0/8"      # Kubernetes pod/service network
+            - "10.0.0.0/8"      # broad default - narrow to your pod/service CIDR
             - --allowed-tcp
-            - "172.16.0.0/12"   # Alternative pod network
+            - "172.16.0.0/12"   # broad default - drop if unused
             - --allowed-udp
-            - "10.0.0.0/8"      # For UDP services like DNS
+            - "10.0.0.0/8"      # broad default - narrow to your service CIDR (DNS etc.)
             - --secret-file
             - /secrets/server.key
             - --authorized-keys-file

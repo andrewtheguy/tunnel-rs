@@ -18,9 +18,12 @@ services:
 
   # tunnel-rs server - exposes services to authenticated remote peers
   tunnel-server:
-    image: ghcr.io/andrewtheguy/tunnel-rs:latest
+    image: ghcr.io/andrewtheguy/tunnel-rs:v0.5.0
     command:
       - server
+      # Broad defaults so this file starts on any Docker install. Narrow them to
+      # this project's network - any authorized client can reach every address
+      # inside an allowed CIDR. See ../README.md#docker for the lookup command.
       - --allowed-tcp
       - "172.16.0.0/12"  # Docker default network range
       - --allowed-tcp

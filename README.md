@@ -218,9 +218,12 @@ its relay-only e2e script to validate a freshly deployed relay.
 Two behaviors to know before configuring relays:
 
 - **Custom relays disable internet discovery automatically.** Nothing is
-  published to or resolved from n0's public infrastructure; both sides reach each
-  other through the configured relay URLs, so configure both sides with the
-  **full** relay list.
+  published to or resolved from n0's public infrastructure, so the configured
+  relay URLs are the only way the two sides find each other — configure both
+  sides with the **full** relay list. The relays are connection *hints*, not a
+  transport choice: hole punching still runs, and traffic moves to a direct path
+  whenever one is available. Pass `--relay-only` (CLI-only) to force every byte
+  through the relays instead.
 - **Every configured relay is probed individually at startup, and all must come
   online** or the process refuses to start. A dead backup relay is a startup
   failure rather than a failover path that silently does not exist. Losing a

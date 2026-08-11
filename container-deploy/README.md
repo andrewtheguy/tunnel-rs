@@ -10,11 +10,18 @@ files. This page covers only what is specific to containers, and the manifests i
 
 > [!WARNING]
 > **Pin the image tag.** No backward compatibility is provided before 1.0 (see
-> the [project README](../README.md)), so `:latest` can break a working
-> deployment on the next release. Pin to a release tag
-> (`ghcr.io/andrewtheguy/tunnel-rs:v0.5.0`) or a minor version tag
-> (`ghcr.io/andrewtheguy/tunnel-rs:0.5`). The examples here use `:latest` for
-> brevity.
+> the [project README](../README.md)), so a moving tag like `:latest` — or even
+> the minor tag `:0.5` — can break a working deployment on the next release.
+> Every example here, including the manifests, uses one immutable reference:
+>
+> ```
+> ghcr.io/andrewtheguy/tunnel-rs:v0.5.0
+> ```
+>
+> Change it in one place per deployment and keep client and server on the same
+> release. Pinning by digest (`ghcr.io/andrewtheguy/tunnel-rs@sha256:…`, from
+> `docker buildx imagetools inspect`) is stricter still, since a tag can be
+> re-pushed.
 
 ## The deployment shape
 
@@ -26,10 +33,11 @@ goes in the container and what stays on your machine:
 | `sshd` with allowed hosts | server, `--allowed-tcp` / `--allowed-udp` CIDRs | **in the cluster / compose network** |
 | `ssh -L 8080:service:80` | client, `--source` / `--target` | **on your local machine** |
 
-The consequence for containers: the server is deployed once, names no ports, and
-whitelists *networks*; each client then picks a service inside those networks at
-connect time. One deployed server serves every service in its allowed CIDRs, for
-any number of simultaneous clients — you do not deploy one tunnel per service.
+The consequence for containers: the server is deployed once and whitelists
+*networks* rather than naming individual services — it publishes no ports of its
+own, and each client picks a service inside those networks at connect time. One
+deployed server serves every service in its allowed CIDRs, for any number of
+simultaneous clients — you do not deploy one tunnel per service.
 
 Both sides need keys before anything runs: a server identity (stable EndpointId)
 and at least one authorized client key. See
@@ -50,11 +58,11 @@ publishes a port to the host:
 cd container-deploy/docker
 
 # 1. Generate the server key
-docker run --rm ghcr.io/andrewtheguy/tunnel-rs:latest \
+docker run --rm ghcr.io/andrewtheguy/tunnel-rs:v0.5.0 \
   generate-server-key --output - > server.key
 
 # 2. Generate a client auth key; the authorized-key entry goes to the server
-docker run --rm -v "$PWD:/keys" ghcr.io/andrewtheguy/tunnel-rs:latest \
+docker run --rm -v "$PWD:/keys" ghcr.io/andrewtheguy/tunnel-rs:v0.5.0 \
   generate-auth-key --output /keys/client.key --comment "remote client" \
   > authorized_keys
 # Copy client.key securely to the client machine.
@@ -88,8 +96,16 @@ tunnel-rs client \
 ```
 
 `--source` resolves inside the compose network, so Docker service names work
-directly. The server's allowed CIDRs must cover the compose network
-(`172.16.0.0/12` and `192.168.0.0/16` in the example).
+directly. The server's allowed CIDRs must cover that network — but only that
+network. The example ships `172.16.0.0/12` and `192.168.0.0/16` so it starts on
+any Docker installation; both are far wider than one compose project, and every
+address inside an allowed CIDR is reachable by any authorized client. Narrow them
+to the subnet actually in use:
+
+```bash
+docker network inspect docker_default \
+  -f '{{range .IPAM.Config}}{{.Subnet}}{{end}}'   # e.g. 172.18.0.0/16
+```
 
 ## Kubernetes
 
@@ -117,22 +133,23 @@ kubectl apply -f kubernetes/tunnel-deployment.yaml
 kubectl logs -l app=tunnel-server | grep EndpointId
 ```
 
-Then, from your local machine — full DNS names, since `--source` is resolved by
-the server pod:
+Then, from your local machine — fully qualified names (`svc.cluster.local`, or
+whatever `--cluster-domain` your kubelets use), since `--source` is resolved by
+the server pod and should not depend on its resolver search path:
 
 ```bash
 # PostgreSQL
 tunnel-rs client \
   --private-key-file ./client.key \
   --server-node-id <SERVER_NODE_ID> \
-  --source tcp://postgres.database.svc:5432 \
+  --source tcp://postgres.database.svc.cluster.local:5432 \
   --target 127.0.0.1:5432
 
 # Redis
 tunnel-rs client \
   --private-key-file ./client.key \
   --server-node-id <SERVER_NODE_ID> \
-  --source tcp://redis.cache.svc:6379 \
+  --source tcp://redis.cache.svc.cluster.local:6379 \
   --target 127.0.0.1:6379
 
 # Cluster DNS over UDP — something kubectl port-forward cannot do
@@ -145,6 +162,24 @@ tunnel-rs client \
 dig @127.0.0.1 -p 5353 kubernetes.default.svc.cluster.local
 ```
 
+> [!IMPORTANT]
+> **Narrow the allowed CIDRs to your cluster's actual ranges.** The manifest
+> ships `10.0.0.0/8` and `172.16.0.0/12` so it starts anywhere, but they are a
+> high-trust opt-in: any authorized client can reach *every* address in an
+> allowed CIDR through the server, not just the services you had in mind. Look up
+> the real ranges and replace them:
+>
+> ```bash
+> kubectl get nodes -o jsonpath='{.items[*].spec.podCIDR}'          # pod CIDR(s)
+> kubectl -n kube-system get pod -l component=kube-apiserver \
+>   -o jsonpath='{.items[0].spec.containers[0].command}' | tr ',' '\n' \
+>   | grep service-cluster-ip-range                                 # service CIDR
+> ```
+>
+> On managed clusters (EKS/GKE/AKS) the apiserver flags are not visible; take the
+> service CIDR from the provider's cluster description instead, or infer it from
+> `kubectl get svc kubernetes -o jsonpath='{.spec.clusterIP}'`.
+
 **Compared with `kubectl port-forward`:** supports UDP, needs no cluster
 credentials or `kubectl` on the client, works across NAT, survives as a
 persistent deployment, adds QUIC keepalive and stream-open retry, and serves
@@ -156,8 +191,12 @@ The deployment sets `hostNetwork: true` with
 `dnsPolicy: ClusterFirstWithHostNet`. Both matter:
 
 - **`hostNetwork: true`** puts the pod in the *node's* network namespace rather
-  than the pod's, so address discovery sees the node's real external address and
-  hole punching has a chance to work. Whether it was blocked in the first place
+  than the pod's, so address discovery sees the node's addresses instead of the
+  overlay's and hole punching has a chance to work. It improves the odds; it
+  guarantees nothing. The node itself may sit behind a cloud NAT gateway or
+  CGNAT, and an egress firewall blocks the UDP that hole punching needs either
+  way — in which case the connection is carried by a relay, as it would have been
+  without `hostNetwork`. Whether the overlay was the obstacle in the first place
   depends on your CNI and kube-proxy mode, not on Kubernetes as such — some
   clusters hole-punch from inside a normal pod just fine. See
   [Kubernetes and container networking](https://github.com/flexaccessdev/iroh-common-architecture/blob/main/nat-traversal-and-transport.md#kubernetes-and-container-networking)

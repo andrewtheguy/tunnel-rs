@@ -100,9 +100,10 @@ graph TD
 
 ### NAT Traversal
 
-Provided entirely by iroh and identical across tunnel-rs, ezvpn, and flextunnel:
-which NAT types reach a direct path, why symmetric NAT (and container overlays
-like Kubernetes) stay on the relay, and what that means for relay bandwidth. See
+Provided entirely by iroh and shared with ezvpn and flextunnel: which NAT types
+reach a direct path, why symmetric NAT usually stays on the relay, why container
+networking depends on the CNI rather than on Kubernetes itself, and what that
+means for relay bandwidth. See
 [NAT traversal and the QUIC transport](https://github.com/flexaccessdev/iroh-common-architecture/blob/main/nat-traversal-and-transport.md).
 
 ---
@@ -453,14 +454,19 @@ graph TB
 ### Encryption Stack
 
 All traffic is end-to-end encrypted by QUIC/TLS 1.3 between the two endpoints;
-relay operators forward ciphertext and see only connection metadata. The stack
-and its ALPN handling are iroh's and identical across tunnel-rs, ezvpn, and
-flextunnel — see
+relay operators forward ciphertext and see only connection metadata. The stack is
+iroh's and identical across tunnel-rs, ezvpn, and flextunnel — see
 [NAT traversal and the QUIC transport](https://github.com/flexaccessdev/iroh-common-architecture/blob/main/nat-traversal-and-transport.md#encryption-stack).
 
-What is specific to tunnel-rs is everything layered on top: the fixed ALPN
-`mf/4` and the Ed25519 challenge-response below, which authorize the *user*
-rather than the endpoint.
+ALPN is split between the two layers. The *mechanism* — carrying the protocol
+identifier in the TLS 1.3 handshake and failing the connection when the two sides
+disagree — is TLS's, and iroh exposes it as the ALPN passed to
+`Endpoint::connect` and `alpns()`. The *value* is tunnel-rs's own choice: the
+fixed `mf/4` (`TUNNEL_ALPN` in `src/iroh_mode/endpoint.rs`), shared by every
+tunnel-rs peer and not configurable, which keeps peers of the other two programs
+from completing a handshake at all. It is not a secret and grants nothing; the
+Ed25519 challenge-response below is what authorizes the *user* rather than the
+endpoint.
 
 ### Identity and Authentication
 
