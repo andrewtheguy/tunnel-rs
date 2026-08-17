@@ -147,9 +147,10 @@ Client key first: the server will not accept a connection until it already holds
 that client's public entry.
 
 ```bash
-# 1. On the client machine; send the printed public entry to the server admin
-tunnel-rs generate-auth-key --output ./client.key --comment "alice laptop" \
-  > client.authorized_key
+# 1. On the client machine (needs uv); the private key goes to stdout and
+#    the public entry to stderr. Send the public entry to the server admin.
+scripts/generate-auth-key.py "alice laptop" \
+  > client.key 2> client.authorized_key
 
 # 2. On the server machine - authorize that entry
 cat client.authorized_key >> authorized_keys
@@ -222,21 +223,25 @@ Clients authenticate after the iroh connection is established by signing a fresh
 server challenge with an Ed25519 key. This authentication identity is
 independent of the client's ephemeral iroh EndpointId.
 
+Keys are generated with
+[`scripts/generate-auth-key.py`](scripts/generate-auth-key.py), a
+[uv](https://docs.astral.sh/uv/)-run Python script — tunnel-rs has no keygen
+subcommand of its own. The prefixes name the algorithm rather than this
+application, so the same keys work with other apps sharing the scheme:
+
 ```bash
-# On the client: write a compact private key and print its public entry
-tunnel-rs generate-auth-key \
-  --output ~/.config/tunnel-rs/client.key \
-  --comment "alice laptop"
-# Output: tunnelrsv1authpub:<urlsafe-base64-public-key> alice laptop
+# On the client: write a compact private key; the public entry goes to stderr
+scripts/generate-auth-key.py "alice laptop" > ~/.config/tunnel-rs/client.key
+# stderr: ed25519-pub:<urlsafe-base64-public-key> alice laptop
 ```
 
 The private key file is compact and self-describing:
 
 ```text
-# tunnel-rs client authentication key (Ed25519 private key)
+# Ed25519 client authentication key
 # Created: 2024-09-13T22:22:33Z
-# Public key: tunnelrsv1authpub:<urlsafe-base64-public-key> alice laptop
-tunnelrsv1authsecret:<urlsafe-base64-private-seed>
+# Public key: ed25519-pub:<urlsafe-base64-public-key> alice laptop
+ed25519-sec:<urlsafe-base64-private-seed>
 ```
 
 Both tokens carry unpadded [URL-safe base64](https://datatracker.ietf.org/doc/html/rfc4648#section-5)
@@ -250,8 +255,8 @@ it identifies the client in successful-authentication logs:
 
 ```text
 # Blank lines and comment lines are ignored.
-tunnelrsv1authpub:1bhGIken5UAXTkC7cABRzM4cE98xZl3tilGyYZsoyP8 alice laptop
-tunnelrsv1authpub:sHMOUCikL2-gX4UbwMCRjOSmdgjhQWCYIqCcP86tGHQ bob workstation
+ed25519-pub:1bhGIken5UAXTkC7cABRzM4cE98xZl3tilGyYZsoyP8 alice laptop
+ed25519-pub:sHMOUCikL2-gX4UbwMCRjOSmdgjhQWCYIqCcP86tGHQ bob workstation
 ```
 
 ### Configuration File
@@ -467,7 +472,7 @@ client_config = {
     "iroh": {
         "server_node_id": "<SERVER_NODE_ID>",
         # bare token, or the whole generated key file including its "#" comments
-        "private_key": "tunnelrsv1authsecret:<urlsafe base64 private seed>",
+        "private_key": "ed25519-sec:<urlsafe base64 private seed>",
         "request_source": "tcp://127.0.0.1:22",
         "target": "127.0.0.1:2222",
     },
@@ -481,8 +486,8 @@ server_config = {
         "secret": "<base64 server secret key>",
         # one authorized_keys line per element, comments and all
         "authorized_keys": [
-            "tunnelrsv1authpub:<urlsafe base64 public key> alice laptop",
-            "tunnelrsv1authpub:<urlsafe base64 public key> bob desktop",
+            "ed25519-pub:<urlsafe base64 public key> alice laptop",
+            "ed25519-pub:<urlsafe base64 public key> bob desktop",
         ],
         "allowed_sources": {"tcp": ["127.0.0.0/8"]},
     },
@@ -532,40 +537,45 @@ The connection-level receive window uses iroh's default. If `send_window` is omi
 
 ## Utility Commands
 
-### generate-auth-key
+### generate-auth-key.py
 
-Generate a compact Ed25519 client authentication key and print the matching
-server authorized-key entry:
+Client authentication keys are generated with
+[`scripts/generate-auth-key.py`](scripts/generate-auth-key.py); the binary has
+no keygen subcommand for them. It is a self-contained
+[uv](https://docs.astral.sh/uv/) script — the shebang runs it through
+`uv run`, which fetches its one dependency
+([`cryptography`](https://cryptography.io/)) on first use, so `uv` is all a
+machine needs. By default the private key file goes to stdout and the matching
+server authorized-key entry to stderr:
 
 ```bash
-tunnel-rs generate-auth-key \
-  --output ~/.config/tunnel-rs/client.key \
-  --comment "alice laptop"
+scripts/generate-auth-key.py "alice laptop" \
+  > ~/.config/tunnel-rs/client.key 2>> authorized_keys
 
-# Overwrite an existing key file
-tunnel-rs generate-auth-key --output ./client.key --force
+# Write the key file directly (created with 0600 permissions);
+# the authorized-key entry then goes to stdout instead
+scripts/generate-auth-key.py "alice laptop" --output client.key
+scripts/generate-auth-key.py "alice laptop" --output client.key --force  # overwrite
 
-# Without --output the key file goes to stdout (the authorized-key entry to stderr)
-tunnel-rs generate-auth-key --comment "alice laptop" > ./client.key
-
-# Emit both halves as JSON without writing a file
-tunnel-rs generate-auth-key --comment "alice laptop" --json
-# Output: {"authorized_key":"tunnelrsv1authpub:... alice laptop","private_key":"tunnelrsv1authsecret:..."}
+# Emit both halves as JSON for automation, without writing a file
+scripts/generate-auth-key.py "alice laptop" --json
+# Output: {"authorized_key": "ed25519-pub:... alice laptop", "private_key": "ed25519-sec:..."}
 ```
 
-With `--output` the private key file is created with `0600` permissions on Unix
-and the authorized-key entry is printed to stdout, so
-`generate-auth-key --output client.key > authorized_keys` captures the entry.
-Without `--output` (or with `--output -`) the roles swap: the key file goes to
-stdout and the authorized-key entry to stderr — remember to restrict
-permissions yourself when redirecting to a file. The stderr copy is skipped when
-stdout is a terminal, where the key file's own `# Public key:` header already
-shows it — there, copy only what follows `# Public key: `, since the leading `#`
-would make `authorized_keys` ignore the line. Either way, the server's
-`authorized_keys` file wants the `tunnelrsv1authpub:...` entry itself. With
-`--json`, no file is written and both halves are emitted to stdout as one object
-— handy for feeding a `--config-stdin` config's inline `authorized_keys` /
-`private_key`.
+When redirecting stdout yourself, remember to restrict the key file's
+permissions (`chmod 600 client.key`) — only `--output` sets `0600` for you. The
+stderr copy is skipped when stdout is a terminal, where the key file's own
+`# Public key:` header already shows it — there, copy only what follows
+`# Public key: `, since the leading `#` would make `authorized_keys` ignore the
+line.
+
+The format is deliberately tool-agnostic: the raw 32 bytes of each half as an
+unpadded URL-safe base64 token behind the `ed25519-sec:` / `ed25519-pub:`
+prefixes. The prefixes name the algorithm, not tunnel-rs, so any application
+adopting the same scheme can share these keys — and any Ed25519-capable tool
+can produce them without this script (e.g. with openssl:
+`openssl genpkey -algorithm ED25519 | openssl pkey -outform DER | tail -c 32 |
+basenc --base64url | tr -d '='` yields the private token's value).
 
 ### show-auth-key
 
@@ -575,11 +585,11 @@ needs to be re-provisioned:
 
 ```bash
 tunnel-rs show-auth-key --private-key-file ~/.config/tunnel-rs/client.key
-# Output: tunnelrsv1authpub:<urlsafe-base64-public-key> alice laptop
+# Output: ed25519-pub:<urlsafe-base64-public-key> alice laptop
 
 # Machine-readable form
 tunnel-rs show-auth-key --private-key-file ./client.key --json
-# Output: {"authorized_key":"tunnelrsv1authpub:... alice laptop"}
+# Output: {"authorized_key":"ed25519-pub:... alice laptop"}
 ```
 
 The entry is derived from the private key itself. The comment is the one part
@@ -618,7 +628,7 @@ works as `TUNNEL_RS_SECRET` or as an inline `secret` in a `--config-stdin` confi
 
 With `--output` the key file is created with `0600` permissions on Unix and the
 EndpointId is printed to stdout. Without `--output` (or with `--output -`) the
-roles swap, exactly as in `generate-auth-key`: the key file goes to stdout and
+roles swap, exactly as in `generate-auth-key.py`: the key file goes to stdout and
 the EndpointId to stderr — remember to restrict permissions yourself when
 redirecting to a file. The stderr copy is skipped when stdout is a terminal,
 where the `# EndpointId:` header already shows it — there, copy only what follows

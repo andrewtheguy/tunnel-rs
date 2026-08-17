@@ -62,10 +62,10 @@ cd container-deploy/docker
 docker run --rm ghcr.io/andrewtheguy/tunnel-rs:v0.5.0 \
   generate-server-key > server.key
 
-# 2. Generate a client auth key; the authorized-key entry goes to the server
-docker run --rm -v "$PWD:/keys" ghcr.io/andrewtheguy/tunnel-rs:v0.5.0 \
-  generate-auth-key --output /keys/client.key --comment "remote client" \
-  > authorized_keys
+# 2. Generate a client auth key on the host with the uv-run script
+#    (key file to stdout, authorized-key entry to stderr)
+../../scripts/generate-auth-key.py "remote client" \
+  > client.key 2> authorized_keys
 # Copy client.key securely to the client machine.
 
 # 3. Start services
@@ -117,9 +117,9 @@ the client:
 # 1. Generate the server key
 tunnel-rs generate-server-key --output server.key
 
-# 2. Generate a client auth key; the authorized-key entry goes to the server
-tunnel-rs generate-auth-key --output client.key --comment "remote client" \
-  > authorized_keys
+# 2. Generate a client auth key with the uv-run script
+#    (key file to stdout, authorized-key entry to stderr)
+scripts/generate-auth-key.py "remote client" > client.key 2> authorized_keys
 # Copy client.key securely to the client machine.
 
 # 3. Create the secret the deployment mounts

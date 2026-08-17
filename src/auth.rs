@@ -5,11 +5,14 @@
 //! server verifies the proof against an authorized-keys file.
 //!
 //! Both key kinds are a single prefixed token holding unpadded URL-safe base64
-//! of 32 raw bytes. An authorized-keys line is the public token, optionally
-//! followed by a single space and a free-form comment that runs to end of line:
+//! of 32 raw bytes. The prefixes name the algorithm, not this application, so
+//! the same keys work across apps sharing the scheme; `scripts/generate-auth-key.py`
+//! (a uv-run Python script) produces them. An authorized-keys line is the public
+//! token, optionally followed by a single space and a free-form comment that
+//! runs to end of line:
 //!
 //! ```text
-//! tunnelrsv1authpub:<urlsafe-base64> alice laptop
+//! ed25519-pub:<urlsafe-base64> alice laptop
 //! ```
 
 use std::collections::HashMap;
@@ -27,8 +30,8 @@ pub const PUBLIC_KEY_LENGTH: usize = 32;
 pub const SIGNATURE_LENGTH: usize = 64;
 
 const AUTH_DOMAIN: &[u8] = b"tunnel-rs public-key authentication v1\0";
-const PUBLIC_KEY_PREFIX: &str = "tunnelrsv1authpub:";
-const PRIVATE_KEY_PREFIX: &str = "tunnelrsv1authsecret:";
+const PUBLIC_KEY_PREFIX: &str = "ed25519-pub:";
+const PRIVATE_KEY_PREFIX: &str = "ed25519-sec:";
 /// Separates the public-key token from its comment. A single space only: every
 /// byte after it, including further spaces, belongs to the comment.
 const COMMENT_DELIMITER: char = ' ';
@@ -132,7 +135,7 @@ pub fn generate_challenge() -> Challenge {
 /// Load Ed25519 keys from an authorized-keys file.
 ///
 /// Each non-comment line must have the form:
-/// `tunnelrsv1authpub:URLSAFE_BASE64[ comment]`
+/// `ed25519-pub:URLSAFE_BASE64[ comment]`
 pub fn load_authorized_keys(path: &Path) -> Result<AuthorizedKeys> {
     let content = std::fs::read_to_string(path)
         .with_context(|| format!("Failed to read authorized keys file: {}", path.display()))?;
@@ -239,26 +242,6 @@ pub fn parse_private_key(content: &str, origin: &str) -> Result<ClientAuthKey> {
     Ok(ClientAuthKey { signing_key })
 }
 
-/// Generate a compact private key and its matching authorized-key entry.
-///
-/// Fails when the comment contains a line break, which would split the entry
-/// across lines and forge a second authorized key.
-pub fn generate_keypair(comment: &str) -> Result<(String, String)> {
-    let comment = validate_comment(comment)?;
-
-    let signing_key = SigningKey::from_bytes(&rand::random());
-    let private_key = format!(
-        "{}{}",
-        PRIVATE_KEY_PREFIX,
-        BASE64.encode(signing_key.to_bytes())
-    );
-    let authorized_key = authorized_key_entry(
-        &public_key_token(&signing_key.verifying_key().to_bytes()),
-        comment,
-    );
-    Ok((private_key, authorized_key))
-}
-
 /// Trim an authorized-key comment, rejecting line breaks.
 ///
 /// The comment runs to end of line, so a line break is the one thing it cannot
@@ -272,7 +255,7 @@ fn validate_comment(comment: &str) -> Result<&str> {
     Ok(comment)
 }
 
-/// The `tunnelrsv1authpub:` token for a raw public key.
+/// The `ed25519-pub:` token for a raw public key.
 fn public_key_token(public_key: &PublicKeyBytes) -> String {
     format!("{}{}", PUBLIC_KEY_PREFIX, BASE64.encode(public_key))
 }
@@ -289,115 +272,17 @@ fn authorized_key_entry(public_key: &str, comment: &str) -> String {
     }
 }
 
-/// Render the private-key file for a freshly generated keypair.
-///
-/// The first header names the key kind, so a stray key file is identifiable
-/// without knowing the token prefixes apart.
-fn private_key_file(authorized_key: &str, private_key: &str) -> String {
-    format!(
-        "# tunnel-rs client authentication key (Ed25519 private key)\n\
-         # Created: {}\n\
-         # Public key: {}\n\
-         {}\n",
-        rfc3339_utc(SystemTime::now()),
-        authorized_key,
-        private_key
-    )
-}
-
 /// Report a generated key's public half on stderr, unless stdout is a terminal.
 ///
-/// Shared with [`crate::secret`]. When the key file goes to stdout it already
-/// names its public half in a header, so on a terminal this copy would only
-/// print the same value twice. When stdout is redirected
-/// (`generate-auth-key > client.key`) the copy is the only place the entry
-/// appears, and `2> authorized_keys` still captures it.
+/// Used by [`crate::secret`] for `generate-server-key`. When the key file goes
+/// to stdout it already names its public half in a header, so on a terminal
+/// this copy would only print the same value twice. When stdout is redirected
+/// (`generate-server-key > server.key`) the copy is the only place the value
+/// appears, and `2> id.txt` still captures it.
 pub fn report_public_half(line: &str) {
     if !std::io::stdout().is_terminal() {
         eprintln!("{}", line);
     }
-}
-
-/// Generate a keypair, writing the private key to `path` (or to stdout when
-/// `path` is `None` or `-`) and reporting the matching authorized-key entry.
-///
-/// With a file destination the private key lands in the file with `0600`
-/// permissions and the authorized-key entry goes to stdout, so
-/// `generate-auth-key --output client.key > authorized_keys` works. Without one
-/// the whole private-key file goes to stdout and the authorized-key entry to
-/// stderr, so `generate-auth-key > client.key` works and still shows the entry.
-/// On a terminal the stderr line is dropped; see [`report_public_half`].
-pub fn generate_auth_key(path: Option<&Path>, comment: &str, force: bool) -> Result<()> {
-    let (private_key, authorized_key) = generate_keypair(comment)?;
-    let private_key_file = private_key_file(&authorized_key, &private_key);
-
-    let Some(path) = path.filter(|path| path.as_os_str() != "-") else {
-        print!("{}", private_key_file);
-        report_public_half(&authorized_key);
-        return Ok(());
-    };
-
-    if path.exists() && !force {
-        anyhow::bail!(
-            "File already exists: {}. Use --force to overwrite.",
-            path.display()
-        );
-    }
-    if let Some(parent) = path.parent().filter(|parent| !parent.as_os_str().is_empty()) {
-        std::fs::create_dir_all(parent).context("Failed to create parent directory")?;
-    }
-
-    #[cfg(unix)]
-    {
-        use std::io::Write;
-        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-
-        let mut file = std::fs::OpenOptions::new()
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .mode(0o600)
-            .open(path)
-            .context("Failed to open authentication private key file")?;
-        // `mode(0o600)` only applies when the file is created, so tighten the
-        // permissions of a pre-existing (--force) file before writing the key.
-        file.set_permissions(std::fs::Permissions::from_mode(0o600))
-            .context("Failed to set authentication private key file permissions")?;
-        file.write_all(private_key_file.as_bytes())
-            .context("Failed to write authentication private key file")?;
-    }
-
-    #[cfg(not(unix))]
-    std::fs::write(path, private_key_file)
-        .context("Failed to write authentication private key file")?;
-
-    log::info!("Authentication private key saved to: {}", path.display());
-    println!("{}", authorized_key);
-    Ok(())
-}
-
-/// A generated client authentication keypair, as printed by
-/// `generate-auth-key --json`.
-#[derive(Serialize)]
-struct GeneratedAuthKey {
-    /// The authorized-keys line, comment included, for the server's file.
-    authorized_key: String,
-    /// The client's private key, in the same form as the key file's key line.
-    private_key: String,
-}
-
-/// Generate a keypair and print both halves as a single JSON object, for
-/// automation that captures the key material instead of writing a file.
-pub fn generate_auth_key_json(comment: &str) -> Result<()> {
-    let (private_key, authorized_key) = generate_keypair(comment)?;
-    println!(
-        "{}",
-        serde_json::to_string(&GeneratedAuthKey {
-            authorized_key,
-            private_key,
-        })?
-    );
-    Ok(())
 }
 
 /// The authorized-key entry for an existing key, as printed by
@@ -453,7 +338,7 @@ fn header_comment(content: &str, public_key: &str) -> Option<String> {
 fn decode_public_key(encoded: &str) -> Result<PublicKeyBytes> {
     let bytes = BASE64
         .decode(encoded)
-        .context("Public key is not valid standard base64")?;
+        .context("Public key is not valid URL-safe base64")?;
     bytes.try_into().map_err(|bytes: Vec<u8>| {
         anyhow::anyhow!(
             "Ed25519 public key must decode to {} bytes, got {}",
@@ -588,15 +473,29 @@ mod tests {
         );
     }
 
+    /// A key file in the shape `scripts/generate-auth-key.py` writes.
+    fn script_style_key_file(seed: &[u8; 32], comment: &str) -> (String, String) {
+        let signing_key = SigningKey::from_bytes(seed);
+        let entry = authorized_key_entry(
+            &public_key_token(&signing_key.verifying_key().to_bytes()),
+            comment,
+        );
+        let file = format!(
+            "# Ed25519 client authentication key\n\
+             # Created: 2026-08-17T00:00:00Z\n\
+             # Public key: {}\n\
+             {}{}\n",
+            entry,
+            PRIVATE_KEY_PREFIX,
+            BASE64.encode(seed)
+        );
+        (file, entry)
+    }
+
     #[test]
     fn inline_private_key_accepts_a_whole_key_file() {
-        let (private_key, authorized_key) = generate_keypair("alice laptop").unwrap();
-        // `super::` — the test module has its own `private_key_file` fixture.
-        let parsed = parse_private_key(
-            &super::private_key_file(&authorized_key, &private_key),
-            "[iroh].private_key",
-        )
-        .unwrap();
+        let (key_file, authorized_key) = script_style_key_file(&[42; 32], "alice laptop");
+        let parsed = parse_private_key(&key_file, "[iroh].private_key").unwrap();
         let authorized_keys =
             parse_authorized_keys_entries(&[authorized_key], "[iroh].authorized_keys").unwrap();
         let challenge = [12; CHALLENGE_LENGTH];
@@ -674,7 +573,7 @@ mod tests {
         writeln!(file, "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC comment").unwrap();
 
         let error = load_authorized_keys(file.path()).unwrap_err();
-        assert!(error.to_string().contains("expected 'tunnelrsv1authpub:"));
+        assert!(error.to_string().contains("expected 'ed25519-pub:"));
     }
 
     #[test]
@@ -723,8 +622,9 @@ mod tests {
 
     #[test]
     fn keys_use_unpadded_url_safe_base64() {
-        let (private_key, authorized_key) = generate_keypair("").unwrap();
-        let private_encoded = private_key.strip_prefix(PRIVATE_KEY_PREFIX).unwrap();
+        let (key_file, authorized_key) = script_style_key_file(&[42; 32], "");
+        let private_line = key_file.lines().last().unwrap();
+        let private_encoded = private_line.strip_prefix(PRIVATE_KEY_PREFIX).unwrap();
         let public_encoded = authorized_key.strip_prefix(PUBLIC_KEY_PREFIX).unwrap();
 
         for encoded in [private_encoded, public_encoded] {
@@ -765,74 +665,57 @@ mod tests {
         write!(file, "{}", BASE64.encode([42; 32])).unwrap();
 
         let error = load_private_key(file.path()).unwrap_err();
-        assert!(error.to_string().contains("expected 'tunnelrsv1authsecret:'"));
-    }
-
-    #[test]
-    fn generated_keypair_uses_compact_base64_format() {
-        let (private_key, authorized_key) = generate_keypair("alice laptop").unwrap();
-        let encoded = private_key.strip_prefix(PRIVATE_KEY_PREFIX).unwrap();
-        let private_bytes = BASE64.decode(encoded).unwrap();
-        assert_eq!(private_bytes.len(), 32);
-        assert!(!private_key.contains("BEGIN"));
-        assert!(private_key.starts_with("tunnelrsv1authsecret:"));
-        assert!(authorized_key.starts_with("tunnelrsv1authpub:"));
-        assert!(authorized_key.ends_with(" alice laptop"));
+        assert!(error.to_string().contains("expected 'ed25519-sec:'"));
     }
 
     #[test]
     fn rejects_a_comment_that_would_forge_a_second_authorized_key() {
-        let injected = format!(
-            "alice\n{}{}",
-            PUBLIC_KEY_PREFIX,
-            BASE64.encode(SigningKey::from_bytes(&[7; 32]).verifying_key().to_bytes())
-        );
+        let injected = format!("alice\n{}", public_key_token(&[7; PUBLIC_KEY_LENGTH]));
 
         for comment in [injected.as_str(), "alice\r\nbob", "alice\rbob"] {
-            let error = generate_keypair(comment).unwrap_err();
+            let error = validate_comment(comment).unwrap_err();
             assert!(error.to_string().contains("must not contain line breaks"));
         }
 
         // Surrounding whitespace is still trimmed rather than rejected.
-        let (_, authorized_key) = generate_keypair("\n  alice laptop \n").unwrap();
-        assert!(authorized_key.ends_with(" alice laptop"));
-        assert_eq!(authorized_key.lines().count(), 1);
+        assert_eq!(validate_comment("\n  alice laptop \n").unwrap(), "alice laptop");
     }
 
-    #[test]
-    fn line_break_comment_writes_no_key_file() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("client.key");
-
-        assert!(generate_auth_key(Some(&path), "alice\nbob", false).is_err());
-        assert!(!path.exists());
+    /// Run `scripts/generate-auth-key.py` through uv, or skip (not fail) on
+    /// machines without uv so `cargo test` stays self-contained.
+    fn run_keygen_script(args: &[&str]) -> Option<std::process::Output> {
+        let script = concat!(env!("CARGO_MANIFEST_DIR"), "/scripts/generate-auth-key.py");
+        match std::process::Command::new("uv")
+            .args(["run", "-q", "--script", script])
+            .args(args)
+            .output()
+        {
+            Ok(output) => Some(output),
+            Err(_) => {
+                eprintln!("skipping: uv not available");
+                None
+            }
+        }
     }
 
+    /// End-to-end check of `scripts/generate-auth-key.py`: the generated seed
+    /// and public key must belong to the same keypair, and the key file must
+    /// parse and authenticate against the printed authorized-keys entry.
     #[test]
-    fn generated_key_file_follows_the_created_public_secret_template() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("client.key");
-        generate_auth_key(Some(&path), "alice laptop", false).unwrap();
+    fn script_generated_key_round_trips() {
+        let Some(output) = run_keygen_script(&["alice laptop"]) else {
+            return;
+        };
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
 
-        let content = std::fs::read_to_string(&path).unwrap();
-        let mut lines = content.lines();
-        assert_eq!(
-            lines.next(),
-            Some("# tunnel-rs client authentication key (Ed25519 private key)")
-        );
-        let created = lines.next().unwrap();
-        assert!(created.starts_with("# Created: "));
-        assert!(created.ends_with('Z'));
-        let authorized_entry = lines.next().unwrap().strip_prefix("# Public key: ").unwrap();
+        let key_file = String::from_utf8(output.stdout).unwrap();
+        let authorized_entry = String::from_utf8(output.stderr).unwrap().trim().to_string();
         assert!(authorized_entry.starts_with(PUBLIC_KEY_PREFIX));
         assert!(authorized_entry.ends_with(" alice laptop"));
-        assert!(lines.next().unwrap().starts_with(PRIVATE_KEY_PREFIX));
-        assert_eq!(lines.next(), None);
 
-        let authorized_path = directory.path().join("authorized_keys");
-        std::fs::write(&authorized_path, authorized_entry).unwrap();
-        let private_key = load_private_key(&path).unwrap();
-        let authorized_keys = load_authorized_keys(&authorized_path).unwrap();
+        let private_key = parse_private_key(&key_file, "script output").unwrap();
+        let authorized_keys =
+            parse_authorized_keys_entries(&[authorized_entry], "script output").unwrap();
         let challenge = generate_challenge();
         let signature = private_key.sign_challenge(&challenge);
         assert_eq!(
@@ -843,18 +726,38 @@ mod tests {
         );
     }
 
+    /// The script's --json output must carry the same two halves of one
+    /// keypair, in the same shape the old generate-auth-key --json printed.
     #[test]
-    fn shown_auth_key_matches_the_generated_entry_with_its_comment() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("client.key");
-        generate_auth_key(Some(&path), "alice laptop", false).unwrap();
+    fn script_json_output_round_trips() {
+        let Some(output) = run_keygen_script(&["--json", "bob desktop"]) else {
+            return;
+        };
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
 
-        let content = std::fs::read_to_string(&path).unwrap();
-        let generated = content
-            .lines()
-            .find_map(|line| line.strip_prefix("# Public key: "))
-            .unwrap();
-        let key = load_private_key(&path).unwrap();
+        let json: serde_json::Value =
+            serde_json::from_slice(&output.stdout).expect("script --json output is one object");
+        let authorized_entry = json["authorized_key"].as_str().unwrap().to_string();
+        let private_line = json["private_key"].as_str().unwrap();
+        assert!(private_line.starts_with(PRIVATE_KEY_PREFIX));
+
+        let private_key = parse_private_key(private_line, "script json output").unwrap();
+        let authorized_keys =
+            parse_authorized_keys_entries(&[authorized_entry], "script json output").unwrap();
+        let challenge = generate_challenge();
+        let signature = private_key.sign_challenge(&challenge);
+        assert_eq!(
+            authorized_keys
+                .verify_proof(&challenge, &private_key.public_key(), &signature)
+                .unwrap(),
+            Some("bob desktop")
+        );
+    }
+
+    #[test]
+    fn shown_auth_key_matches_the_key_file_entry_with_its_comment() {
+        let (content, generated) = script_style_key_file(&[42; 32], "alice laptop");
+        let key = parse_private_key(&content, "test").unwrap();
         let public_key = public_key_token(&key.public_key());
 
         assert_eq!(

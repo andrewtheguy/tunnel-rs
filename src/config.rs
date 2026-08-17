@@ -51,10 +51,10 @@ pub struct IrohConfig {
     /// Same syntax as a line of `authorized_keys_file`. Stdin configs only;
     /// config files must use `authorized_keys_file`.
     pub authorized_keys: Option<Vec<String>>,
-    /// Path to a compact tunnel-rs Ed25519 private key (client only).
+    /// Path to a compact Ed25519 private key (client only).
     pub private_key_file: Option<PathBuf>,
-    /// Inline compact tunnel-rs Ed25519 private key (client only).
-    /// Accepts the bare `tunnelrsv1authsecret:` token or the whole generated key
+    /// Inline compact Ed25519 private key (client only).
+    /// Accepts the bare `ed25519-sec:` token or the whole generated key
     /// file. Stdin configs only; config files must use `private_key_file`.
     pub private_key: Option<String>,
     /// Source URL to request from server (client only).
@@ -633,7 +633,7 @@ mod tests {
     #[test]
     fn client_rejects_inline_private_key_from_file() {
         let cfg = client_config_with_iroh(IrohConfig {
-            private_key: Some("tunnelrsv1authsecret:key".into()),
+            private_key: Some("ed25519-sec:key".into()),
             ..Default::default()
         });
         let err = cfg.validate(ConfigSource::File).unwrap_err();
@@ -643,7 +643,7 @@ mod tests {
     #[test]
     fn client_allows_inline_private_key_from_stdin() {
         let cfg = client_config_with_iroh(IrohConfig {
-            private_key: Some("tunnelrsv1authsecret:key".into()),
+            private_key: Some("ed25519-sec:key".into()),
             ..Default::default()
         });
         assert!(cfg.validate(ConfigSource::Stdin).is_ok());
@@ -652,7 +652,7 @@ mod tests {
     #[test]
     fn client_rejects_both_private_key_forms() {
         let cfg = client_config_with_iroh(IrohConfig {
-            private_key: Some("tunnelrsv1authsecret:key".into()),
+            private_key: Some("ed25519-sec:key".into()),
             private_key_file: Some("client.key".into()),
             ..Default::default()
         });
@@ -663,7 +663,7 @@ mod tests {
     #[test]
     fn server_rejects_inline_authorized_keys_from_file() {
         let cfg = server_config_with_iroh(IrohConfig {
-            authorized_keys: Some(vec!["tunnelrsv1authpub:key".into()]),
+            authorized_keys: Some(vec!["ed25519-pub:key".into()]),
             ..Default::default()
         });
         let err = cfg.validate(ConfigSource::File).unwrap_err();
@@ -673,7 +673,7 @@ mod tests {
     #[test]
     fn server_allows_inline_authorized_keys_from_stdin() {
         let cfg = server_config_with_iroh(IrohConfig {
-            authorized_keys: Some(vec!["tunnelrsv1authpub:key".into()]),
+            authorized_keys: Some(vec!["ed25519-pub:key".into()]),
             ..Default::default()
         });
         assert!(cfg.validate(ConfigSource::Stdin).is_ok());
@@ -682,7 +682,7 @@ mod tests {
     #[test]
     fn server_rejects_both_authorized_keys_forms() {
         let cfg = server_config_with_iroh(IrohConfig {
-            authorized_keys: Some(vec!["tunnelrsv1authpub:key".into()]),
+            authorized_keys: Some(vec!["ed25519-pub:key".into()]),
             authorized_keys_file: Some("authorized_keys".into()),
             ..Default::default()
         });
@@ -703,7 +703,7 @@ mod tests {
     #[test]
     fn server_rejects_client_inline_private_key() {
         let cfg = server_config_with_iroh(IrohConfig {
-            private_key: Some("tunnelrsv1authsecret:key".into()),
+            private_key: Some("ed25519-sec:key".into()),
             ..Default::default()
         });
         let err = cfg.validate(ConfigSource::Stdin).unwrap_err();
@@ -713,7 +713,7 @@ mod tests {
     #[test]
     fn client_rejects_server_inline_authorized_keys() {
         let cfg = client_config_with_iroh(IrohConfig {
-            authorized_keys: Some(vec!["tunnelrsv1authpub:key".into()]),
+            authorized_keys: Some(vec!["ed25519-pub:key".into()]),
             ..Default::default()
         });
         let err = cfg.validate(ConfigSource::Stdin).unwrap_err();
@@ -770,16 +770,16 @@ mod tests {
     #[test]
     fn stdin_json_accepts_inline_keys() {
         let cfg: ClientConfig = serde_json::from_str(
-            r#"{"role":"client","iroh":{"private_key":"tunnelrsv1authsecret:key"}}"#,
+            r#"{"role":"client","iroh":{"private_key":"ed25519-sec:key"}}"#,
         )
         .unwrap();
         assert_eq!(
             cfg.iroh().unwrap().private_key.as_deref(),
-            Some("tunnelrsv1authsecret:key")
+            Some("ed25519-sec:key")
         );
 
         let cfg: ServerConfig = serde_json::from_str(
-            r#"{"role":"server","iroh":{"authorized_keys":["tunnelrsv1authpub:a","tunnelrsv1authpub:b c"]}}"#,
+            r#"{"role":"server","iroh":{"authorized_keys":["ed25519-pub:a","ed25519-pub:b c"]}}"#,
         )
         .unwrap();
         assert_eq!(cfg.iroh().unwrap().authorized_keys.as_ref().unwrap().len(), 2);

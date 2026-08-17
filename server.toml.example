@@ -51,14 +51,15 @@ max_sessions = 100
 # Authentication (REQUIRED)
 # ============================================================================
 # Clients prove possession of an Ed25519 private key after connecting.
-# Generate a client key and print its matching authorized-key entry with:
-#   tunnel-rs generate-auth-key --output ./client.key --comment "alice laptop"
+# Generate a client key with the uv-run script (from the tunnel-rs repo);
+# the key file goes to stdout and the authorized-key entry to stderr:
+#   scripts/generate-auth-key.py "alice laptop" > client.key 2>> authorized_keys
 #
-# Add the printed line to the authorized_keys_file below (NOT to this config file).
+# Add the entry to the authorized_keys_file below (NOT to this config file).
 # Blank lines and lines starting with # are ignored.
-# File format: tunnelrsv1authpub:<unpadded url-safe base64 32-byte public key>[ comment]
+# File format: ed25519-pub:<unpadded url-safe base64 32-byte public key>[ comment]
 # One space separates the key from the comment, which runs to end of line.
-# Example: tunnelrsv1authpub:1bhGIken5UAXTkC7cABRzM4cE98xZl3tilGyYZsoyP8 alice laptop
+# Example: ed25519-pub:1bhGIken5UAXTkC7cABRzM4cE98xZl3tilGyYZsoyP8 alice laptop
 authorized_keys_file = "/etc/tunnel-rs/authorized_keys"
 
 # For automation there is also an inline 'authorized_keys' array holding those

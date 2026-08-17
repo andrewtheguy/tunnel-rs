@@ -17,18 +17,18 @@ server_node_id = "2xnbkpbc7izsilvewd7c62w7wnwziacmpfwvhcrya5nt76dqkpga"
 # Authentication (REQUIRED)
 # ============================================================================
 # Compact Ed25519 private key used only for post-connect authentication.
-# Generate it with:
-#   tunnel-rs generate-auth-key --output ~/.config/tunnel-rs/client.key --comment "alice laptop"
-# Give the printed authorized-key line to the server administrator; reprint it
-# later with:
+# Generate it with the uv-run script (from the tunnel-rs repo):
+#   scripts/generate-auth-key.py "alice laptop" > ~/.config/tunnel-rs/client.key
+# Give the authorized-key line printed on stderr to the server administrator;
+# reprint it later with:
 #   tunnel-rs show-auth-key --private-key-file ~/.config/tunnel-rs/client.key
 #
 # The key file names its key type, then a creation stamp and public-key comment,
 # followed by one short private-key line (all base64 is unpadded URL-safe):
-#   # tunnel-rs client authentication key (Ed25519 private key)
+#   # Ed25519 client authentication key
 #   # Created: 2024-09-13T22:22:33Z
-#   # Public key: tunnelrsv1authpub:<urlsafe base64 public key> alice laptop
-#   tunnelrsv1authsecret:<urlsafe base64 private seed>
+#   # Public key: ed25519-pub:<urlsafe base64 public key> alice laptop
+#   ed25519-sec:<urlsafe base64 private seed>
 # It is separate from the ephemeral iroh client identity.
 private_key_file = "~/.config/tunnel-rs/client.key"
 

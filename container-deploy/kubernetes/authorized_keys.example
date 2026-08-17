@@ -1,7 +1,8 @@
 # Authorized Ed25519 client keys
-# Generate a compact client key and one entry with:
-# tunnel-rs generate-auth-key --output client.key --comment "alice laptop"
+# Generate a compact client key and one entry with the uv-run script
+# from the tunnel-rs repo (key file to stdout, entry to stderr):
+# scripts/generate-auth-key.py "alice laptop" > client.key 2>> authorized_keys
 #
-# Format: tunnelrsv1authpub:<unpadded url-safe base64 32-byte public key>[ comment]
+# Format: ed25519-pub:<unpadded url-safe base64 32-byte public key>[ comment]
 # One space separates the key from the comment, which runs to end of line.
-# tunnelrsv1authpub:1bhGIken5UAXTkC7cABRzM4cE98xZl3tilGyYZsoyP8 alice laptop
+# ed25519-pub:1bhGIken5UAXTkC7cABRzM4cE98xZl3tilGyYZsoyP8 alice laptop
