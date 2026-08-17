@@ -148,10 +148,16 @@ that client's public entry.
 
 Client authentication keys are managed by the standalone
 [`flexaccess-keys`](https://github.com/flexaccessdev/flexaccess-keys) CLI;
-download it from its
-[releases page](https://github.com/flexaccessdev/flexaccess-keys/releases) or
-install with
-`cargo install --git https://github.com/flexaccessdev/flexaccess-keys --features cli flexaccess-keys`.
+install it with its one-line installer:
+
+```bash
+# Linux/macOS (Windows: irm https://flexaccessdev.github.io/flexaccess-keys/install.ps1 | iex)
+curl -sSL https://flexaccessdev.github.io/flexaccess-keys/install.sh | bash
+```
+
+Prebuilt binaries and `cargo install` alternatives are in its
+[releases page](https://github.com/flexaccessdev/flexaccess-keys/releases) and
+[README](https://github.com/flexaccessdev/flexaccess-keys#installation).
 
 ```bash
 # 1. On the client machine; generate the private key, then derive its public
@@ -234,7 +240,9 @@ Key management lives in the shared
 [`flexaccess-keys`](https://github.com/flexaccessdev/flexaccess-keys)
 repository: its standalone CLI generates and inspects keys, and its crate
 provides the encoding, file handling, and public-key derivation tunnel-rs
-links against — the format is not tied to tunnel-rs. Grab the binary from the
+links against — the format is not tied to tunnel-rs. Install the CLI with its
+one-line installer (see [Quick Start](#1-generate-the-keys-one-time)) or grab
+the binary from the
 [flexaccess-keys releases](https://github.com/flexaccessdev/flexaccess-keys/releases):
 
 ```bash
@@ -557,7 +565,9 @@ which provides `generate-auth-key` and `show-auth-key` with the exact behavior
 tunnel-rs's built-in commands used to have (they were removed in 0.6):
 age-style key files on stdout, `--output` files with mode `0600` that are not
 overwritten without `--force`, `--json` automation modes, and stderr reserved
-for errors. Download it from the
+for errors. Install it with the one-line installer
+(`curl -sSL https://flexaccessdev.github.io/flexaccess-keys/install.sh | bash`)
+or download it from the
 [flexaccess-keys releases](https://github.com/flexaccessdev/flexaccess-keys/releases)
 page; that repository's README and
 [key-format specification](https://github.com/flexaccessdev/flexaccess-keys/blob/main/docs/key-format.md)

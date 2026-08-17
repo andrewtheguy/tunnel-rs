@@ -63,7 +63,7 @@ docker run --rm ghcr.io/flexaccessdev/tunnel-rs:v0.6.0 \
   generate-server-key > server.key
 
 # 2. Generate a client auth key on the host with the flexaccess-keys CLI
-#    (https://github.com/flexaccessdev/flexaccess-keys/releases)
+#    (curl -sSL https://flexaccessdev.github.io/flexaccess-keys/install.sh | bash)
 flexaccess-keys generate-auth-key "remote client" > client.key
 flexaccess-keys show-auth-key --private-key-file client.key > authorized_keys
 # Copy client.key securely to the client machine.
