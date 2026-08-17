@@ -847,7 +847,7 @@ checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
 [[package]]
 name = "flexaccess-keys"
 version = "0.0.1"
-source = "git+https://github.com/flexaccessdev/flexaccess-keys?tag=v0.0.1#4da0ac90d95fdf8b9941641f3ba2d139e3302da5"
+source = "git+https://github.com/flexaccessdev/flexaccess-keys?rev=815ebb7eac6c29243fa18eec8bf1adb3fb902c10#815ebb7eac6c29243fa18eec8bf1adb3fb902c10"
 dependencies = [
  "base64",
  "ed25519-dalek",
