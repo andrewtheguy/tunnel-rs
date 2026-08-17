@@ -168,9 +168,30 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
+    /// Generate a client authentication key and authorized-key entry
+    ///
+    /// Without --output the private key file is written to stdout and the
+    /// authorized-key entry to stderr. With --output the file is created with
+    /// 0600 permissions on Unix and the authorized-key entry goes to stdout.
+    GenerateAuthKey {
+        /// Comment appended to the authorized-key entry
+        comment: Option<String>,
+
+        /// Path where to save the private key file ("-" means stdout)
+        #[arg(short, long, conflicts_with = "json")]
+        output: Option<PathBuf>,
+
+        /// Overwrite an existing output file
+        #[arg(long, requires = "output")]
+        force: bool,
+
+        /// Print the private key and authorized-key entry as JSON
+        #[arg(long)]
+        json: bool,
+    },
     /// Show the authorized-key entry for an existing client authentication key
     ///
-    /// Generate keys with scripts/generate-auth-key.py (uv-run).
+    /// Generate keys with generate-auth-key.
     /// Add the printed entry to the server's authorized_keys file.
     ShowAuthKey {
         /// Path to the compact Ed25519 authentication private key file
@@ -613,6 +634,20 @@ async fn run_inner() -> Result<()> {
         }
         Command::ShowServerId { secret_file, json } => {
             secret::show_id(&expand_tilde(secret_file), *json)
+        }
+        Command::GenerateAuthKey {
+            comment,
+            output,
+            force,
+            json,
+        } => {
+            let output = output.as_deref().map(expand_tilde);
+            auth::generate_auth_key(
+                output.as_deref(),
+                *force,
+                comment.as_deref().unwrap_or_default(),
+                *json,
+            )
         }
         Command::ShowAuthKey {
             private_key_file,

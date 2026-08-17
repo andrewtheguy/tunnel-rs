@@ -845,6 +845,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
 
 [[package]]
+name = "flexaccess-keys"
+version = "0.0.1"
+source = "git+https://github.com/flexaccessdev/flexaccess-keys?tag=v0.0.1#ce4e8cb5ede2b1ee2bedc5e650330b8abd0ef5ea"
+dependencies = [
+ "base64",
+ "ed25519-dalek",
+ "rand",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "fnv"
 version = "1.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3613,8 +3626,8 @@ dependencies = [
  "bytes",
  "clap",
  "dirs",
- "ed25519-dalek",
  "env_logger",
+ "flexaccess-keys",
  "futures",
  "ipnet",
  "iroh",

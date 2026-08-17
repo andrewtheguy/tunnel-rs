@@ -179,7 +179,7 @@ read -r ENDPOINT_ID SECRET < <(
     "$BIN" generate-server-key --json |
         python3 -c 'import json, sys; value = json.load(sys.stdin); print(value["public_key"], value["private_key"])'
 )
-"$REPO_DIR/scripts/generate-auth-key.py" "failover e2e client" \
+"$BIN" generate-auth-key "failover e2e client" \
     > "$WORK/client.key" 2> "$WORK/authorized_keys"
 log "EndpointId: $ENDPOINT_ID"
 

@@ -224,11 +224,10 @@ read -r ENDPOINT_ID SECRET < <(
     "$BIN" generate-server-key --json |
         python3 -c 'import json, sys; value = json.load(sys.stdin); print(value["public_key"], value["private_key"])'
 )
-# With --output the uv-run keygen script writes the key file itself (0600) and
+# With --output the built-in keygen writes the key file itself (0600) and
 # prints the authorized-keys entry to stdout.
-KEYGEN="$REPO_DIR/scripts/generate-auth-key.py"
-"$KEYGEN" "e2e client" --output "$WORK/client.key" > "$WORK/authorized_keys"
-"$KEYGEN" "unauthorized e2e client" \
+"$BIN" generate-auth-key "e2e client" --output "$WORK/client.key" > "$WORK/authorized_keys"
+"$BIN" generate-auth-key "unauthorized e2e client" \
     --output "$WORK/unauthorized.key" > "$WORK/unauthorized.authorized_key"
 
 AUTHORIZED_ENTRY="$(<"$WORK/authorized_keys")"
@@ -236,7 +235,7 @@ KEY_TYPE_HEADER="$(sed -n '1p' "$WORK/client.key")"
 CREATED_HEADER="$(sed -n '2p' "$WORK/client.key")"
 PRIVATE_KEY_HEADER="$(sed -n '3p' "$WORK/client.key")"
 PRIVATE_KEY_VALUE="$(sed -n '4p' "$WORK/client.key")"
-if [[ "$KEY_TYPE_HEADER" != "# Ed25519 client authentication key" ]]; then
+if [[ "$KEY_TYPE_HEADER" != "# Ed25519 authentication key" ]]; then
     echo "ERROR: private-key file does not name its key type on the first line" >&2
     exit 1
 fi
@@ -261,7 +260,7 @@ if [[ "$(stat -c '%a' "$WORK/client.key")" != "600" ]]; then
     exit 1
 fi
 # Without --output the key file goes to stdout and the entry to stderr.
-"$KEYGEN" "stdout e2e client" \
+"$BIN" generate-auth-key "stdout e2e client" \
     > "$WORK/stdout.key" 2> "$WORK/stdout.authorized_key"
 if ! diff -q <(sed -n '3p' "$WORK/stdout.key" | sed 's/^# Public key: //') \
     "$WORK/stdout.authorized_key" > /dev/null; then
@@ -273,14 +272,14 @@ if [[ ! "$(sed -n '4p' "$WORK/stdout.key")" =~ ^ed25519-sec:[A-Za-z0-9_-]{43}$ ]
     exit 1
 fi
 # --json emits both halves of one keypair as a single object.
-if ! "$KEYGEN" "json e2e client" --json | python3 -c '
+if ! "$BIN" generate-auth-key "json e2e client" --json | python3 -c '
 import json, re, sys
 value = json.load(sys.stdin)
 assert set(value) == {"authorized_key", "private_key"}, value
 assert re.fullmatch(r"ed25519-pub:[A-Za-z0-9_-]{43} json e2e client", value["authorized_key"]), value
 assert re.fullmatch(r"ed25519-sec:[A-Za-z0-9_-]{43}", value["private_key"]), value
 '; then
-    echo "ERROR: generate-auth-key.py --json has an unexpected shape" >&2
+    echo "ERROR: generate-auth-key --json has an unexpected shape" >&2
     exit 1
 fi
 log "Compact key format, public-key header, stdout default, --json, and 0600 permissions: PASS"
