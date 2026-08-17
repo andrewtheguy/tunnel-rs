@@ -28,7 +28,7 @@ spec:
       dnsPolicy: ClusterFirstWithHostNet
       containers:
         - name: tunnel
-          image: ghcr.io/andrewtheguy/tunnel-rs:v0.5.0
+          image: ghcr.io/andrewtheguy/tunnel-rs:v0.6.0
           # REPLACE the CIDRs below with your cluster's real pod and service
           # ranges: any authorized client can reach every address inside them.
           # The defaults are deliberately broad so this manifest starts anywhere.
