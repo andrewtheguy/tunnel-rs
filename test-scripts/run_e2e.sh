@@ -272,7 +272,23 @@ if [[ "$(stat -c '%a' "$WORK/file.key")" != "600" ]]; then
     echo "ERROR: generated --output private key permissions are not 0600" >&2
     exit 1
 fi
-log "Age-style key output, separate public derivation, quiet stderr, and 0600 file mode: PASS"
+"$BIN" generate-auth-key "json e2e client" --json \
+    > "$WORK/generated.json" 2> "$WORK/json.stderr"
+if [[ -s "$WORK/json.stderr" ]]; then
+    echo "ERROR: successful generate-auth-key --json wrote to stderr" >&2
+    exit 1
+fi
+if ! python3 -c '
+import json, re, sys
+value = json.load(sys.stdin)
+assert set(value) == {"authorized_key", "private_key"}, value
+assert re.fullmatch(r"ed25519-pub:[A-Za-z0-9_-]{43} json e2e client", value["authorized_key"]), value
+assert re.fullmatch(r"ed25519-sec:[A-Za-z0-9_-]{43}", value["private_key"]), value
+' < "$WORK/generated.json"; then
+    echo "ERROR: generate-auth-key --json has an unexpected shape" >&2
+    exit 1
+fi
+log "Age-style output, 0.5 JSON, separate public derivation, quiet stderr, and 0600 mode: PASS"
 
 # show-auth-key reprints the entry, comment included, from the key file alone.
 if [[ "$("$BIN" show-auth-key --private-key-file "$WORK/client.key")" != "$AUTHORIZED_ENTRY" ]]; then

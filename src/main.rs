@@ -172,18 +172,23 @@ enum Command {
     ///
     /// The complete private-key file is printed to stdout by default. Its
     /// header comments the public key. Stderr is reserved for errors; use
-    /// show-auth-key to derive an authorized public-key entry.
+    /// show-auth-key to derive an authorized public-key entry. The explicit
+    /// --json mode prints both keypair fields to stdout for automation.
     GenerateAuthKey {
         /// Comment appended to the authorized-key entry
         comment: Option<String>,
 
         /// Path where to save the private key file ("-" means stdout)
-        #[arg(short, long)]
+        #[arg(short, long, conflicts_with = "json")]
         output: Option<PathBuf>,
 
         /// Overwrite an existing output file
         #[arg(long, requires = "output")]
         force: bool,
+
+        /// Print the authorized-key entry and private key as JSON
+        #[arg(long)]
+        json: bool,
     },
     /// Show the authorized-key entry for an existing client authentication key
     ///
@@ -635,12 +640,14 @@ async fn run_inner() -> Result<()> {
             comment,
             output,
             force,
+            json,
         } => {
             let output = output.as_deref().map(expand_tilde);
             auth::generate_auth_key(
                 output.as_deref(),
                 *force,
                 comment.as_deref().unwrap_or_default(),
+                *json,
             )
         }
         Command::ShowAuthKey {

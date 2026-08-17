@@ -119,9 +119,10 @@ pub fn generate_auth_key(
     output: Option<&Path>,
     force: bool,
     comment: &str,
+    json: bool,
 ) -> Result<()> {
     Ok(flexaccess_keys::generate_auth_key_command(
-        output, force, comment,
+        output, force, comment, json,
     )?)
 }
 

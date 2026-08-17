@@ -553,13 +553,19 @@ tunnel-rs show-auth-key --private-key-file client.key >> authorized_keys
 # Or create the key file directly with mode 0600; successful file output is quiet
 tunnel-rs generate-auth-key "alice laptop" --output client.key
 tunnel-rs generate-auth-key "alice laptop" --output client.key --force  # overwrite
+
+# 0.5-compatible structured generation for automation
+tunnel-rs generate-auth-key "alice laptop" --json
+# {"authorized_key":"ed25519-pub:... alice laptop","private_key":"ed25519-sec:..."}
 ```
 
 Redirected output uses the shell's default permissions, so restrict it with
 `umask 077` or `chmod 600 client.key`. With `--output`, the file is created with
 `0600` permissions on Unix and is not overwritten unless `--force` is supplied.
 Public-key output is deliberately separate: use `show-auth-key`, whose `--json`
-output can be selected with `jq -r .authorized_key`.
+output can be selected with `jq -r .authorized_key`. The explicit generation
+`--json` mode retains the 0.5 behavior by returning both keypair fields on
+stdout; stderr remains reserved for errors.
 
 The app-independent format and reusable Rust API are maintained in
 [`flexaccess-keys`](https://github.com/flexaccessdev/flexaccess-keys). tunnel-rs
