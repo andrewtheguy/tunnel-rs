@@ -368,7 +368,7 @@ Example usage with files (recommended):
 ```bash
 # Alice — generate a compact private key with the flexaccess-keys CLI,
 # then derive its public entry
-flexaccess-keys generate-auth-key alice > alice.key
+flexaccess-keys generate-auth-key alice --output alice.key
 flexaccess-keys show-auth-key --private-key-file alice.key > alice.pub
 
 # Alice — reprint that entry later, straight from the private key

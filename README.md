@@ -239,6 +239,7 @@ links against — the format is not tied to tunnel-rs. Grab the binary from the
 
 ```bash
 # On the client: write a compact private key, then derive its public entry
+mkdir -p ~/.config/tunnel-rs
 flexaccess-keys generate-auth-key "alice laptop" \
   > ~/.config/tunnel-rs/client.key
 flexaccess-keys show-auth-key \

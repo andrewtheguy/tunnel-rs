@@ -1,6 +1,6 @@
 # Authorized Ed25519 client keys
-# Generate a compact client key, then derive its public entry with tunnel-rs:
-# flexaccess-keys generate-auth-key "alice laptop" > client.key
+# Generate a compact client key, then derive its public entry with flexaccess-keys:
+# flexaccess-keys generate-auth-key "alice laptop" --output client.key
 # flexaccess-keys show-auth-key --private-key-file client.key >> authorized_keys
 #
 # Format: ed25519-pub:<unpadded url-safe base64 32-byte public key>[ comment]
