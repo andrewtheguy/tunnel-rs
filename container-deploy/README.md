@@ -15,11 +15,11 @@ files. This page covers only what is specific to containers, and the manifests i
 > Every example here, including the manifests, uses one immutable reference:
 >
 > ```
-> ghcr.io/andrewtheguy/tunnel-rs:v0.6.0
+> ghcr.io/flexaccessdev/tunnel-rs:v0.6.0
 > ```
 >
 > Change it in one place per deployment and keep client and server on the same
-> release. Pinning by digest (`ghcr.io/andrewtheguy/tunnel-rs@sha256:…`, from
+> release. Pinning by digest (`ghcr.io/flexaccessdev/tunnel-rs@sha256:…`, from
 > `docker buildx imagetools inspect`) is stricter still, since a tag can be
 > re-pushed.
 
@@ -59,7 +59,7 @@ publishes a port to the host:
 cd container-deploy/docker
 
 # 1. Generate the server key
-docker run --rm ghcr.io/andrewtheguy/tunnel-rs:v0.6.0 \
+docker run --rm ghcr.io/flexaccessdev/tunnel-rs:v0.6.0 \
   generate-server-key > server.key
 
 # 2. Generate a client auth key on the host with the uv-run script

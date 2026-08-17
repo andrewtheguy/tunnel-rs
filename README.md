@@ -65,12 +65,12 @@ You only need the binary in your PATH; no runtime dependencies or package manage
 
 **Linux & macOS:**
 ```bash
-curl -sSL https://andrewtheguy.github.io/tunnel-rs/install.sh | bash
+curl -sSL https://flexaccessdev.github.io/tunnel-rs/install.sh | bash
 ```
 
 **Windows:**
 ```powershell
-irm https://andrewtheguy.github.io/tunnel-rs/install.ps1 | iex
+irm https://flexaccessdev.github.io/tunnel-rs/install.ps1 | iex
 ```
 
 This installs `tunnel-rs`.
@@ -81,30 +81,30 @@ This installs `tunnel-rs`.
 Install with custom release tag:
 ```bash
 # Linux/macOS
-curl -sSL https://andrewtheguy.github.io/tunnel-rs/install.sh | bash -s <RELEASE_TAG>
+curl -sSL https://flexaccessdev.github.io/tunnel-rs/install.sh | bash -s <RELEASE_TAG>
 ```
 
 ```powershell
 # Windows
-& ([scriptblock]::Create((irm https://andrewtheguy.github.io/tunnel-rs/install.ps1))) <RELEASE_TAG>
+& ([scriptblock]::Create((irm https://flexaccessdev.github.io/tunnel-rs/install.ps1))) <RELEASE_TAG>
 ```
 
 By default the installer pulls the latest **stable** release. Use `--prerelease` for the newest prerelease, or pass an explicit tag to pin to a specific build:
 
 ```bash
 # Linux/macOS - latest prerelease
-curl -sSL https://andrewtheguy.github.io/tunnel-rs/install.sh | bash -s -- --prerelease
+curl -sSL https://flexaccessdev.github.io/tunnel-rs/install.sh | bash -s -- --prerelease
 
 # Linux/macOS - pin to specific tag
-curl -sSL https://andrewtheguy.github.io/tunnel-rs/install.sh | bash -s 20251210172710
+curl -sSL https://flexaccessdev.github.io/tunnel-rs/install.sh | bash -s 20251210172710
 ```
 
 ```powershell
 # Windows - latest prerelease
-& ([scriptblock]::Create((irm https://andrewtheguy.github.io/tunnel-rs/install.ps1))) -PreRelease
+& ([scriptblock]::Create((irm https://flexaccessdev.github.io/tunnel-rs/install.ps1))) -PreRelease
 
 # Windows - pin to specific tag
-& ([scriptblock]::Create((irm https://andrewtheguy.github.io/tunnel-rs/install.ps1))) 20251210172710
+& ([scriptblock]::Create((irm https://flexaccessdev.github.io/tunnel-rs/install.ps1))) 20251210172710
 ```
 
 > **Note:** Prerelease artifacts may not include Windows binaries. If unavailable, use a stable release tag or build from source.
@@ -130,7 +130,7 @@ Intel macOS is supported when building from source.
 
 ### Docker & Kubernetes
 
-Container images are available at `ghcr.io/andrewtheguy/tunnel-rs`.
+Container images are available at `ghcr.io/flexaccessdev/tunnel-rs`.
 
 Access services running in Docker or Kubernetes remotely — without opening ports, configuring ingress, or requiring `kubectl`. See [container-deploy/](container-deploy/) for Docker Compose and Kubernetes configurations.
 
