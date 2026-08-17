@@ -168,23 +168,6 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Show the authorized-key entry for an existing client authentication key
-    ///
-    /// Generate keys with scripts/generate-auth-key.py (uv-run).
-    /// Add the printed entry to the server's authorized_keys file.
-    ShowAuthKey {
-        /// Path to the compact Ed25519 authentication private key file
-        #[arg(long)]
-        private_key_file: PathBuf,
-
-        /// Comment for the entry, replacing the one in the key file's header
-        #[arg(short, long)]
-        comment: Option<String>,
-
-        /// Print the authorized-key entry as JSON
-        #[arg(long)]
-        json: bool,
-    },
 }
 
 fn env_var_opt(name: &str) -> Option<String> {
@@ -217,25 +200,31 @@ fn load_authorized_keys(source: AuthorizedKeysSource) -> Result<auth::Authorized
         AuthorizedKeysSource::File(path) => {
             let path = expand_tilde(&path);
             let origin = path.display().to_string();
-            (auth::load_authorized_keys(&path)?, origin)
+            (flexaccess_keys::load_authorized_keys(&path)?, origin)
         }
         AuthorizedKeysSource::Inline(entries) => {
             let origin = "[iroh].authorized_keys".to_string();
-            (auth::parse_authorized_keys_entries(&entries, &origin)?, origin)
+            (
+                flexaccess_keys::parse_authorized_key_entries(&entries, &origin)?,
+                origin,
+            )
         }
     };
     if keys.is_empty() {
         anyhow::bail!("No Ed25519 public keys found in {}", origin);
     }
-    Ok(keys)
+    Ok(keys.into())
 }
 
 /// Load the client's authentication private key.
 fn load_private_key(source: PrivateKeySource) -> Result<auth::ClientAuthKey> {
-    match source {
-        PrivateKeySource::File(path) => auth::load_private_key(&expand_tilde(&path)),
-        PrivateKeySource::Inline(key) => auth::parse_private_key(&key, "[iroh].private_key"),
-    }
+    let key = match source {
+        PrivateKeySource::File(path) => flexaccess_keys::load_private_key(&expand_tilde(&path))?,
+        PrivateKeySource::Inline(key) => {
+            flexaccess_keys::parse_private_key(&key, "[iroh].private_key")?
+        }
+    };
+    Ok(key.into())
 }
 
 /// Resolved server parameters from the CLI and the `[iroh]` config section.
@@ -614,14 +603,5 @@ async fn run_inner() -> Result<()> {
         Command::ShowServerId { secret_file, json } => {
             secret::show_id(&expand_tilde(secret_file), *json)
         }
-        Command::ShowAuthKey {
-            private_key_file,
-            comment,
-            json,
-        } => auth::show_auth_key(
-            &expand_tilde(private_key_file),
-            comment.as_deref(),
-            *json,
-        ),
     }
 }

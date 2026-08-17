@@ -17,15 +17,15 @@ server_node_id = "2xnbkpbc7izsilvewd7c62w7wnwziacmpfwvhcrya5nt76dqkpga"
 # Authentication (REQUIRED)
 # ============================================================================
 # Compact Ed25519 private key used only for post-connect authentication.
-# Generate it with the uv-run script (from the tunnel-rs repo):
-#   scripts/generate-auth-key.py "alice laptop" > ~/.config/tunnel-rs/client.key
-# Give the authorized-key line printed on stderr to the server administrator;
-# reprint it later with:
-#   tunnel-rs show-auth-key --private-key-file ~/.config/tunnel-rs/client.key
+# Generate it with the tunnel-rs binary:
+#   flexaccess-keys generate-auth-key "alice laptop" > ~/.config/tunnel-rs/client.key
+# Derive the authorized-key line and give it to the server administrator;
+# the same command reprints it whenever needed:
+#   flexaccess-keys show-auth-key --private-key-file ~/.config/tunnel-rs/client.key
 #
 # The key file names its key type, then a creation stamp and public-key comment,
 # followed by one short private-key line (all base64 is unpadded URL-safe):
-#   # Ed25519 client authentication key
+#   # Ed25519 authentication key
 #   # Created: 2024-09-13T22:22:33Z
 #   # Public key: ed25519-pub:<urlsafe base64 public key> alice laptop
 #   ed25519-sec:<urlsafe base64 private seed>

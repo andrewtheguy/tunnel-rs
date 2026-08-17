@@ -62,10 +62,10 @@ cd container-deploy/docker
 docker run --rm ghcr.io/flexaccessdev/tunnel-rs:v0.6.0 \
   generate-server-key > server.key
 
-# 2. Generate a client auth key on the host with the uv-run script
-#    (key file to stdout, authorized-key entry to stderr)
-../../scripts/generate-auth-key.py "remote client" \
-  > client.key 2> authorized_keys
+# 2. Generate a client auth key on the host with the flexaccess-keys CLI
+#    (https://github.com/flexaccessdev/flexaccess-keys/releases)
+flexaccess-keys generate-auth-key "remote client" > client.key
+flexaccess-keys show-auth-key --private-key-file client.key > authorized_keys
 # Copy client.key securely to the client machine.
 
 # 3. Start services
@@ -117,9 +117,9 @@ the client:
 # 1. Generate the server key
 tunnel-rs generate-server-key --output server.key
 
-# 2. Generate a client auth key with the uv-run script
-#    (key file to stdout, authorized-key entry to stderr)
-scripts/generate-auth-key.py "remote client" > client.key 2> authorized_keys
+# 2. Generate a client auth key with the flexaccess-keys CLI
+flexaccess-keys generate-auth-key "remote client" > client.key
+flexaccess-keys show-auth-key --private-key-file client.key > authorized_keys
 # Copy client.key securely to the client machine.
 
 # 3. Create the secret the deployment mounts

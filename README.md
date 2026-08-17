@@ -146,11 +146,18 @@ and where it lives.
 Client key first: the server will not accept a connection until it already holds
 that client's public entry.
 
+Client authentication keys are managed by the standalone
+[`flexaccess-keys`](https://github.com/flexaccessdev/flexaccess-keys) CLI;
+download it from its
+[releases page](https://github.com/flexaccessdev/flexaccess-keys/releases) or
+install with
+`cargo install --git https://github.com/flexaccessdev/flexaccess-keys --features cli flexaccess-keys`.
+
 ```bash
-# 1. On the client machine (needs uv); the private key goes to stdout and
-#    the public entry to stderr. Send the public entry to the server admin.
-scripts/generate-auth-key.py "alice laptop" \
-  > client.key 2> client.authorized_key
+# 1. On the client machine; generate the private key, then derive its public
+#    entry separately. Send only the public entry to the server admin.
+flexaccess-keys generate-auth-key "alice laptop" > client.key
+flexaccess-keys show-auth-key --private-key-file client.key > client.authorized_key
 
 # 2. On the server machine - authorize that entry
 cat client.authorized_key >> authorized_keys
@@ -223,31 +230,36 @@ Clients authenticate after the iroh connection is established by signing a fresh
 server challenge with an Ed25519 key. This authentication identity is
 independent of the client's ephemeral iroh EndpointId.
 
-Keys are generated with
-[`scripts/generate-auth-key.py`](scripts/generate-auth-key.py), a
-[uv](https://docs.astral.sh/uv/)-run Python script — tunnel-rs has no keygen
-subcommand of its own. The prefixes name the algorithm rather than this
-application, so the same keys work with other apps sharing the scheme:
+Key management lives in the shared
+[`flexaccess-keys`](https://github.com/flexaccessdev/flexaccess-keys)
+repository: its standalone CLI generates and inspects keys, and its crate
+provides the encoding, file handling, and public-key derivation tunnel-rs
+links against — the format is not tied to tunnel-rs. Grab the binary from the
+[flexaccess-keys releases](https://github.com/flexaccessdev/flexaccess-keys/releases):
 
 ```bash
-# On the client: write a compact private key; the public entry goes to stderr
-scripts/generate-auth-key.py "alice laptop" > ~/.config/tunnel-rs/client.key
-# stderr: ed25519-pub:<urlsafe-base64-public-key> alice laptop
+# On the client: write a compact private key, then derive its public entry
+mkdir -p ~/.config/tunnel-rs
+flexaccess-keys generate-auth-key "alice laptop" \
+  > ~/.config/tunnel-rs/client.key
+flexaccess-keys show-auth-key \
+  --private-key-file ~/.config/tunnel-rs/client.key
+# stdout: ed25519-pub:<urlsafe-base64-public-key> alice laptop
 ```
 
 The private key file is compact and self-describing:
 
 ```text
-# Ed25519 client authentication key
+# Ed25519 authentication key
 # Created: 2024-09-13T22:22:33Z
 # Public key: ed25519-pub:<urlsafe-base64-public-key> alice laptop
 ed25519-sec:<urlsafe-base64-private-seed>
 ```
 
-Both tokens carry unpadded [URL-safe base64](https://datatracker.ietf.org/doc/html/rfc4648#section-5)
-of 32 raw key bytes, so a key is a single copy-pasteable word. To reprint the
-public entry for a key you already have, use
-[`show-auth-key`](#show-auth-key).
+See the shared repository's
+[key-format specification](https://github.com/flexaccessdev/flexaccess-keys/blob/main/docs/key-format.md)
+for the canonical encoding and authorized-keys grammar. To reprint the public
+entry for a key you already have, use `flexaccess-keys show-auth-key`.
 
 Add the generated public entry to the server's `authorized_keys` file. A single
 space separates the key from its comment, and the comment runs to end of line;
@@ -537,65 +549,27 @@ The connection-level receive window uses iroh's default. If `send_window` is omi
 
 ## Utility Commands
 
-### generate-auth-key.py
+### Client authentication keys (flexaccess-keys)
 
-Client authentication keys are generated with
-[`scripts/generate-auth-key.py`](scripts/generate-auth-key.py); the binary has
-no keygen subcommand for them. It is a self-contained
-[uv](https://docs.astral.sh/uv/) script — the shebang runs it through
-`uv run`, which fetches its one dependency
-([`cryptography`](https://cryptography.io/)) on first use, so `uv` is all a
-machine needs. By default the private key file goes to stdout and the matching
-server authorized-key entry to stderr:
-
-```bash
-scripts/generate-auth-key.py "alice laptop" \
-  > ~/.config/tunnel-rs/client.key 2>> authorized_keys
-
-# Write the key file directly (created with 0600 permissions);
-# the authorized-key entry then goes to stdout instead
-scripts/generate-auth-key.py "alice laptop" --output client.key
-scripts/generate-auth-key.py "alice laptop" --output client.key --force  # overwrite
-
-# Emit both halves as JSON for automation, without writing a file
-scripts/generate-auth-key.py "alice laptop" --json
-# Output: {"authorized_key": "ed25519-pub:... alice laptop", "private_key": "ed25519-sec:..."}
-```
-
-When redirecting stdout yourself, remember to restrict the key file's
-permissions (`chmod 600 client.key`) — only `--output` sets `0600` for you. The
-stderr copy is skipped when stdout is a terminal, where the key file's own
-`# Public key:` header already shows it — there, copy only what follows
-`# Public key: `, since the leading `#` would make `authorized_keys` ignore the
-line.
-
-The format is deliberately tool-agnostic: the raw 32 bytes of each half as an
-unpadded URL-safe base64 token behind the `ed25519-sec:` / `ed25519-pub:`
-prefixes. The prefixes name the algorithm, not tunnel-rs, so any application
-adopting the same scheme can share these keys — and any Ed25519-capable tool
-can produce them without this script (e.g. with openssl:
-`openssl genpkey -algorithm ED25519 | openssl pkey -outform DER | tail -c 32 |
-basenc --base64url | tr -d '='` yields the private token's value).
-
-### show-auth-key
-
-Reprint the authorized-key entry for a key you already have — the client-side
-counterpart of `show-server-id`, for when the entry scrolled away or the server
-needs to be re-provisioned:
+Client authentication keys are managed by the standalone
+[`flexaccess-keys`](https://github.com/flexaccessdev/flexaccess-keys) CLI,
+which provides `generate-auth-key` and `show-auth-key` with the exact behavior
+tunnel-rs's built-in commands used to have (they were removed in 0.6):
+age-style key files on stdout, `--output` files with mode `0600` that are not
+overwritten without `--force`, `--json` automation modes, and stderr reserved
+for errors. Download it from the
+[flexaccess-keys releases](https://github.com/flexaccessdev/flexaccess-keys/releases)
+page; that repository's README and
+[key-format specification](https://github.com/flexaccessdev/flexaccess-keys/blob/main/docs/key-format.md)
+are the reference for the commands and the format:
 
 ```bash
-tunnel-rs show-auth-key --private-key-file ~/.config/tunnel-rs/client.key
-# Output: ed25519-pub:<urlsafe-base64-public-key> alice laptop
-
-# Machine-readable form
-tunnel-rs show-auth-key --private-key-file ./client.key --json
-# Output: {"authorized_key":"ed25519-pub:... alice laptop"}
+flexaccess-keys generate-auth-key "alice laptop" > client.key
+flexaccess-keys show-auth-key --private-key-file client.key >> authorized_keys
 ```
 
-The entry is derived from the private key itself. The comment is the one part
-that cannot be, so it is read from the key file's `# Public key:` header — pass
-`--comment` to replace it, and expect a bare key token from a file that has no
-header.
+tunnel-rs links against the same crate for parsing and verification, and
+retains only its own domain-separated challenge-response protocol.
 
 ### generate-server-key
 
@@ -628,8 +602,7 @@ works as `TUNNEL_RS_SECRET` or as an inline `secret` in a `--config-stdin` confi
 
 With `--output` the key file is created with `0600` permissions on Unix and the
 EndpointId is printed to stdout. Without `--output` (or with `--output -`) the
-roles swap, exactly as in `generate-auth-key.py`: the key file goes to stdout and
-the EndpointId to stderr — remember to restrict permissions yourself when
+key file goes to stdout and the EndpointId to stderr — remember to restrict permissions yourself when
 redirecting to a file. The stderr copy is skipped when stdout is a terminal,
 where the `# EndpointId:` header already shows it — there, copy only what follows
 `# EndpointId: `, not the whole comment line, when handing the id to a client's
