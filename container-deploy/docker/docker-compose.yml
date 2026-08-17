@@ -18,7 +18,7 @@ services:
 
   # tunnel-rs server - exposes services to authenticated remote peers
   tunnel-server:
-    image: ghcr.io/andrewtheguy/tunnel-rs:v0.6.0
+    image: ghcr.io/flexaccessdev/tunnel-rs:v0.6.0
     command:
       - server
       # Broad defaults so this file starts on any Docker install. Narrow them to

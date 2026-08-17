@@ -8,7 +8,7 @@ permissions:
   packages: write
 
 env:
-  GHCR_IMAGE: ghcr.io/andrewtheguy/tunnel-rs
+  GHCR_IMAGE: ghcr.io/flexaccessdev/tunnel-rs
 
 jobs:
   setup:

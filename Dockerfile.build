@@ -16,7 +16,7 @@ FROM scratch AS export
 COPY --from=builder /tunnel-rs /tunnel-rs
 
 FROM debian:bookworm-slim AS runtime-base
-LABEL org.opencontainers.image.source=https://github.com/andrewtheguy/tunnel-rs
+LABEL org.opencontainers.image.source=https://github.com/flexaccessdev/tunnel-rs
 
 RUN apt-get update && apt-get install -y \
     ca-certificates \

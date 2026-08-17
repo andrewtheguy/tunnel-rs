@@ -1,14 +1,14 @@
 #!/bin/bash
 
 # tunnel-rs installer for Linux and Mac
-# Downloads latest binary from: https://github.com/andrewtheguy/tunnel-rs/releases
+# Downloads latest binary from: https://github.com/flexaccessdev/tunnel-rs/releases
 #
 # Usage: ./install.sh [RELEASE_TAG] [--prerelease]
 # Or set RELEASE_TAG environment variable
 
 set -e
 
-REPO_OWNER="andrewtheguy"
+REPO_OWNER="flexaccessdev"
 REPO_NAME="tunnel-rs"
 DOWNLOAD_ONLY=false
 PREFER_PRERELEASE=false

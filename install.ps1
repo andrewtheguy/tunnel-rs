@@ -1,7 +1,7 @@
 #!/usr/bin/env pwsh
 
 # tunnel-rs installer for Windows
-# Downloads latest binary from: https://github.com/andrewtheguy/tunnel-rs/releases
+# Downloads latest binary from: https://github.com/flexaccessdev/tunnel-rs/releases
 #
 # Usage: .\install.ps1 [RELEASE_TAG] [-Admin] [-PreRelease]
 # Or set $env:RELEASE_TAG environment variable
@@ -22,7 +22,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$REPO_OWNER = "andrewtheguy"
+$REPO_OWNER = "flexaccessdev"
 $REPO_NAME = "tunnel-rs"
 
 # Function to print colored messages
