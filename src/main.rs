@@ -168,26 +168,22 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Generate a client authentication key and authorized-key entry
+    /// Generate a client authentication private key
     ///
-    /// Without --output the private key file is written to stdout and the
-    /// authorized-key entry to stderr. With --output the file is created with
-    /// 0600 permissions on Unix and the authorized-key entry goes to stdout.
+    /// The complete private-key file is printed to stdout by default. Its
+    /// header comments the public key. Stderr is reserved for errors; use
+    /// show-auth-key to derive an authorized public-key entry.
     GenerateAuthKey {
         /// Comment appended to the authorized-key entry
         comment: Option<String>,
 
         /// Path where to save the private key file ("-" means stdout)
-        #[arg(short, long, conflicts_with = "json")]
+        #[arg(short, long)]
         output: Option<PathBuf>,
 
         /// Overwrite an existing output file
         #[arg(long, requires = "output")]
         force: bool,
-
-        /// Print the private key and authorized-key entry as JSON
-        #[arg(long)]
-        json: bool,
     },
     /// Show the authorized-key entry for an existing client authentication key
     ///
@@ -639,14 +635,12 @@ async fn run_inner() -> Result<()> {
             comment,
             output,
             force,
-            json,
         } => {
             let output = output.as_deref().map(expand_tilde);
             auth::generate_auth_key(
                 output.as_deref(),
                 *force,
                 comment.as_deref().unwrap_or_default(),
-                *json,
             )
         }
         Command::ShowAuthKey {

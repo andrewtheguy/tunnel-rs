@@ -119,10 +119,9 @@ pub fn generate_auth_key(
     output: Option<&Path>,
     force: bool,
     comment: &str,
-    json: bool,
 ) -> Result<()> {
     Ok(flexaccess_keys::generate_auth_key_command(
-        output, force, comment, json,
+        output, force, comment,
     )?)
 }
 
@@ -133,8 +132,7 @@ pub fn show_auth_key(path: &Path, comment: Option<&str>, json: bool) -> Result<(
 }
 
 /// Report a generated server identity's public half on stderr unless stdout is
-/// a terminal. Auth-key commands get the equivalent behavior from the shared
-/// crate.
+/// a terminal.
 pub fn report_public_half(line: &str) {
     if !std::io::stdout().is_terminal() {
         eprintln!("{}", line);

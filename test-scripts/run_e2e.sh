@@ -224,11 +224,18 @@ read -r ENDPOINT_ID SECRET < <(
     "$BIN" generate-server-key --json |
         python3 -c 'import json, sys; value = json.load(sys.stdin); print(value["public_key"], value["private_key"])'
 )
-# With --output the built-in keygen writes the key file itself (0600) and
-# prints the authorized-keys entry to stdout.
-"$BIN" generate-auth-key "e2e client" --output "$WORK/client.key" > "$WORK/authorized_keys"
-"$BIN" generate-auth-key "unauthorized e2e client" \
-    --output "$WORK/unauthorized.key" > "$WORK/unauthorized.authorized_key"
+# Generation prints one complete private-key file. Public-key derivation is a
+# separate command, and successful commands leave stderr empty.
+"$BIN" generate-auth-key "e2e client" \
+    > "$WORK/client.key" 2> "$WORK/keygen.stderr"
+"$BIN" show-auth-key --private-key-file "$WORK/client.key" > "$WORK/authorized_keys"
+"$BIN" generate-auth-key "unauthorized e2e client" > "$WORK/unauthorized.key"
+"$BIN" show-auth-key --private-key-file "$WORK/unauthorized.key" \
+    > "$WORK/unauthorized.authorized_key"
+if [[ -s "$WORK/keygen.stderr" ]]; then
+    echo "ERROR: successful generate-auth-key wrote to stderr" >&2
+    exit 1
+fi
 
 AUTHORIZED_ENTRY="$(<"$WORK/authorized_keys")"
 KEY_TYPE_HEADER="$(sed -n '1p' "$WORK/client.key")"
@@ -255,34 +262,17 @@ if [[ ! "$PRIVATE_KEY_VALUE" =~ ^ed25519-sec:[A-Za-z0-9_-]{43}$ ]]; then
     echo "ERROR: generated private key is not in the compact prefixed format" >&2
     exit 1
 fi
-if [[ "$(stat -c '%a' "$WORK/client.key")" != "600" ]]; then
-    echo "ERROR: generated private key permissions are not 0600" >&2
+"$BIN" generate-auth-key "file e2e client" --output "$WORK/file.key" \
+    > "$WORK/file.stdout" 2> "$WORK/file.stderr"
+if [[ -s "$WORK/file.stdout" || -s "$WORK/file.stderr" ]]; then
+    echo "ERROR: successful generate-auth-key --output was not quiet" >&2
     exit 1
 fi
-# Without --output the key file goes to stdout and the entry to stderr.
-"$BIN" generate-auth-key "stdout e2e client" \
-    > "$WORK/stdout.key" 2> "$WORK/stdout.authorized_key"
-if ! diff -q <(sed -n '3p' "$WORK/stdout.key" | sed 's/^# Public key: //') \
-    "$WORK/stdout.authorized_key" > /dev/null; then
-    echo "ERROR: stdout key file and stderr authorized-key entry disagree" >&2
+if [[ "$(stat -c '%a' "$WORK/file.key")" != "600" ]]; then
+    echo "ERROR: generated --output private key permissions are not 0600" >&2
     exit 1
 fi
-if [[ ! "$(sed -n '4p' "$WORK/stdout.key")" =~ ^ed25519-sec:[A-Za-z0-9_-]{43}$ ]]; then
-    echo "ERROR: stdout private key is not in the compact prefixed format" >&2
-    exit 1
-fi
-# --json emits both halves of one keypair as a single object.
-if ! "$BIN" generate-auth-key "json e2e client" --json | python3 -c '
-import json, re, sys
-value = json.load(sys.stdin)
-assert set(value) == {"authorized_key", "private_key"}, value
-assert re.fullmatch(r"ed25519-pub:[A-Za-z0-9_-]{43} json e2e client", value["authorized_key"]), value
-assert re.fullmatch(r"ed25519-sec:[A-Za-z0-9_-]{43}", value["private_key"]), value
-'; then
-    echo "ERROR: generate-auth-key --json has an unexpected shape" >&2
-    exit 1
-fi
-log "Compact key format, public-key header, stdout default, --json, and 0600 permissions: PASS"
+log "Age-style key output, separate public derivation, quiet stderr, and 0600 file mode: PASS"
 
 # show-auth-key reprints the entry, comment included, from the key file alone.
 if [[ "$("$BIN" show-auth-key --private-key-file "$WORK/client.key")" != "$AUTHORIZED_ENTRY" ]]; then

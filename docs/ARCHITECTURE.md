@@ -366,9 +366,9 @@ tunnel-rs authenticates clients with separate Ed25519 keys. The QUIC ALPN is a f
 Example usage with files (recommended):
 
 ```bash
-# Alice — generate a compact private key (key file to stdout, public entry to
-# stderr)
-tunnel-rs generate-auth-key alice > alice.key 2> alice.pub
+# Alice — generate a compact private key, then derive its public entry
+tunnel-rs generate-auth-key alice > alice.key
+tunnel-rs show-auth-key --private-key-file alice.key > alice.pub
 
 # Alice — reprint that entry later, straight from the private key
 tunnel-rs show-auth-key --private-key-file ./alice.key

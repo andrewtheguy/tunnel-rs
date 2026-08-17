@@ -147,10 +147,10 @@ Client key first: the server will not accept a connection until it already holds
 that client's public entry.
 
 ```bash
-# 1. On the client machine; the private key goes to stdout and the public
-#    entry to stderr. Send the public entry to the server admin.
-tunnel-rs generate-auth-key "alice laptop" \
-  > client.key 2> client.authorized_key
+# 1. On the client machine; generate the private key, then derive its public
+#    entry separately. Send only the public entry to the server admin.
+tunnel-rs generate-auth-key "alice laptop" > client.key
+tunnel-rs show-auth-key --private-key-file client.key > client.authorized_key
 
 # 2. On the server machine - authorize that entry
 cat client.authorized_key >> authorized_keys
@@ -229,9 +229,12 @@ file handling, and public-key derivation come from the shared
 the format is not tied to tunnel-rs:
 
 ```bash
-# On the client: write a compact private key; the public entry goes to stderr
-tunnel-rs generate-auth-key "alice laptop" > ~/.config/tunnel-rs/client.key
-# stderr: ed25519-pub:<urlsafe-base64-public-key> alice laptop
+# On the client: write a compact private key, then derive its public entry
+tunnel-rs generate-auth-key "alice laptop" \
+  > ~/.config/tunnel-rs/client.key
+tunnel-rs show-auth-key \
+  --private-key-file ~/.config/tunnel-rs/client.key
+# stdout: ed25519-pub:<urlsafe-base64-public-key> alice laptop
 ```
 
 The private key file is compact and self-describing:
@@ -539,29 +542,24 @@ The connection-level receive window uses iroh's default. If `send_window` is omi
 ### generate-auth-key
 
 Client authentication key generation is built into `tunnel-rs`, with no Python,
-uv, or additional runtime dependency. By default the private key file goes to
-stdout and the matching server authorized-key entry to stderr:
+uv, or additional runtime dependency. Like `age-keygen`, the complete private
+key file goes to stdout by default and includes the public key and comment in a
+`# Public key:` header. Stderr is reserved for errors in every mode:
 
 ```bash
-tunnel-rs generate-auth-key "alice laptop" \
-  > ~/.config/tunnel-rs/client.key 2>> authorized_keys
+tunnel-rs generate-auth-key "alice laptop" > client.key
+tunnel-rs show-auth-key --private-key-file client.key >> authorized_keys
 
-# Write the key file directly (created with 0600 permissions);
-# the authorized-key entry then goes to stdout instead
+# Or create the key file directly with mode 0600; successful file output is quiet
 tunnel-rs generate-auth-key "alice laptop" --output client.key
 tunnel-rs generate-auth-key "alice laptop" --output client.key --force  # overwrite
-
-# Emit both halves as JSON for automation, without writing a file
-tunnel-rs generate-auth-key "alice laptop" --json
-# Output: {"authorized_key": "ed25519-pub:... alice laptop", "private_key": "ed25519-sec:..."}
 ```
 
-When redirecting stdout yourself, remember to restrict the key file's
-permissions (`chmod 600 client.key`) — only `--output` sets `0600` for you. The
-stderr copy is skipped when stdout is a terminal, where the key file's own
-`# Public key:` header already shows it — there, copy only what follows
-`# Public key: `, since the leading `#` would make `authorized_keys` ignore the
-line.
+Redirected output uses the shell's default permissions, so restrict it with
+`umask 077` or `chmod 600 client.key`. With `--output`, the file is created with
+`0600` permissions on Unix and is not overwritten unless `--force` is supplied.
+Public-key output is deliberately separate: use `show-auth-key`, whose `--json`
+output can be selected with `jq -r .authorized_key`.
 
 The app-independent format and reusable Rust API are maintained in
 [`flexaccess-keys`](https://github.com/flexaccessdev/flexaccess-keys). tunnel-rs
@@ -618,8 +616,7 @@ works as `TUNNEL_RS_SECRET` or as an inline `secret` in a `--config-stdin` confi
 
 With `--output` the key file is created with `0600` permissions on Unix and the
 EndpointId is printed to stdout. Without `--output` (or with `--output -`) the
-roles swap, exactly as in `generate-auth-key`: the key file goes to stdout and
-the EndpointId to stderr — remember to restrict permissions yourself when
+key file goes to stdout and the EndpointId to stderr — remember to restrict permissions yourself when
 redirecting to a file. The stderr copy is skipped when stdout is a terminal,
 where the `# EndpointId:` header already shows it — there, copy only what follows
 `# EndpointId: `, not the whole comment line, when handing the id to a client's

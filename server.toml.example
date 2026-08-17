@@ -51,9 +51,9 @@ max_sessions = 100
 # Authentication (REQUIRED)
 # ============================================================================
 # Clients prove possession of an Ed25519 private key after connecting.
-# Generate a client key with the tunnel-rs binary;
-# the key file goes to stdout and the authorized-key entry to stderr:
-#   tunnel-rs generate-auth-key "alice laptop" > client.key 2>> authorized_keys
+# Generate a client key, then derive its authorized-key entry separately:
+#   tunnel-rs generate-auth-key "alice laptop" > client.key
+#   tunnel-rs show-auth-key --private-key-file client.key >> authorized_keys
 #
 # Add the entry to the authorized_keys_file below (NOT to this config file).
 # Blank lines and lines starting with # are ignored.
