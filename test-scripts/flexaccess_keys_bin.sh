@@ -4,7 +4,7 @@
 # Resolution order: $FLEXACCESS_KEYS_BIN, PATH, then a download of the pinned
 # release into the work directory passed as $1.
 
-FLEXACCESS_KEYS_VERSION="v0.0.1"
+FLEXACCESS_KEYS_VERSION="v0.0.2"
 
 resolve_flexaccess_keys_bin() {
     local work="$1"
