@@ -39,6 +39,10 @@
 # Environment overrides:
 #   TUNNEL_RS_BIN   path to the tunnel-rs binary (default: cargo-built debug binary)
 #   IROH_RELAY_BIN  path to the iroh-relay binary (default: iroh-relay on PATH)
+#   FLEXACCESS_KEYS_BIN
+#                   path to the flexaccess-keys binary used for client
+#                   authentication keys (default: PATH, then a download of the
+#                   pinned release)
 #   KEEP_LOGS       set to 1 to keep the working directory after the run.
 #   READY_TIMEOUT   seconds to wait for each process to become ready (default: 60).
 #
@@ -179,9 +183,11 @@ read -r ENDPOINT_ID SECRET < <(
     "$BIN" generate-server-key --json |
         python3 -c 'import json, sys; value = json.load(sys.stdin); print(value["public_key"], value["private_key"])'
 )
-"$BIN" generate-auth-key "failover e2e client" \
+source "$SCRIPT_DIR/flexaccess_keys_bin.sh"
+resolve_flexaccess_keys_bin "$WORK"
+"$KEYS_BIN" generate-auth-key "failover e2e client" \
     > "$WORK/client.key"
-"$BIN" show-auth-key --private-key-file "$WORK/client.key" > "$WORK/authorized_keys"
+"$KEYS_BIN" show-auth-key --private-key-file "$WORK/client.key" > "$WORK/authorized_keys"
 log "EndpointId: $ENDPOINT_ID"
 
 # ---------------------------------------------------------------------------

@@ -1,12 +1,13 @@
 //! tunnel-rs Ed25519 challenge-response authentication.
 //!
-//! The app-independent key format, files, and raw signing primitives live in
-//! `flexaccess-keys`. This module owns only tunnel-rs's domain-separated
-//! challenge transcript and its authorization decision.
+//! Key management is delegated to the
+//! [flexaccess-keys](https://github.com/flexaccessdev/flexaccess-keys)
+//! repository: the `ed25519-sec:` / `ed25519-pub:` format, key files,
+//! authorized-keys parsing, and the key-generation CLI all live there. This
+//! module owns only tunnel-rs's domain-separated challenge transcript and its
+//! authorization decision.
 
 use std::io::IsTerminal;
-use std::path::Path;
-use std::time::SystemTime;
 
 use anyhow::Result;
 use flexaccess_keys::{PrivateKey, PublicKey};
@@ -21,9 +22,16 @@ pub type Challenge = [u8; CHALLENGE_LENGTH];
 pub type PublicKeyBytes = [u8; PUBLIC_KEY_LENGTH];
 pub type SignatureBytes = [u8; SIGNATURE_LENGTH];
 
-/// Ed25519 public keys accepted by the server.
+/// Ed25519 public keys accepted by the server, bound to the tunnel-rs
+/// transcript.
 #[derive(Clone, Default, Debug)]
 pub struct AuthorizedKeys(flexaccess_keys::AuthorizedKeys);
+
+impl From<flexaccess_keys::AuthorizedKeys> for AuthorizedKeys {
+    fn from(keys: flexaccess_keys::AuthorizedKeys) -> Self {
+        Self(keys)
+    }
+}
 
 impl AuthorizedKeys {
     pub fn len(&self) -> usize {
@@ -74,6 +82,12 @@ impl AuthorizedKeys {
 #[derive(Clone)]
 pub struct ClientAuthKey(PrivateKey);
 
+impl From<PrivateKey> for ClientAuthKey {
+    fn from(private_key: PrivateKey) -> Self {
+        Self(private_key)
+    }
+}
+
 impl ClientAuthKey {
     pub fn public_key(&self) -> PublicKeyBytes {
         self.0.public_key().to_bytes()
@@ -95,53 +109,12 @@ pub fn generate_challenge() -> Challenge {
     rand::random()
 }
 
-pub fn load_authorized_keys(path: &Path) -> Result<AuthorizedKeys> {
-    Ok(AuthorizedKeys(flexaccess_keys::load_authorized_keys(path)?))
-}
-
-pub fn parse_authorized_keys_entries(entries: &[String], origin: &str) -> Result<AuthorizedKeys> {
-    Ok(AuthorizedKeys(
-        flexaccess_keys::parse_authorized_key_entries(entries, origin)?,
-    ))
-}
-
-pub fn load_private_key(path: &Path) -> Result<ClientAuthKey> {
-    Ok(ClientAuthKey(flexaccess_keys::load_private_key(path)?))
-}
-
-pub fn parse_private_key(content: &str, origin: &str) -> Result<ClientAuthKey> {
-    Ok(ClientAuthKey(flexaccess_keys::parse_private_key(
-        content, origin,
-    )?))
-}
-
-pub fn generate_auth_key(
-    output: Option<&Path>,
-    force: bool,
-    comment: &str,
-    json: bool,
-) -> Result<()> {
-    Ok(flexaccess_keys::generate_auth_key_command(
-        output, force, comment, json,
-    )?)
-}
-
-pub fn show_auth_key(path: &Path, comment: Option<&str>, json: bool) -> Result<()> {
-    Ok(flexaccess_keys::show_auth_key_command(
-        path, comment, json,
-    )?)
-}
-
 /// Report a generated server identity's public half on stderr unless stdout is
 /// a terminal.
 pub fn report_public_half(line: &str) {
     if !std::io::stdout().is_terminal() {
         eprintln!("{}", line);
     }
-}
-
-pub fn rfc3339_utc(time: SystemTime) -> String {
-    flexaccess_keys::rfc3339_utc(time)
 }
 
 fn signed_message(challenge: &Challenge) -> Vec<u8> {
@@ -161,7 +134,7 @@ mod tests {
     use super::*;
 
     fn client(seed: u8) -> ClientAuthKey {
-        ClientAuthKey(PrivateKey::from_seed([seed; PUBLIC_KEY_LENGTH]))
+        PrivateKey::from_seed([seed; PUBLIC_KEY_LENGTH]).into()
     }
 
     fn private_key_file(seed: u8, comment: &str) -> NamedTempFile {
@@ -182,12 +155,20 @@ mod tests {
         file
     }
 
+    fn load_authorized_keys(file: &NamedTempFile) -> AuthorizedKeys {
+        flexaccess_keys::load_authorized_keys(file.path())
+            .unwrap()
+            .into()
+    }
+
     #[test]
     fn shared_key_files_authenticate_with_the_tunnel_transcript() {
         let private_file = private_key_file(42, "alice laptop");
         let authorized_file = authorized_keys_file(42, "alice laptop");
-        let private_key = load_private_key(private_file.path()).unwrap();
-        let authorized_keys = load_authorized_keys(authorized_file.path()).unwrap();
+        let private_key: ClientAuthKey = flexaccess_keys::load_private_key(private_file.path())
+            .unwrap()
+            .into();
+        let authorized_keys = load_authorized_keys(&authorized_file);
         let challenge = [7; CHALLENGE_LENGTH];
         let signature = private_key.sign_challenge(&challenge);
 
@@ -204,9 +185,14 @@ mod tests {
         let key = PrivateKey::from_seed([42; PUBLIC_KEY_LENGTH]);
         let key_file = key.to_key_file("alice laptop", UNIX_EPOCH).unwrap();
         let entry = key.authorized_key("alice laptop").unwrap().to_string();
-        let private_key = parse_private_key(&key_file, "[iroh].private_key").unwrap();
-        let authorized_keys =
-            parse_authorized_keys_entries(&[entry], "[iroh].authorized_keys").unwrap();
+        let private_key: ClientAuthKey =
+            flexaccess_keys::parse_private_key(&key_file, "[iroh].private_key")
+                .unwrap()
+                .into();
+        let authorized_keys: AuthorizedKeys =
+            flexaccess_keys::parse_authorized_key_entries(&[entry], "[iroh].authorized_keys")
+                .unwrap()
+                .into();
         let challenge = [11; CHALLENGE_LENGTH];
         let signature = private_key.sign_challenge(&challenge);
 
@@ -220,23 +206,10 @@ mod tests {
     }
 
     #[test]
-    fn errors_retain_inline_config_origins() {
-        let error = parse_authorized_keys_entries(
-            &["ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC comment".to_string()],
-            "[iroh].authorized_keys",
-        )
-        .unwrap_err();
-        assert!(error.to_string().contains("[iroh].authorized_keys:1"));
-
-        let error = parse_private_key("not-a-key", "[iroh].private_key").unwrap_err();
-        assert!(error.to_string().contains("[iroh].private_key"));
-    }
-
-    #[test]
     fn rejects_signature_for_another_challenge() {
         let private_key = client(42);
         let authorized_file = authorized_keys_file(42, "alice");
-        let authorized_keys = load_authorized_keys(authorized_file.path()).unwrap();
+        let authorized_keys = load_authorized_keys(&authorized_file);
         let signature = private_key.sign_challenge(&[1; CHALLENGE_LENGTH]);
 
         assert!(
@@ -250,7 +223,7 @@ mod tests {
     #[test]
     fn rejects_proof_from_an_unauthorized_key() {
         let authorized_file = authorized_keys_file(42, "alice");
-        let authorized_keys = load_authorized_keys(authorized_file.path()).unwrap();
+        let authorized_keys = load_authorized_keys(&authorized_file);
         let unauthorized_key = client(99);
         let challenge = [3; CHALLENGE_LENGTH];
         let signature = unauthorized_key.sign_challenge(&challenge);
@@ -266,7 +239,7 @@ mod tests {
     #[test]
     fn rejects_malformed_proof_lengths() {
         let authorized_file = authorized_keys_file(42, "alice");
-        let authorized_keys = load_authorized_keys(authorized_file.path()).unwrap();
+        let authorized_keys = load_authorized_keys(&authorized_file);
         let challenge = [0; CHALLENGE_LENGTH];
 
         assert!(
@@ -284,11 +257,6 @@ mod tests {
     #[test]
     fn empty_authorized_keys_file_is_reported_to_the_call_site() {
         let file = NamedTempFile::new().unwrap();
-        assert!(load_authorized_keys(file.path()).unwrap().is_empty());
-    }
-
-    #[test]
-    fn formats_server_key_timestamps_through_the_shared_crate() {
-        assert_eq!(rfc3339_utc(UNIX_EPOCH), "1970-01-01T00:00:00Z");
+        assert!(load_authorized_keys(&file).is_empty());
     }
 }

@@ -8,7 +8,9 @@ use serde::Serialize;
 use std::path::Path;
 use std::time::SystemTime;
 
-use crate::auth::{report_public_half, rfc3339_utc};
+use flexaccess_keys::rfc3339_utc;
+
+use crate::auth::report_public_half;
 use crate::iroh_mode::endpoint::{load_secret, secret_to_endpoint_id};
 
 #[derive(Serialize)]

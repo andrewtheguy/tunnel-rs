@@ -24,6 +24,10 @@
 #
 # Environment overrides:
 #   TUNNEL_RS_BIN   path to the tunnel-rs binary (default: cargo-built debug binary)
+#   FLEXACCESS_KEYS_BIN
+#                   path to the flexaccess-keys binary used for client
+#                   authentication keys (default: PATH, then a download of the
+#                   pinned release)
 #   RELAY_URL       custom relay URL for both sides. Custom relays disable
 #                   internet discovery automatically (the binary handles it),
 #                   so custom-relay runs need no public iroh infrastructure.
@@ -224,88 +228,21 @@ read -r ENDPOINT_ID SECRET < <(
     "$BIN" generate-server-key --json |
         python3 -c 'import json, sys; value = json.load(sys.stdin); print(value["public_key"], value["private_key"])'
 )
-# Generation prints one complete private-key file. Public-key derivation is a
-# separate command, and successful commands leave stderr empty.
-"$BIN" generate-auth-key "e2e client" \
-    > "$WORK/client.key" 2> "$WORK/keygen.stderr"
-"$BIN" show-auth-key --private-key-file "$WORK/client.key" > "$WORK/authorized_keys"
-"$BIN" generate-auth-key "unauthorized e2e client" > "$WORK/unauthorized.key"
-"$BIN" show-auth-key --private-key-file "$WORK/unauthorized.key" \
-    > "$WORK/unauthorized.authorized_key"
-if [[ -s "$WORK/keygen.stderr" ]]; then
-    echo "ERROR: successful generate-auth-key wrote to stderr" >&2
-    exit 1
-fi
+# Client authentication keys come from the flexaccess-keys CLI. Its own
+# behavior (headers, file modes, JSON shapes, quiet stderr) is covered by the
+# flexaccess-keys repository; here it only supplies the keys.
+source "$SCRIPT_DIR/flexaccess_keys_bin.sh"
+resolve_flexaccess_keys_bin "$WORK"
+"$KEYS_BIN" generate-auth-key "e2e client" > "$WORK/client.key"
+"$KEYS_BIN" show-auth-key --private-key-file "$WORK/client.key" > "$WORK/authorized_keys"
+"$KEYS_BIN" generate-auth-key "unauthorized e2e client" > "$WORK/unauthorized.key"
 
 AUTHORIZED_ENTRY="$(<"$WORK/authorized_keys")"
-KEY_TYPE_HEADER="$(sed -n '1p' "$WORK/client.key")"
-CREATED_HEADER="$(sed -n '2p' "$WORK/client.key")"
-PRIVATE_KEY_HEADER="$(sed -n '3p' "$WORK/client.key")"
-PRIVATE_KEY_VALUE="$(sed -n '4p' "$WORK/client.key")"
-if [[ "$KEY_TYPE_HEADER" != "# Ed25519 authentication key" ]]; then
-    echo "ERROR: private-key file does not name its key type on the first line" >&2
-    exit 1
-fi
-if [[ ! "$CREATED_HEADER" =~ ^\#\ Created:\ [0-9]{4}(-[0-9]{2}){2}T([0-9]{2}:){2}[0-9]{2}Z$ ]]; then
-    echo "ERROR: private-key file is missing an RFC 3339 UTC created header" >&2
-    exit 1
-fi
-if [[ "$PRIVATE_KEY_HEADER" != "# Public key: $AUTHORIZED_ENTRY" ]]; then
-    echo "ERROR: private-key public comment does not match the authorized-key entry" >&2
-    exit 1
-fi
 if [[ ! "$AUTHORIZED_ENTRY" =~ ^ed25519-pub:[A-Za-z0-9_-]{43}\ e2e\ client$ ]]; then
     echo "ERROR: generated authorized-key entry has an unexpected format" >&2
     exit 1
 fi
-if [[ ! "$PRIVATE_KEY_VALUE" =~ ^ed25519-sec:[A-Za-z0-9_-]{43}$ ]]; then
-    echo "ERROR: generated private key is not in the compact prefixed format" >&2
-    exit 1
-fi
-"$BIN" generate-auth-key "file e2e client" --output "$WORK/file.key" \
-    > "$WORK/file.stdout" 2> "$WORK/file.stderr"
-if [[ -s "$WORK/file.stdout" || -s "$WORK/file.stderr" ]]; then
-    echo "ERROR: successful generate-auth-key --output was not quiet" >&2
-    exit 1
-fi
-if [[ "$(stat -c '%a' "$WORK/file.key")" != "600" ]]; then
-    echo "ERROR: generated --output private key permissions are not 0600" >&2
-    exit 1
-fi
-"$BIN" generate-auth-key "json e2e client" --json \
-    > "$WORK/generated.json" 2> "$WORK/json.stderr"
-if [[ -s "$WORK/json.stderr" ]]; then
-    echo "ERROR: successful generate-auth-key --json wrote to stderr" >&2
-    exit 1
-fi
-if ! python3 -c '
-import json, re, sys
-value = json.load(sys.stdin)
-assert set(value) == {"authorized_key", "private_key"}, value
-assert re.fullmatch(r"ed25519-pub:[A-Za-z0-9_-]{43} json e2e client", value["authorized_key"]), value
-assert re.fullmatch(r"ed25519-sec:[A-Za-z0-9_-]{43}", value["private_key"]), value
-' < "$WORK/generated.json"; then
-    echo "ERROR: generate-auth-key --json has an unexpected shape" >&2
-    exit 1
-fi
-log "Age-style output, 0.5 JSON, separate public derivation, quiet stderr, and 0600 mode: PASS"
-
-# show-auth-key reprints the entry, comment included, from the key file alone.
-if [[ "$("$BIN" show-auth-key --private-key-file "$WORK/client.key")" != "$AUTHORIZED_ENTRY" ]]; then
-    echo "ERROR: show-auth-key does not reproduce the generated authorized-key entry" >&2
-    exit 1
-fi
-if [[ "$("$BIN" show-auth-key --private-key-file "$WORK/client.key" --json)" \
-    != "{\"authorized_key\":\"$AUTHORIZED_ENTRY\"}" ]]; then
-    echo "ERROR: show-auth-key --json has an unexpected shape" >&2
-    exit 1
-fi
-if [[ "$("$BIN" show-auth-key --private-key-file "$WORK/client.key" --comment "renamed")" \
-    != "${AUTHORIZED_ENTRY% e2e client} renamed" ]]; then
-    echo "ERROR: show-auth-key --comment does not replace the key file's comment" >&2
-    exit 1
-fi
-log "Authorized-key entry recovery from a private key: PASS"
+log "Client authentication keys generated with $("$KEYS_BIN" --version)"
 
 # Server keys use the same layout: headers above the key, stdout by default.
 "$BIN" generate-server-key > "$WORK/server_stdout.key" 2> "$WORK/server_stdout.id"
