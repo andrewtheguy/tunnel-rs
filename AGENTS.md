@@ -19,7 +19,7 @@ reference program for relay-only setups, so relay-only behavior changes should b
 reflected there too.
 
 That shared layer's code — `RelayConfig` and the relay probe, endpoint building
-and rebuild, the home-relay watchdog — lives in the `flexaccess-iroh` crate
+and rebuild — lives in the `flexaccess-iroh` crate
 (`../flexaccess-iroh`, consumed by git tag). Fix it there, tag a release, and
 bump the tag here; never re-implement or fork a copy of it in this repo. Only
 tunnel-rs-specific pieces (the `mf/4` ALPN, transport tuning, `--relay-only`

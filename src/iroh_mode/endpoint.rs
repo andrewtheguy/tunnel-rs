@@ -1,15 +1,14 @@
 //! tunnel-rs's endpoints: what this program layers onto the shared
 //! [`flexaccess_iroh::endpoint`] builder — the tunnel ALPN, its QUIC transport
 //! tuning, the user-facing relay-only mode with its sequential relay dial,
-//! and the server's secret-key file. Relay configuration, the per-relay
-//! startup probe, and the creation-vs-rebuild policy come from the shared
-//! crate.
+//! and the server's secret-key file. Relay configuration and startup
+//! validation come from the shared crate.
 
 use anyhow::{Context, Result};
 use crate::error::TunnelError;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use flexaccess_iroh::endpoint::{
-    create_endpoint, endpoint_builder, rebuild_endpoint, EndpointOptions,
+    create_endpoint, endpoint_builder, EndpointOptions,
 };
 use futures::StreamExt;
 use iroh::{
@@ -26,7 +25,6 @@ use crate::config::{
     CongestionController, TransportTuning, DEFAULT_SEND_WINDOW, DEFAULT_STREAM_RECEIVE_WINDOW,
 };
 
-pub use flexaccess_iroh::endpoint::EndpointFactory;
 pub use flexaccess_iroh::relay::{RelayConfig, RELAY_CONNECT_TIMEOUT};
 
 /// Fixed ALPN protocol identifier for tunnel connections.
@@ -227,9 +225,7 @@ fn base_builder(
 }
 
 /// A server endpoint builder: persistent identity (published on the default
-/// relays) and the tunnel ALPN. Binding policy is the caller's —
-/// [`create_server_endpoint`] and [`server_rebuild_factory`] each layer their
-/// own.
+/// relays) and the tunnel ALPN.
 fn server_builder(
     relay_config: &RelayConfig,
     relay_only: bool,
@@ -259,29 +255,6 @@ pub async fn create_server_endpoint(
     create_endpoint(relay_config, server_builder(relay_config, relay_only, secret, tuning)?)
         .await
         .map_err(|e| TunnelError::connection(e).into())
-}
-
-/// The rebuild recipe for the server endpoint, used when the relay watchdog
-/// gives up on the current one. Same identity as the original, so the
-/// server's EndpointId — what clients dial — never changes. Tolerant rebuild
-/// policy (see [`rebuild_endpoint`]): no relay probe, and the online wait may
-/// fail — the watchdog trips again if the relays stay unreachable, with a
-/// lengthening deadline so a dead relay does not churn the endpoint every few
-/// minutes (see the serve loop in `multi_source`).
-pub fn server_rebuild_factory(
-    relay_config: RelayConfig,
-    relay_only: bool,
-    secret: SecretKey,
-    tuning: TransportTuning,
-) -> EndpointFactory {
-    Arc::new(move || {
-        let relay_config = relay_config.clone();
-        let secret = secret.clone();
-        let tuning = tuning.clone();
-        Box::pin(async move {
-            rebuild_endpoint(server_builder(&relay_config, relay_only, secret, &tuning)?).await
-        })
-    })
 }
 
 /// Create a client endpoint: ephemeral identity, never published (the client
