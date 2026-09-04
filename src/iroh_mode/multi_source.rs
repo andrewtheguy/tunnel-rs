@@ -26,7 +26,7 @@ pub struct MultiSourceServerConfig {
     /// Maximum number of concurrent sessions (None = use default).
     pub max_sessions: Option<usize>,
     /// Iroh secret key for the endpoint. **Sensitive field - redacted in Debug output.**
-    pub secret: Option<SecretKey>,
+    pub secret: SecretKey,
     /// Resolved relay configuration (default relays, or custom relays with an
     /// optional shared auth token).
     pub relay_config: RelayConfig,
@@ -44,7 +44,7 @@ impl std::fmt::Debug for MultiSourceServerConfig {
             .field("allowed_tcp", &self.allowed_tcp)
             .field("allowed_udp", &self.allowed_udp)
             .field("max_sessions", &self.max_sessions)
-            .field("secret", &self.secret.as_ref().map(|_| "[REDACTED]"))
+            .field("secret", &"[REDACTED]")
             // `RelayConfig`'s own Debug shows the resolved mode and redacts the
             // relay auth token.
             .field("relay_config", &self.relay_config)
@@ -92,9 +92,11 @@ impl std::fmt::Debug for MultiSourceClientConfig {
 use crate::auth::{generate_challenge, AuthorizedKeys, Challenge, ClientAuthKey};
 
 use crate::iroh_mode::endpoint::{
-    RelayConfig, TUNNEL_ALPN, connect_to_server, create_client_endpoint, create_server_endpoint,
-    validate_relay_only, watch_connection_paths,
+    EndpointFactory, RelayConfig, TUNNEL_ALPN, connect_to_server, create_client_endpoint,
+    create_server_endpoint, server_rebuild_factory, validate_relay_only, watch_connection_paths,
 };
+use flexaccess_iroh::relay_watchdog::{self, RelayOutage};
+use iroh::Endpoint;
 use crate::iroh_mode::helpers::{
     bridge_streams, forward_stream_to_udp_client, forward_stream_to_udp_server,
     forward_udp_to_stream, open_bi_with_retry,
@@ -164,11 +166,22 @@ pub async fn run_multi_source_server(config: MultiSourceServerConfig) -> Result<
     let endpoint = create_server_endpoint(
         &config.relay_config,
         relay_only,
-        config.secret,
-        TUNNEL_ALPN,
-        Some(&config.transport),
+        config.secret.clone(),
+        &config.transport,
     )
     .await?;
+    // The relay watchdog's remedy of last resort: a fresh endpoint with the
+    // same identity. Only a custom-relay server hangs its reachability on one
+    // home-relay registration (n0 discovery is off, clients dial by relay
+    // hint), so the watchdog is armed for custom relays only.
+    let rebuild = config.relay_config.is_custom().then(|| {
+        server_rebuild_factory(
+            config.relay_config.clone(),
+            relay_only,
+            config.secret,
+            config.transport.clone(),
+        )
+    });
 
     let endpoint_id = endpoint.id();
     let max_sessions = config.max_sessions.unwrap_or(DEFAULT_MAX_SESSIONS);
@@ -179,9 +192,13 @@ pub async fn run_multi_source_server(config: MultiSourceServerConfig) -> Result<
     log::info!("Max concurrent sessions: {}", max_sessions);
     log::info!("Authorized client keys: {}", config.authorized_keys.len());
 
-    let authorized_keys = Arc::new(config.authorized_keys);
-    let allowed_tcp = config.allowed_tcp;
-    let allowed_udp = config.allowed_udp;
+    let serve = ServeContext {
+        allowed_tcp: config.allowed_tcp,
+        allowed_udp: config.allowed_udp,
+        // Session management with semaphore for concurrency limit
+        session_semaphore: Arc::new(tokio::sync::Semaphore::new(max_sessions)),
+        authorized_keys: Arc::new(config.authorized_keys),
+    };
 
     log::info!("\nOn the client side, run:");
     log::info!(
@@ -190,20 +207,98 @@ pub async fn run_multi_source_server(config: MultiSourceServerConfig) -> Result<
     );
     log::info!("Waiting for clients to connect...");
 
-    // Session management with semaphore for concurrency limit
-    let session_semaphore = Arc::new(tokio::sync::Semaphore::new(max_sessions));
     let mut connection_tasks: JoinSet<()> = JoinSet::new();
 
+    // Serve loop. A pass accepts on the current endpoint until it closes,
+    // or — custom relays only — until the relay watchdog reports the
+    // endpoint has lost its home relay for good. That last case is the
+    // in-process equivalent of the restart known to fix it: close the wedged
+    // endpoint, bind a fresh one with the same identity, and accept on that.
+    // The old endpoint's connections (and their handler tasks) end with it;
+    // those clients reconnect on their own.
+    //
+    // A rebuild only helps when iroh's relay bookkeeping went stale. When the
+    // relay itself is unreachable the fresh endpoint never registers either,
+    // and rebuilding it again every few minutes would keep dropping the LAN
+    // clients that still work. So consecutive endpoints that never saw a home
+    // relay lengthen the watchdog's deadline (`rebuild_deadline`); one that
+    // did register resets the escalation.
+    let mut endpoint = endpoint;
+    let mut unregistered_endpoints: u32 = 0;
+    loop {
+        let deadline = rebuild_deadline(unregistered_endpoints);
+        let outage = tokio::select! {
+            () = accept_loop(&endpoint, &mut connection_tasks, &serve) => break,
+            outage = watch_home_relay_if(rebuild.as_ref(), &endpoint, deadline) => outage,
+        };
+        let rebuild = rebuild
+            .as_ref()
+            .expect("watchdog only runs with a rebuild recipe");
+        unregistered_endpoints = if outage.relay_seen {
+            0
+        } else {
+            unregistered_endpoints + 1
+        };
+        log::warn!(
+            "No connected home relay for {:.0}s despite a network re-check; rebuilding the \
+             endpoint from scratch (server EndpointId stays {})",
+            outage.duration.as_secs_f64(),
+            endpoint.id()
+        );
+        if unregistered_endpoints > 0 {
+            log::warn!(
+                "{unregistered_endpoints} endpoint(s) in a row never registered on any home \
+                 relay; the relay itself is probably unreachable. If the rebuilt endpoint \
+                 does not register either, the next rebuild waits {}s",
+                rebuild_deadline(unregistered_endpoints).as_secs()
+            );
+        }
+        close_endpoint_bounded(endpoint).await;
+        endpoint = loop {
+            match rebuild().await {
+                Ok(endpoint) => break endpoint,
+                Err(e) => {
+                    log::warn!(
+                        "Endpoint rebuild failed: {e:#}; retrying in {}s",
+                        REBUILD_RETRY.as_secs()
+                    );
+                    tokio::time::sleep(REBUILD_RETRY).await;
+                }
+            }
+        };
+        log::warn!("Endpoint rebuilt; serving again as {}", endpoint.id());
+    }
+
+    // Wait for remaining tasks to complete
+    connection_tasks.shutdown().await;
+    endpoint.close().await;
+    log::info!("Multi-source server stopped.");
+
+    Ok(())
+}
+
+/// What every accepted connection's handler is given.
+struct ServeContext {
+    allowed_tcp: Vec<String>,
+    allowed_udp: Vec<String>,
+    session_semaphore: Arc<tokio::sync::Semaphore>,
+    authorized_keys: Arc<AuthorizedKeys>,
+}
+
+/// Accept connections on `endpoint` until it closes, spawning a handler task
+/// per connection into `connection_tasks`.
+async fn accept_loop(
+    endpoint: &Endpoint,
+    connection_tasks: &mut JoinSet<()>,
+    serve: &ServeContext,
+) {
     loop {
         // Clean up completed tasks
         while connection_tasks.try_join_next().is_some() {}
 
-        let incoming = match endpoint.accept().await {
-            Some(incoming) => incoming,
-            None => {
-                log::info!("Endpoint closed");
-                break;
-            }
+        let Some(incoming) = endpoint.accept().await else {
+            log::info!("Endpoint closed");
+            return;
         };
 
         let conn = match incoming.await {
@@ -219,10 +314,10 @@ pub async fn run_multi_source_server(config: MultiSourceServerConfig) -> Result<
         log::info!("Client connected: {} (awaiting auth)", remote_id);
 
         // Clone for the spawned task
-        let allowed_tcp = allowed_tcp.clone();
-        let allowed_udp = allowed_udp.clone();
-        let semaphore = session_semaphore.clone();
-        let authorized_keys = Arc::clone(&authorized_keys);
+        let allowed_tcp = serve.allowed_tcp.clone();
+        let allowed_udp = serve.allowed_udp.clone();
+        let semaphore = serve.session_semaphore.clone();
+        let authorized_keys = Arc::clone(&serve.authorized_keys);
 
         connection_tasks.spawn(async move {
             if let Err(e) = handle_multi_source_connection(
@@ -238,13 +333,61 @@ pub async fn run_multi_source_server(config: MultiSourceServerConfig) -> Result<
             }
         });
     }
+}
 
-    // Wait for remaining tasks to complete
-    connection_tasks.shutdown().await;
-    endpoint.close().await;
-    log::info!("Multi-source server stopped.");
+/// Pause between attempts to bind a replacement endpoint after the relay
+/// watchdog retired the old one and the rebuild itself failed (e.g. no route
+/// to bind on). The server has no endpoint at all during this wait, so it is
+/// short — there is nothing to lose by trying again soon.
+const REBUILD_RETRY: std::time::Duration = std::time::Duration::from_secs(30);
 
-    Ok(())
+/// Cap on the watchdog's rebuild deadline once consecutive rebuilt endpoints
+/// keep failing to register on any home relay.
+const REBUILD_DEADLINE_MAX: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+
+/// Bound wait on the old endpoint's graceful close during a rebuild. The close
+/// runs as its own task and is never cancelled (dropping a bound endpoint
+/// without `close()` is fatal under the release profile's panic=abort); the
+/// bound only keeps the serve loop from stalling behind it, letting a slow
+/// close finish in the background while the replacement is bound.
+const REBUILD_CLOSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// The watchdog's rebuild deadline for the next serve pass, given how many
+/// endpoints in a row never registered on a home relay: the usual
+/// [`relay_watchdog::RELAY_OUTAGE_REBUILD`] after an endpoint that did
+/// register, doubling per unregistered endpoint up to [`REBUILD_DEADLINE_MAX`]
+/// (180s, 6m, 12m, 24m, 30m). Rebuilding while the relay itself is down
+/// gains nothing and drops every LAN client, so it is done less and less
+/// often; a relay that comes back resets the escalation.
+fn rebuild_deadline(unregistered_endpoints: u32) -> std::time::Duration {
+    let factor = 1u32 << unregistered_endpoints.min(4);
+    (relay_watchdog::RELAY_OUTAGE_REBUILD * factor).min(REBUILD_DEADLINE_MAX)
+}
+
+/// The relay watchdog for one serve pass: pending forever when no rebuild
+/// recipe was given (default relays), otherwise resolves once the endpoint
+/// has had no home relay for `rebuild_after` and should be replaced.
+async fn watch_home_relay_if(
+    rebuild: Option<&EndpointFactory>,
+    endpoint: &Endpoint,
+    rebuild_after: std::time::Duration,
+) -> RelayOutage {
+    match rebuild {
+        Some(_) => relay_watchdog::watch_home_relay(endpoint, rebuild_after).await,
+        None => std::future::pending().await,
+    }
+}
+
+/// Close a retired endpoint, waiting at most [`REBUILD_CLOSE_TIMEOUT`] for it;
+/// a slower close carries on in its own task.
+async fn close_endpoint_bounded(endpoint: Endpoint) {
+    let close = tokio::spawn(async move { endpoint.close().await });
+    if tokio::time::timeout(REBUILD_CLOSE_TIMEOUT, close).await.is_err() {
+        log::warn!(
+            "Old endpoint is taking more than {}s to close; continuing in the background",
+            REBUILD_CLOSE_TIMEOUT.as_secs()
+        );
+    }
 }
 
 /// Handle a single multi-source connection.
@@ -604,13 +747,8 @@ pub async fn run_multi_source_client(config: MultiSourceClientConfig) -> Result<
 
     // Client keeps an ephemeral iroh identity. The application authentication
     // key is used only on the post-connect auth stream.
-    let endpoint = create_client_endpoint(
-        &config.relay_config,
-        relay_only,
-        None,
-        Some(&config.transport),
-    )
-    .await?;
+    let endpoint =
+        create_client_endpoint(&config.relay_config, relay_only, &config.transport).await?;
 
     let conn = connect_to_server(
         &endpoint,
@@ -863,4 +1001,20 @@ async fn run_multi_source_udp_client(
     log::info!("UDP client stopped.");
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rebuild_deadline_doubles_per_unregistered_endpoint_up_to_the_cap() {
+        let base = relay_watchdog::RELAY_OUTAGE_REBUILD;
+        assert_eq!(rebuild_deadline(0), base);
+        assert_eq!(rebuild_deadline(1), base * 2);
+        assert_eq!(rebuild_deadline(2), base * 4);
+        assert_eq!(rebuild_deadline(3), base * 8);
+        assert_eq!(rebuild_deadline(4), REBUILD_DEADLINE_MAX);
+        assert_eq!(rebuild_deadline(50), REBUILD_DEADLINE_MAX);
+    }
 }

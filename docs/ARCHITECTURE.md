@@ -287,11 +287,28 @@ graph TB
 The relay/discovery design is shared with ezvpn and flextunnel and is documented
 once in
 [iroh-common-architecture / relays-and-address-lookup.md](https://github.com/flexaccessdev/iroh-common-architecture/blob/main/relays-and-address-lookup.md).
-In short: `RelayConfig` (`src/iroh_mode/endpoint.rs`) resolves the raw config
-once into `Default` or `Custom`, and that single choice decides both the relay
-map and whether n0 internet discovery runs. Discovery is not independently
-configurable. Every custom relay is probed individually before the real endpoint
-binds, and startup fails if any of them is unreachable.
+In short: `RelayConfig` (from the shared
+[flexaccess-iroh](https://github.com/flexaccessdev/flexaccess-iroh) crate, which
+is that design as code) resolves the raw config once into `Default` or `Custom`,
+and that single choice decides both the relay map and whether n0 internet
+discovery runs. Discovery is not independently configurable. Every custom relay
+is probed individually before the real endpoint binds, and startup fails if any
+of them is unreachable. `src/iroh_mode/endpoint.rs` layers only what is
+tunnel-rs's onto the shared builder: the `mf/4` ALPN, the transport tuning,
+`--relay-only`, and the sequential relay dial.
+
+With custom relays the server also runs the shared home-relay watchdog
+(`flexaccess_iroh::relay_watchdog`, driven by the serve loop in
+`src/iroh_mode/multi_source.rs`): a server is dialable from off the LAN only
+while it is registered on its home relay, and iroh has been observed to
+silently lose that registration for good after a routine relay reconnect. After
+60s without a connected home relay the watchdog nudges the endpoint with
+`network_change()`; after 180s the serve loop closes the endpoint, binds a
+fresh one with the **same identity** (no per-relay probe, online wait tolerated
+failing), and accepts on it. Existing connections end with the old endpoint and
+clients reconnect on their own. Consecutive endpoints that never register
+double the rebuild deadline (up to 30m) so a dead relay does not churn the
+endpoint every few minutes.
 
 ```mermaid
 graph TB

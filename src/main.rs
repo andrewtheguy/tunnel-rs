@@ -524,7 +524,7 @@ async fn run_inner() -> Result<()> {
                 allowed_tcp,
                 allowed_udp,
                 max_sessions,
-                secret: Some(secret),
+                secret,
                 relay_config,
                 relay_only: *relay_only,
                 authorized_keys,
