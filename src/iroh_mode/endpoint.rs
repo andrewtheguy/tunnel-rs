@@ -8,7 +8,7 @@
 use anyhow::{Context, Result};
 use crate::error::TunnelError;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
-use flexaccess_iroh::endpoint::{create_endpoint, endpoint_builder, EndpointOptions};
+use flexaccess_iroh::endpoint::{create_endpoint, endpoint_builder, CreatedEndpoint, EndpointOptions};
 use futures::StreamExt;
 use iroh::{
     endpoint::{AckFrequencyConfig, Builder as EndpointBuilder, PathList, QuicTransportConfig},
@@ -242,14 +242,16 @@ fn server_builder(
 /// its current home relay and clients resolve it by endpoint ID. With custom
 /// relays discovery is off, so clients reach the server through the relay
 /// hints they attach to its `EndpointAddr` (see [`connect_to_server`]). Every
-/// custom relay is probed (startup fails only if none answers) and the
-/// endpoint must come online, both reported as [`TunnelError::connection`].
+/// custom relay is probed (startup fails only if none answers), the endpoint
+/// is bound without the relays that failed and must come online, both
+/// reported as [`TunnelError::connection`]. The relays left out come back in
+/// [`CreatedEndpoint::relays_left_out`] for the home-relay failover to restore.
 pub async fn create_server_endpoint(
     relay_config: &RelayConfig,
     relay_only: bool,
     secret: SecretKey,
     tuning: &TransportTuning,
-) -> Result<Endpoint> {
+) -> Result<CreatedEndpoint> {
     log_relay_only(relay_only);
     create_endpoint(relay_config, server_builder(relay_config, relay_only, secret, tuning)?)
         .await
@@ -259,15 +261,19 @@ pub async fn create_server_endpoint(
 /// Create a client endpoint: ephemeral identity, never published (the client
 /// only dials out; its credential is the application auth key). Same relay
 /// probe and online wait as the server, reported as [`TunnelError::connection`].
+/// A relay that failed the probe stays out for the client's lifetime: it
+/// lives one connection and runs no failover.
 pub async fn create_client_endpoint(
     relay_config: &RelayConfig,
     relay_only: bool,
     tuning: &TransportTuning,
 ) -> Result<Endpoint> {
     log_relay_only(relay_only);
-    create_endpoint(relay_config, base_builder(relay_config, relay_only, false, tuning)?)
-        .await
-        .map_err(|e| TunnelError::connection(e).into())
+    let CreatedEndpoint { endpoint, .. } =
+        create_endpoint(relay_config, base_builder(relay_config, relay_only, false, tuning)?)
+            .await
+            .map_err(TunnelError::connection)?;
+    Ok(endpoint)
 }
 
 /// QUIC send fairness across streams.

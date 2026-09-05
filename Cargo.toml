@@ -9,7 +9,7 @@ iroh = "1.1.0"
 # Shared iroh transport layer (RelayConfig + per-relay probe, endpoint
 # build, in-place home-relay failover). `mdns` adds local-network discovery to
 # every endpoint (dropped again under --relay-only).
-flexaccess-iroh = { git = "https://github.com/flexaccessdev/flexaccess-iroh", tag = "v0.0.7", features = ["mdns"] }
+flexaccess-iroh = { git = "https://github.com/flexaccessdev/flexaccess-iroh", tag = "v0.0.8", features = ["mdns"] }
 # The congestion-controller configs handed to iroh; must be the noq-proto
 # release iroh itself builds against.
 noq-proto = "1.2.0"
