@@ -74,16 +74,17 @@ enum Command {
         #[arg(long)]
         secret_file: Option<PathBuf>,
 
-        /// Custom relay server URL(s) for failover
+        /// Custom relay server URLs (at least two, for failover); the server
+        /// moves onto another one when its home relay is lost
         #[arg(long = "relay-url")]
         relay_urls: Vec<String>,
 
-        /// Shared bearer token for the custom relay(s) (requires --relay-url).
+        /// Shared bearer token for the custom relays (requires --relay-url).
         /// Prefer TUNNEL_RS_RELAY_AUTH_TOKEN or config to keep it out of the process list.
         #[arg(long, value_name = "TOKEN")]
         relay_auth_token: Option<String>,
 
-        /// Force all connections through the relay server (disables direct P2P).
+        /// Force all connections through the relay servers (disables direct P2P).
         #[arg(long)]
         relay_only: bool,
 
@@ -119,16 +120,17 @@ enum Command {
         #[arg(short, long)]
         target: Option<String>,
 
-        /// Custom relay server URL(s) for failover
+        /// Custom relay server URLs (at least two; must match the server's
+        /// list, since the server may be homed on any of them)
         #[arg(long = "relay-url")]
         relay_urls: Vec<String>,
 
-        /// Shared bearer token for the custom relay(s) (requires --relay-url).
+        /// Shared bearer token for the custom relays (requires --relay-url).
         /// Prefer TUNNEL_RS_RELAY_AUTH_TOKEN or config to keep it out of the process list.
         #[arg(long, value_name = "TOKEN")]
         relay_auth_token: Option<String>,
 
-        /// Force all connections through the relay server (disables direct P2P).
+        /// Force all connections through the relay servers (disables direct P2P).
         #[arg(long)]
         relay_only: bool,
 

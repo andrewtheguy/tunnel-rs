@@ -291,31 +291,34 @@ In short: `RelayConfig` (from the shared
 [flexaccess-iroh](https://github.com/flexaccessdev/flexaccess-iroh) crate, which
 is that design as code) resolves the raw config once into `Default` or `Custom`,
 and that single choice decides both the relay map and whether n0 internet
-discovery runs. Discovery is not independently configurable. Every custom relay
-is probed individually before the real endpoint binds, and startup fails if any
-of them is unreachable. `src/iroh_mode/endpoint.rs` layers only what is
-tunnel-rs's onto the shared builder: the `mf/4` ALPN, the transport tuning,
+discovery runs. Discovery is not independently configurable. A custom relay set
+must hold at least two relays. Every custom relay is probed individually before
+the real endpoint binds; startup fails only if none of them is reachable, and
+each unreachable one is a warning. `src/iroh_mode/endpoint.rs` layers only what
+is tunnel-rs's onto the shared builder: the `mf/4` ALPN, the transport tuning,
 `--relay-only`, and the sequential relay dial.
 
-With custom relays the server also runs the shared home-relay watchdog
-(`flexaccess_iroh::relay_watchdog`, driven by the serve loop in
+With custom relays the server also runs the shared home-relay failover
+(`flexaccess_iroh::relay_failover`, selected alongside the accept loop in
 `src/iroh_mode/multi_source.rs`): a server is dialable from off the LAN only
 while it is registered on its home relay, and iroh has been observed to
-silently lose that registration for good after a routine relay reconnect. After
-60s without a connected home relay the watchdog nudges the endpoint with
-`network_change()`; after 180s the serve loop closes the endpoint, binds a
-fresh one with the **same identity** (no per-relay probe, online wait tolerated
-failing), and accepts on it. Existing connections end with the old endpoint and
-clients reconnect on their own. Consecutive endpoints that never register
-double the rebuild deadline (up to 30m) so a dead relay does not churn the
-endpoint every few minutes.
+silently lose that registration for good after a routine relay reconnect. When
+the relay is really down iroh re-homes on its own within a net-report cycle
+(20–26 s); when it does not, after 60 s without a connected home relay the
+failover removes the wedged relay from the endpoint's relay map, which forces
+a net report that can only choose another configured relay. The endpoint, its
+identity, its direct paths and its established connections are untouched; only
+a connection whose sole path ran through the dead relay times out, and that
+client redials. The removed relay is probed every 90 s and put back once it is
+connectable again. See
+[relay-failover.md](https://github.com/flexaccessdev/iroh-common-architecture/blob/main/relay-failover.md).
 
 ```mermaid
 graph TB
     subgraph "Endpoint Creation"
         A[Load/Generate Secret] --> B[Resolve RelayConfig]
         B --> C{Custom relay URLs?}
-        C -->|Yes| D[Probe each relay in parallel<br/>all must come online]
+        C -->|Yes| D[Probe each relay in parallel<br/>at least one must come online]
         D --> D2[Custom relay map<br/>n0 discovery OFF]
         C -->|No| E[Default relay map<br/>n0 DNS lookup ON<br/>pkarr publish if persistent identity]
         D2 --> F{Relay Only? (CLI-only)}

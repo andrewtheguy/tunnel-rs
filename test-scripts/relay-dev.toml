@@ -2,10 +2,12 @@
 #
 #   iroh-relay --dev -c test-scripts/relay-dev.toml
 #
-# In `--dev` mode the relay serves plain HTTP on port 3340 (no TLS, no QUIC),
-# which is what the relay-only end-to-end test points at:
+# In `--dev` mode the relay serves plain HTTP on port 3340 (no TLS, no QUIC).
+# A custom relay set is at least two relays, so pair it with a second instance
+# on `relay-dev-2.toml` (port 3341) for the relay-only end-to-end test:
 #
-#   ./test-scripts/run_e2e.sh --relay-url http://localhost:3340 --relay-only
+#   iroh-relay --dev -c test-scripts/relay-dev-2.toml
+#   ./test-scripts/run_e2e.sh --relay-url http://localhost:3340 --relay-url http://localhost:3341 --relay-only
 #
 # Verified against iroh-relay 1.0.2. `--dev` ignores TLS-related fields but
 # honors the non-TLS fields below.
