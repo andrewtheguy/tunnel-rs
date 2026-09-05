@@ -21,10 +21,16 @@ The script generates the server identity and compact Ed25519 client
 authentication keys, uses Python's `json` module to serialize the runtime
 configurations, and pipes each configuration directly to `--config-stdin`.
 It checks the versioned private-key format, public-key comment, and `0600`
-permissions; verifies that an unlisted key is rejected with the authentication
-exit code; and confirms that clients sharing one authentication key still use
-distinct ephemeral Iroh identities. Authentication key files live only in the
-automatically removed temporary working directory. The Python backends and
+permissions, and verifies that an unlisted key is rejected with the
+authentication exit code. Authentication key files live only in the
+automatically removed temporary working directory.
+
+This suite covers what tunnel-rs adds on top of the shared iroh layer: the
+tunnel itself. The shared layer — the auth transcript over iroh, relay
+connectivity, the startup probe, and the in-place home-relay failover — is
+tested end to end in
+[flexaccess-iroh](https://github.com/flexaccessdev/flexaccess-iroh/tree/main/e2e),
+against a minimal harness instead of tunnel-rs. The Python backends and
 test clients run through **`uv run`** (PEP 723 inline metadata, no third-party
 dependencies).
 
@@ -35,7 +41,6 @@ dependencies).
 | `echo_server.py` | TCP/UDP echo backend | `uv run` |
 | `echo_client.py` | Sends a payload, verifies the echo | `uv run` |
 | `run_e2e.sh`     | Orchestrator: keygen, configs, processes, assertions | bash |
-| `run_relay_failover_e2e.sh` | Relay-only failover scenarios against two local `iroh-relay` instances | bash |
 
 ## Requirements
 
@@ -119,43 +124,11 @@ KEEP_LOGS=1 ./test-scripts/run_e2e.sh
 
 ## Relay failover test
 
-`run_relay_failover_e2e.sh` is a separate, fully offline suite that starts
-**two local `iroh-relay --dev` instances** and exercises relay failures in
-relay-only mode. Servers and clients are each given an explicit relay list per
-scenario.
-
-The contract under test: a custom relay set holds **at least two relays**, a
-server rides out a relay outage by moving onto another configured relay **in
-place** (same process, same endpoint, connections untouched), and startup fails
-only when **no** configured relay is reachable (a dead relay is a warning).
-
-- **Phase A (relay down before startup):** a server configured with both relays
-  fails to start when both are down and starts with a warning when one is; a
-  client configured with both connects through the live one; a single custom
-  relay is rejected as configuration.
-- **Phase B (relay dies after startup):** the server's home relay is killed —
-  the running server stays up and re-homes onto the survivor on its own
-  (~30s); a restarted client configured with both relays reconnects; with both
-  relays killed new clients fail; after both relays restart, clients connect
-  again.
-- **Phase C (home relay answers probes but refuses connections):** the case
-  iroh does not recover from on its own. relay1 is replaced on its port by
-  `fake_relay.py` (200 on `/ping`, 404 on everything else) while relay2 sits
-  behind `delay_proxy.py`, which adds latency so net_report keeps preferring
-  the fake. After 60s the shared failover takes the fake out of the relay map,
-  the server homes on relay2 without restarting anything, and a new client
-  connects; when the real relay1 returns, the restore probe (every 90s) puts
-  it back and the server moves back onto it. See
-  [relay-failover.md](https://github.com/flexaccessdev/iroh-common-architecture/blob/main/relay-failover.md).
-
-```bash
-cargo install iroh-relay --features server   # one-time
-./test-scripts/run_relay_failover_e2e.sh
-```
-
-Working files and logs go to `./tmp/relay-failover.*` (kept with
-`KEEP_LOGS=1`). `TUNNEL_RS_BIN`, `IROH_RELAY_BIN`, and `READY_TIMEOUT` are
-honored like in `run_e2e.sh`.
+The relay failover scenarios (a relay down before startup, a relay dying after
+startup, a home relay that answers probes but refuses connections) exercise the
+shared layer only, so they live with it:
+[`e2e/run_relay_failover.sh` in flexaccess-iroh](https://github.com/flexaccessdev/flexaccess-iroh/tree/main/e2e).
+tunnel-rs picks the behavior up by bumping its `flexaccess-iroh` tag.
 
 ## Running the pieces by hand
 

@@ -408,16 +408,6 @@ wait_for_log "$WORK/client_udp.log" "Listening on UDP" "$READY_TIMEOUT"
 wait_for_log_count "$WORK/server.log" \
     "Client [0-9a-f]+ authenticated successfully as e2e client" 2 "$READY_TIMEOUT"
 
-mapfile -t AUTHENTICATED_ENDPOINT_IDS < <(
-    sed -nE 's/.*Client ([0-9a-f]+) authenticated successfully as e2e client.*/\1/p' \
-        "$WORK/server.log" | sort -u
-)
-if (( ${#AUTHENTICATED_ENDPOINT_IDS[@]} < 2 )); then
-    echo "ERROR: clients sharing an auth key did not use distinct ephemeral Iroh identities" >&2
-    exit 1
-fi
-log "Shared auth key with distinct ephemeral Iroh client identities: PASS"
-
 # ---------------------------------------------------------------------------
 # Run the echo test clients through the tunnel
 # ---------------------------------------------------------------------------
