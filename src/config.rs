@@ -32,6 +32,9 @@ pub struct IrohConfig {
     /// Prefer `secret_file` in production; inline secrets are best kept to testing or
     /// special cases due to VCS/log exposure risk. Secret files should be 0600 on Unix.
     pub secret: Option<String>,
+    /// Custom relay server URLs. At least two distinct relays: a server keeps
+    /// working through a relay outage by moving onto another configured relay,
+    /// so one relay is rejected. Both sides must list the full set.
     pub relay_urls: Option<Vec<String>>,
     /// Shared bearer token sent to every *custom* relay on the WebSocket
     /// upgrade (`Authorization: Bearer <token>`). Only meaningful together with

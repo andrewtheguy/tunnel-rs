@@ -333,9 +333,9 @@ secret_file = "./server.key"
 | `--authorized-keys-file` | required | Path to SSH-like file containing authorized Ed25519 public keys. Required unless the keys come from `[iroh].authorized_keys_file` or, with `--config-stdin`, an inline `[iroh].authorized_keys` |
 | `--max-sessions` | 100 | Maximum concurrent sessions |
 | `--secret-file` | - | Path to secret key file for persistent server identity |
-| `--relay-url` | public | Custom relay server URL(s), repeatable. Every one must be reachable at startup |
-| `--relay-auth-token` | - | Shared bearer token for the custom relay(s); requires `--relay-url` |
-| `--relay-only` | false | Force all traffic through relay (CLI-only; not supported in config files) |
+| `--relay-url` | public | Custom relay server URLs, repeatable, at least two. Startup fails only if none is reachable; the server fails over between them at runtime |
+| `--relay-auth-token` | - | Shared bearer token for the custom relays; requires `--relay-url` |
+| `--relay-only` | false | Force all traffic through the relays (CLI-only; not supported in config files) |
 
 **Environment variables** (for containers and automation scripts):
 
@@ -343,7 +343,7 @@ secret_file = "./server.key"
 |---------|-------------|
 | `TUNNEL_RS_AUTHORIZED_KEYS_FILE` | Path to the server authorized-keys file |
 | `TUNNEL_RS_SECRET` | Base64-encoded secret key for persistent server identity, either the bare key or a whole generated key file (use this or `--secret-file`) |
-| `TUNNEL_RS_RELAY_AUTH_TOKEN` | Shared bearer token for the custom relay(s) (use this instead of `--relay-auth-token` to keep it out of the process list) |
+| `TUNNEL_RS_RELAY_AUTH_TOKEN` | Shared bearer token for the custom relays (use this instead of `--relay-auth-token` to keep it out of the process list) |
 
 ### client
 
@@ -356,16 +356,16 @@ secret_file = "./server.key"
 | `--source`, `-s` | required | Source address to request from server (tcp://host:port or udp://host:port) |
 | `--target`, `-t` | required | Local address to listen on |
 | `--private-key-file` | required | Path to compact Ed25519 authentication private key. Required unless the key comes from `[iroh].private_key_file` or, with `--config-stdin`, an inline `[iroh].private_key` |
-| `--relay-url` | public | Custom relay server URL(s), repeatable. Every one must be reachable at startup |
-| `--relay-auth-token` | - | Shared bearer token for the custom relay(s); requires `--relay-url` |
-| `--relay-only` | false | Force all traffic through relay (CLI-only; not supported in config files) |
+| `--relay-url` | public | Custom relay server URLs, repeatable, at least two; must match the server's list. Startup fails only if none is reachable |
+| `--relay-auth-token` | - | Shared bearer token for the custom relays; requires `--relay-url` |
+| `--relay-only` | false | Force all traffic through the relays (CLI-only; not supported in config files) |
 
 **Environment variables** (for containers and automation scripts):
 
 | Env Var | Description |
 |---------|-------------|
 | `TUNNEL_RS_PRIVATE_KEY_FILE` | Path to the compact Ed25519 authentication private key |
-| `TUNNEL_RS_RELAY_AUTH_TOKEN` | Shared bearer token for the custom relay(s) (use this instead of `--relay-auth-token` to keep it out of the process list) |
+| `TUNNEL_RS_RELAY_AUTH_TOKEN` | Shared bearer token for the custom relays (use this instead of `--relay-auth-token` to keep it out of the process list) |
 
 ## Configuration Files
 
@@ -389,7 +389,7 @@ role = "server"
 
 [iroh]
 secret_file = "./server.key"
-# relay_urls = ["https://relay.example.com"]
+# relay_urls = ["https://relay1.example.com", "https://relay2.example.com"]
 max_sessions = 100
 
 # Ed25519 public keys, one per line with optional trailing comments
@@ -423,7 +423,7 @@ role = "client"
 server_node_id = "2xnbkpbc7izsilvewd7c62w7wnwziacmpfwvhcrya5nt76dqkpga"
 request_source = "tcp://127.0.0.1:22"
 target = "127.0.0.1:2222"
-# relay_urls = ["https://relay.example.com"]
+# relay_urls = ["https://relay1.example.com", "https://relay2.example.com"]
 
 # Compact Ed25519 authentication private key
 private_key_file = "~/.config/tunnel-rs/client.key"
@@ -700,11 +700,14 @@ the iroh transport docs shared with
 (the design). tunnel-rs is the **reference program for relay-only setups** — use
 its relay-only e2e script to validate a freshly deployed relay.
 
-Two behaviors are worth reading up on before configuring relays, both covered in
-[relays and address lookup](https://github.com/flexaccessdev/iroh-common-architecture/blob/main/relays-and-address-lookup.md):
+Three behaviors are worth reading up on before configuring relays, all covered in
+[relays and address lookup](https://github.com/flexaccessdev/iroh-common-architecture/blob/main/relays-and-address-lookup.md)
+and [relay failover](https://github.com/flexaccessdev/iroh-common-architecture/blob/main/relay-failover.md):
 custom relays disable internet discovery (configure **both** sides with the full
-relay list), and every configured relay must come online at startup or the
-process refuses to start.
+relay list); at least two custom relays are required, because a server rides out
+a relay outage by moving onto another configured relay, in place, without
+dropping its connections; and startup fails only when none of the configured
+relays is reachable, each unreachable one being a warning.
 
 The one tunnel-rs-specific knob is `--relay-only`, which forces every byte
 through the relays instead of attempting direct paths. It is **CLI-only** and not

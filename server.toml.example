@@ -21,12 +21,14 @@ role = "server"
 # Use 'secret_file' here (recommended). For containers/automation, set TUNNEL_RS_SECRET environment variable instead.
 secret_file = "./server.key"
 
-# Custom relay server URL(s) for failover
+# Custom relay server URLs for failover
 # If not provided, uses iroh's default public relays.
 #
-# Every relay listed here is probed individually at startup and ALL of them must
-# come online, so a dead backup relay fails startup instead of hiding until the
-# relay you depend on goes down.
+# At least two relays are required: when the relay the server is homed on stops
+# working, the server moves onto another one from this list without dropping
+# its identity or its connections, so one relay would leave nothing to fail over
+# to. Every relay is probed individually at startup; a relay that does not come
+# online is reported as a warning, and startup fails only if none does.
 # relay_urls = [
 #     "https://relay1.example.com",
 #     "https://relay2.example.com",

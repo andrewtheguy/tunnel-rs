@@ -28,11 +28,13 @@
 #                   path to the flexaccess-keys binary used for client
 #                   authentication keys (default: PATH, then a download of the
 #                   pinned release)
-#   RELAY_URL       custom relay URL for both sides. Custom relays disable
-#                   internet discovery automatically (the binary handles it),
-#                   so custom-relay runs need no public iroh infrastructure.
-#                   When unset, the default public relay + discovery server are
-#                   used (requires internet access).
+#   RELAY_URL       custom relay URLs for both sides, whitespace-separated
+#                   (at least two: tunnel-rs rejects a single custom relay).
+#                   Custom relays disable internet discovery automatically
+#                   (the binary handles it), so custom-relay runs need no
+#                   public iroh infrastructure. When unset, the default public
+#                   relay + discovery server are used (requires internet
+#                   access).
 #   KEEP_LOGS       set to 1 to keep the temp working directory after the run.
 #   READY_TIMEOUT   seconds to wait for each process to become ready (default: 60).
 #
@@ -58,11 +60,12 @@ With no options it runs the default test: the public iroh relay plus the
 default iroh discovery server (requires internet access), no relay override.
 
 Options:
-  --relay-url URL   Custom relay URL for both sides (repeatable). Custom relays
+  --relay-url URL   Custom relay URL for both sides (repeatable; give at least
+                    two, a single custom relay is rejected). Custom relays
                     disable internet discovery automatically.
                     May also be given as --relay-url=URL.
-  --relay-only      Force all traffic through the relay, disabling direct P2P.
-                    Requires at least one --relay-url.
+  --relay-only      Force all traffic through the relays, disabling direct P2P.
+                    Requires --relay-url.
   -h, --help        Show this help and exit.
 
 Environment overrides: TUNNEL_RS_BIN, READY_TIMEOUT, KEEP_LOGS, RELAY_URL
@@ -96,13 +99,17 @@ while [[ $# -gt 0 ]]; do
     shift
 done
 
-# Back-compat: honor the RELAY_URL env var only when no --relay-url flag given.
+# Honor the RELAY_URL env var only when no --relay-url flag is given.
 if [[ ${#RELAY_URLS[@]} -eq 0 && -n "${RELAY_URL:-}" ]]; then
-    RELAY_URLS+=("$RELAY_URL")
+    read -r -a RELAY_URLS <<<"$RELAY_URL"
 fi
 
+if [[ ${#RELAY_URLS[@]} -eq 1 ]]; then
+    echo "ERROR: custom relays need at least two --relay-url values (tunnel-rs rejects one)" >&2
+    exit 2
+fi
 if [[ "$RELAY_ONLY" == "1" && ${#RELAY_URLS[@]} -eq 0 ]]; then
-    echo "ERROR: --relay-only requires at least one --relay-url" >&2
+    echo "ERROR: --relay-only requires --relay-url" >&2
     exit 2
 fi
 
@@ -283,7 +290,7 @@ if [[ ${#RELAY_URLS[@]} -gt 0 ]]; then
         printf '%s\0' "${RELAY_URLS[@]}" |
             python3 -c 'import json, sys; urls = [value.decode() for value in sys.stdin.buffer.read().split(b"\0") if value]; print(json.dumps({"relay_urls": urls}))'
     )"
-    log "Using custom relay(s) (internet discovery auto-disabled): ${RELAY_URLS[*]}"
+    log "Using custom relays (internet discovery auto-disabled): ${RELAY_URLS[*]}"
 else
     log "Using default relay + iroh discovery server (needs internet)"
 fi
@@ -400,16 +407,6 @@ wait_for_log "$WORK/client_tcp.log" "Listening on TCP" "$READY_TIMEOUT"
 wait_for_log "$WORK/client_udp.log" "Listening on UDP" "$READY_TIMEOUT"
 wait_for_log_count "$WORK/server.log" \
     "Client [0-9a-f]+ authenticated successfully as e2e client" 2 "$READY_TIMEOUT"
-
-mapfile -t AUTHENTICATED_ENDPOINT_IDS < <(
-    sed -nE 's/.*Client ([0-9a-f]+) authenticated successfully as e2e client.*/\1/p' \
-        "$WORK/server.log" | sort -u
-)
-if (( ${#AUTHENTICATED_ENDPOINT_IDS[@]} < 2 )); then
-    echo "ERROR: clients sharing an auth key did not use distinct ephemeral Iroh identities" >&2
-    exit 1
-fi
-log "Shared auth key with distinct ephemeral Iroh client identities: PASS"
 
 # ---------------------------------------------------------------------------
 # Run the echo test clients through the tunnel

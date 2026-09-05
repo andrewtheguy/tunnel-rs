@@ -2,15 +2,13 @@
 //! [`flexaccess_iroh::endpoint`] builder — the tunnel ALPN, its QUIC transport
 //! tuning, the user-facing relay-only mode with its sequential relay dial,
 //! and the server's secret-key file. Relay configuration, the per-relay
-//! startup probe, and the creation-vs-rebuild policy come from the shared
+//! startup probe, and the bind-and-come-online policy come from the shared
 //! crate.
 
 use anyhow::{Context, Result};
 use crate::error::TunnelError;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
-use flexaccess_iroh::endpoint::{
-    create_endpoint, endpoint_builder, rebuild_endpoint, EndpointOptions,
-};
+use flexaccess_iroh::endpoint::{create_endpoint, endpoint_builder, EndpointOptions};
 use futures::StreamExt;
 use iroh::{
     endpoint::{AckFrequencyConfig, Builder as EndpointBuilder, PathList, QuicTransportConfig},
@@ -26,7 +24,6 @@ use crate::config::{
     CongestionController, TransportTuning, DEFAULT_SEND_WINDOW, DEFAULT_STREAM_RECEIVE_WINDOW,
 };
 
-pub use flexaccess_iroh::endpoint::EndpointFactory;
 pub use flexaccess_iroh::relay::{RelayConfig, RELAY_CONNECT_TIMEOUT};
 
 /// Fixed ALPN protocol identifier for tunnel connections.
@@ -115,11 +112,11 @@ pub fn secret_to_endpoint_id(secret: &SecretKey) -> EndpointId {
 /// Validate that relay-only mode is used correctly.
 ///
 /// Relay-only is meaningless against the rate-limited default relays, so it
-/// requires a custom relay set.
+/// requires a custom relay set (which is at least two relays).
 pub fn validate_relay_only(relay_only: bool, relay_config: &RelayConfig) -> Result<()> {
     if relay_only && !relay_config.is_custom() {
         anyhow::bail!(
-            "--relay-only requires at least one --relay-url to be specified.\n\
+            "--relay-only requires custom relays (--relay-url, at least two).\n\
             The default public relay is rate-limited and cannot be used for relay-only mode."
         );
     }
@@ -227,9 +224,7 @@ fn base_builder(
 }
 
 /// A server endpoint builder: persistent identity (published on the default
-/// relays) and the tunnel ALPN. Binding policy is the caller's —
-/// [`create_server_endpoint`] and [`server_rebuild_factory`] each layer their
-/// own.
+/// relays) and the tunnel ALPN.
 fn server_builder(
     relay_config: &RelayConfig,
     relay_only: bool,
@@ -246,9 +241,9 @@ fn server_builder(
 /// With the default relays internet discovery is on, so the server publishes
 /// its current home relay and clients resolve it by endpoint ID. With custom
 /// relays discovery is off, so clients reach the server through the relay
-/// hints they attach to its `EndpointAddr` (see [`connect_to_server`]). Strict
-/// first-creation policy: every custom relay is probed and the endpoint must
-/// come online, both reported as [`TunnelError::connection`].
+/// hints they attach to its `EndpointAddr` (see [`connect_to_server`]). Every
+/// custom relay is probed (startup fails only if none answers) and the
+/// endpoint must come online, both reported as [`TunnelError::connection`].
 pub async fn create_server_endpoint(
     relay_config: &RelayConfig,
     relay_only: bool,
@@ -261,32 +256,9 @@ pub async fn create_server_endpoint(
         .map_err(|e| TunnelError::connection(e).into())
 }
 
-/// The rebuild recipe for the server endpoint, used when the relay watchdog
-/// gives up on the current one. Same identity as the original, so the
-/// server's EndpointId — what clients dial — never changes. Tolerant rebuild
-/// policy (see [`rebuild_endpoint`]): no relay probe, and the online wait may
-/// fail — the watchdog trips again if the relays stay unreachable, with a
-/// lengthening deadline so a dead relay does not churn the endpoint every few
-/// minutes (see the serve loop in `multi_source`).
-pub fn server_rebuild_factory(
-    relay_config: RelayConfig,
-    relay_only: bool,
-    secret: SecretKey,
-    tuning: TransportTuning,
-) -> EndpointFactory {
-    Arc::new(move || {
-        let relay_config = relay_config.clone();
-        let secret = secret.clone();
-        let tuning = tuning.clone();
-        Box::pin(async move {
-            rebuild_endpoint(server_builder(&relay_config, relay_only, secret, &tuning)?).await
-        })
-    })
-}
-
 /// Create a client endpoint: ephemeral identity, never published (the client
-/// only dials out; its credential is the application auth key). Strict
-/// first-creation policy, reported as [`TunnelError::connection`].
+/// only dials out; its credential is the application auth key). Same relay
+/// probe and online wait as the server, reported as [`TunnelError::connection`].
 pub async fn create_client_endpoint(
     relay_config: &RelayConfig,
     relay_only: bool,
@@ -480,6 +452,7 @@ mod tests {
     use super::*;
 
     const RELAY: &str = "https://relay.example.com./";
+    const RELAY2: &str = "https://relay2.example.com./";
 
     #[test]
     fn secret_key_headers_and_blank_lines_are_skipped() {
@@ -520,7 +493,7 @@ mod tests {
             err.to_string().contains("--relay-only requires"),
             "unexpected error: {err}"
         );
-        let custom = RelayConfig::from_urls(&[RELAY.to_string()]).unwrap();
+        let custom = RelayConfig::from_urls(&[RELAY.to_string(), RELAY2.to_string()]).unwrap();
         assert!(validate_relay_only(true, &custom).is_ok());
         assert!(validate_relay_only(false, &RelayConfig::Default).is_ok());
     }

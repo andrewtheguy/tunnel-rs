@@ -1,0 +1,8 @@
+# Second local dev relay, the pair of `relay-dev.toml` (see there): a custom
+# relay set is at least two relays, so offline relay-only runs need both.
+#
+#   iroh-relay --dev -c test-scripts/relay-dev-2.toml
+#
+# Same settings as relay-dev.toml, on port 3341 instead of the default 3340.
+enable_metrics = false
+http_bind_addr = "[::]:3341"
