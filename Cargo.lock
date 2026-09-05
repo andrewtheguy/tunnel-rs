@@ -847,7 +847,7 @@ checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
 [[package]]
 name = "flexaccess-iroh"
 version = "0.0.7"
-source = "git+https://github.com/flexaccessdev/flexaccess-iroh?branch=relay-failover#66382efce267e0ae9a02578db94351f17d7c9cd3"
+source = "git+https://github.com/flexaccessdev/flexaccess-iroh?branch=relay-failover#de88179b5923497f6c629a4c02ed631c0a9aaa0b"
 dependencies = [
  "anyhow",
  "base64",
