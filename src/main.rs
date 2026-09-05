@@ -22,7 +22,7 @@ use crate::config::{
     validate_transport_tuning, ClientConfig, ConfigSource, ServerConfig, TransportTuning,
 };
 use crate::iroh_mode::endpoint::{
-    load_secret, load_secret_from_string, secret_to_endpoint_id, RelayConfig,
+    load_secret, load_secret_from_string, secret_to_endpoint_id, RelayConfig, RelaySettings,
 };
 
 /// Default `env_logger` filter: tunnel-rs's own code at `info`, the noisy
@@ -83,6 +83,16 @@ enum Command {
         #[arg(long, value_name = "TOKEN")]
         relay_auth_token: Option<String>,
 
+        /// Scheme and host of the self-hosted address lookup service, e.g.
+        /// https://lookup.example.com (required with --relay-url, rejected without).
+        #[arg(long, value_name = "URL")]
+        lookup_url: Option<String>,
+
+        /// Secret of the lookup service (lks1-..., from generate-lookup-secret; requires --relay-url).
+        /// Prefer TUNNEL_RS_LOOKUP_SECRET or config to keep it out of the process list.
+        #[arg(long, value_name = "SECRET")]
+        lookup_secret: Option<String>,
+
         /// Force all connections through the relay server (disables direct P2P).
         #[arg(long)]
         relay_only: bool,
@@ -128,6 +138,16 @@ enum Command {
         #[arg(long, value_name = "TOKEN")]
         relay_auth_token: Option<String>,
 
+        /// Scheme and host of the self-hosted address lookup service, e.g.
+        /// https://lookup.example.com (required with --relay-url, rejected without).
+        #[arg(long, value_name = "URL")]
+        lookup_url: Option<String>,
+
+        /// Secret of the lookup service (lks1-..., from generate-lookup-secret; requires --relay-url).
+        /// Prefer TUNNEL_RS_LOOKUP_SECRET or config to keep it out of the process list.
+        #[arg(long, value_name = "SECRET")]
+        lookup_secret: Option<String>,
+
         /// Force all connections through the relay server (disables direct P2P).
         #[arg(long)]
         relay_only: bool,
@@ -153,6 +173,17 @@ enum Command {
         force: bool,
 
         /// Print the public and private keys as JSON instead of a key file
+        #[arg(long)]
+        json: bool,
+    },
+    /// Generate a secret for the self-hosted address lookup service
+    ///
+    /// Custom relays require one iroh-dns-server behind a reverse proxy that
+    /// serves only /<secret>/...; this prints a fresh secret for it. Put the
+    /// same value in the proxy and in every server's and client's
+    /// lookup_secret. See the self-hosting guide in iroh-common-architecture.
+    GenerateLookupSecret {
+        /// Print as JSON ({"lookup_secret": "..."})
         #[arg(long)]
         json: bool,
     },
@@ -235,8 +266,7 @@ struct ServerIrohParams {
     max_sessions: Option<usize>,
     secret: Option<String>,
     secret_file: Option<PathBuf>,
-    relay_urls: Vec<String>,
-    relay_auth_token: Option<String>,
+    relay: RelaySettings,
     authorized_keys: Option<AuthorizedKeysSource>,
     transport: TransportTuning,
 }
@@ -257,6 +287,8 @@ fn resolve_server_iroh_params(
         secret_file,
         relay_urls,
         relay_auth_token,
+        lookup_url,
+        lookup_secret,
         authorized_keys_file,
         ..
     } = cli
@@ -285,15 +317,7 @@ fn resolve_server_iroh_params(
         max_sessions: max_sessions.or(cfg.max_sessions),
         secret,
         secret_file,
-        relay_urls: if relay_urls.is_empty() {
-            cfg.relay_urls.clone().unwrap_or_default()
-        } else {
-            relay_urls.clone()
-        },
-        relay_auth_token: relay_auth_token
-            .clone()
-            .or_else(|| env_var_opt("TUNNEL_RS_RELAY_AUTH_TOKEN"))
-            .or(cfg.relay_auth_token.clone()),
+        relay: resolve_relay_settings(relay_urls, relay_auth_token, lookup_url, lookup_secret, &cfg),
         authorized_keys: authorized_keys_file
             .clone()
             .or_else(|| env_var_opt("TUNNEL_RS_AUTHORIZED_KEYS_FILE").map(PathBuf::from))
@@ -310,8 +334,7 @@ struct ClientIrohParams {
     server_node_id: Option<String>,
     source: Option<String>,
     target: Option<String>,
-    relay_urls: Vec<String>,
-    relay_auth_token: Option<String>,
+    relay: RelaySettings,
     private_key: Option<PrivateKeySource>,
     transport: TransportTuning,
 }
@@ -330,6 +353,8 @@ fn resolve_client_iroh_params(
         target,
         relay_urls,
         relay_auth_token,
+        lookup_url,
+        lookup_secret,
         private_key_file,
         ..
     } = cli
@@ -342,15 +367,7 @@ fn resolve_client_iroh_params(
         source: normalize_optional_endpoint(source.clone())
             .or_else(|| normalize_optional_endpoint(cfg.request_source.clone())),
         target: target.clone().or(cfg.target.clone()),
-        relay_urls: if relay_urls.is_empty() {
-            cfg.relay_urls.clone().unwrap_or_default()
-        } else {
-            relay_urls.clone()
-        },
-        relay_auth_token: relay_auth_token
-            .clone()
-            .or_else(|| env_var_opt("TUNNEL_RS_RELAY_AUTH_TOKEN"))
-            .or(cfg.relay_auth_token.clone()),
+        relay: resolve_relay_settings(relay_urls, relay_auth_token, lookup_url, lookup_secret, &cfg),
         private_key: private_key_file
             .clone()
             .or_else(|| env_var_opt("TUNNEL_RS_PRIVATE_KEY_FILE").map(PathBuf::from))
@@ -358,6 +375,37 @@ fn resolve_client_iroh_params(
             .map(PrivateKeySource::File)
             .or_else(|| cfg.private_key.clone().map(PrivateKeySource::Inline)),
         transport: cfg.transport.clone(),
+    }
+}
+
+/// The relay and lookup settings shared by both roles. CLI values take
+/// precedence over config file values; the two secrets (relay token, lookup
+/// secret) also come from the environment, ahead of the config file.
+fn resolve_relay_settings(
+    relay_urls: &[String],
+    relay_auth_token: &Option<String>,
+    lookup_url: &Option<String>,
+    lookup_secret: &Option<String>,
+    cfg: &crate::config::IrohConfig,
+) -> RelaySettings {
+    RelaySettings {
+        relay_urls: if relay_urls.is_empty() {
+            cfg.relay_urls.clone().unwrap_or_default()
+        } else {
+            relay_urls.to_vec()
+        },
+        relay_auth_token: relay_auth_token
+            .clone()
+            .or_else(|| env_var_opt("TUNNEL_RS_RELAY_AUTH_TOKEN"))
+            .or(cfg.relay_auth_token.clone()),
+        lookup_url: lookup_url
+            .clone()
+            .or_else(|| env_var_opt("TUNNEL_RS_LOOKUP_URL"))
+            .or(cfg.lookup_url.clone()),
+        lookup_secret: lookup_secret
+            .clone()
+            .or_else(|| env_var_opt("TUNNEL_RS_LOOKUP_SECRET"))
+            .or(cfg.lookup_secret.clone()),
     }
 }
 
@@ -500,13 +548,11 @@ async fn run_inner() -> Result<()> {
                 max_sessions,
                 secret,
                 secret_file,
-                relay_urls,
-                relay_auth_token,
+                relay,
                 authorized_keys,
                 transport,
             } = resolve_server_iroh_params(&command, cfg.iroh());
-            let relay_config = RelayConfig::from_urls_with_token(&relay_urls, relay_auth_token)
-                .map_err(TunnelError::config)?;
+            let relay_config = RelayConfig::resolve(relay).map_err(TunnelError::config)?;
             let secret = resolve_iroh_secret(secret, secret_file)?;
             let authorized_keys = authorized_keys.ok_or_else(|| {
                 TunnelError::config(anyhow::anyhow!(
@@ -549,13 +595,11 @@ async fn run_inner() -> Result<()> {
                 server_node_id,
                 source,
                 target,
-                relay_urls,
-                relay_auth_token,
+                relay,
                 private_key,
                 transport,
             } = resolve_client_iroh_params(&command, cfg.iroh());
-            let relay_config = RelayConfig::from_urls_with_token(&relay_urls, relay_auth_token)
-                .map_err(TunnelError::config)?;
+            let relay_config = RelayConfig::resolve(relay).map_err(TunnelError::config)?;
             let server_node_id = server_node_id.ok_or_else(|| TunnelError::config(
                 anyhow::anyhow!("server_node_id is required. Provide via --server-node-id or in config file."),
             ))?;
@@ -600,6 +644,7 @@ async fn run_inner() -> Result<()> {
                 secret::generate_secret(output.as_deref(), *force)
             }
         }
+        Command::GenerateLookupSecret { json } => secret::generate_lookup_secret(*json),
         Command::ShowServerId { secret_file, json } => {
             secret::show_id(&expand_tilde(secret_file), *json)
         }

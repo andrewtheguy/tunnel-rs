@@ -38,6 +38,16 @@ pub struct IrohConfig {
     /// `relay_urls`; setting it without custom relays is rejected, since the
     /// default iroh relays never take a token.
     pub relay_auth_token: Option<String>,
+    /// Scheme and host of the self-hosted address lookup service that custom
+    /// relays require, e.g. `https://lookup.example.com` (no path). Servers
+    /// publish their relay URL there and clients resolve the server from it,
+    /// which is what lets a server move to another relay. Required together
+    /// with `lookup_secret` whenever `relay_urls` is set, rejected otherwise.
+    pub lookup_url: Option<String>,
+    /// The lookup service's secret (`lks1-...`, from `generate-lookup-secret`),
+    /// the same value on every server and client. It carries a checksum, so a
+    /// typo is rejected at startup.
+    pub lookup_secret: Option<String>,
     /// NodeId of the server to connect to (client only)
     pub server_node_id: Option<String>,
     /// Allowed source networks in CIDR notation (server only).

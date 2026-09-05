@@ -18,10 +18,12 @@ not duplicate it in this repo; update it there and link to it. tunnel-rs is the
 reference program for relay-only setups, so relay-only behavior changes should be
 reflected there too.
 
-That shared layer's code — `RelayConfig` and the relay probe, endpoint building
-and rebuild — lives in the `flexaccess-iroh` crate
+That shared layer's code — `RelayConfig` and the relay probe, the address
+lookup service custom relays require (its `lks1-` secret format and URL
+layout), endpoint building and rebuild — lives in the `flexaccess-iroh` crate
 (`../flexaccess-iroh`, consumed by git tag). Fix it there, tag a release, and
 bump the tag here; never re-implement or fork a copy of it in this repo. Only
 tunnel-rs-specific pieces (the `mf/4` ALPN, transport tuning, `--relay-only`
-and its sequential relay dial, the challenge transcript, key files) belong in
-`src/iroh_mode/endpoint.rs` and `src/auth.rs`.
+and its sequential relay dial, the challenge transcript, key files, the
+`generate-lookup-secret` command) belong in `src/iroh_mode/endpoint.rs`,
+`src/auth.rs`, and `src/secret.rs`.

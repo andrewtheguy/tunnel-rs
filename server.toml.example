@@ -39,10 +39,20 @@ secret_file = "./server.key"
 # Prefer TUNNEL_RS_RELAY_AUTH_TOKEN for production deployments.
 # relay_auth_token = "shared-relay-secret"
 
-# Internet discovery is NOT configurable: it follows the relay mode. Default
-# relays enable the n0 lookup stack (pkarr publishing + DNS); custom relays
-# disable it entirely, and clients reach the server through relay hints. mDNS
-# local-network discovery stays on unless --relay-only is used.
+# Custom relays REQUIRE a self-hosted address lookup service (one
+# iroh-dns-server behind a secret-gated reverse proxy; see the self-hosting
+# guide in iroh-common-architecture). The server publishes its current relay
+# there and clients resolve it, which is what lets the server move to another
+# relay. Both values go on every server and client; generate the secret with
+# `tunnel-rs generate-lookup-secret` (it carries a checksum, so a typo fails
+# at startup). Rejected without relay_urls.
+# lookup_url = "https://lookup.example.com"
+# lookup_secret = "lks1-..."
+
+# Address lookup is NOT independently configurable: it follows the relay mode.
+# Default relays use n0's lookup stack (pkarr publishing + DNS); custom relays
+# use the service above instead, and nothing goes to n0. mDNS local-network
+# discovery stays on unless --relay-only is used.
 
 # Maximum concurrent sessions (default: 100)
 max_sessions = 100

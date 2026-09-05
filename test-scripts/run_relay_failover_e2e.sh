@@ -2,10 +2,11 @@
 #
 # Relay failover end-to-end test for tunnel-rs (relay-only mode, no internet).
 #
-# Runs TWO local iroh-relay instances (`--dev` mode, plain HTTP) and exercises
-# relay failure scenarios. Servers and clients are each configured with an
-# explicit relay list per scenario. Custom relays disable internet discovery
-# automatically, so the whole test runs without any public iroh infrastructure.
+# Runs TWO local iroh-relay instances (`--dev` mode, plain HTTP) plus the
+# local address lookup service custom relays require (iroh-dns-server behind
+# caddy, gated by a fresh secret; see lookup_dev.sh) and exercises relay
+# failure scenarios. Servers and clients are each configured with an explicit
+# relay list per scenario. Nothing touches public iroh infrastructure.
 #
 # Startup contract under test: every *configured* custom relay is probed
 # individually at startup and ALL of them must come online, so a dead relay in
@@ -24,14 +25,21 @@
 #
 # Phase B - relay offline AFTER startup (runtime failover):
 #   B1  both relays up; server and client with both relays; connects; TCP echo passes
-#   B2  the relay carrying the connection is killed; the server stays up and a
-#       restarted client configured with ONLY the survivor reconnects once the
-#       server re-homes (iroh re-probes relays every ~20-26s); TCP echo passes
+#   B2  the server's home relay (the one its lookup record names) is killed;
+#       the server stays up, re-homes onto the survivor (iroh re-probes relays every ~20-26s) and
+#       REPUBLISHES its lookup record naming the survivor; a restarted client
+#       configured with ONLY the survivor reconnects; TCP echo passes
 #   B3  the surviving relay is killed too (both down); a new client fails (negative)
 #   B4  both relays are restarted; a new client with both relays connects again
-#       (server relay reconnect + re-home); TCP echo passes
+#       (server relay reconnect + re-home); the lookup record names a live
+#       relay; TCP echo passes
 #
-# Requirements: iroh-relay (cargo install iroh-relay), uv, python3.
+# The lookup record checks are what the whole setup exists for: they show a
+# server that lost its relay ends up findable on another one without any
+# client being reconfigured (see relays-and-address-lookup.md).
+#
+# Requirements: iroh-relay (cargo install iroh-relay), iroh-dns-server
+# (cargo install iroh-dns-server --version 1.1.0), caddy, uv, python3.
 #
 # Usage:
 #   ./run_relay_failover_e2e.sh
@@ -39,6 +47,8 @@
 # Environment overrides:
 #   TUNNEL_RS_BIN   path to the tunnel-rs binary (default: cargo-built debug binary)
 #   IROH_RELAY_BIN  path to the iroh-relay binary (default: iroh-relay on PATH)
+#   IROH_DNS_SERVER_BIN, CADDY_BIN
+#                   the lookup service binaries (default: PATH)
 #   FLEXACCESS_KEYS_BIN
 #                   path to the flexaccess-keys binary used for client
 #                   authentication keys (default: PATH, then a download of the
@@ -71,6 +81,8 @@ RELAY_BIN="${IROH_RELAY_BIN:-$(command -v iroh-relay || true)}"
     echo "ERROR: iroh-relay not found. Install with: cargo install iroh-relay" >&2
     exit 1
 }
+source "$SCRIPT_DIR/lookup_dev.sh"
+lookup_require_bins
 
 # ---------------------------------------------------------------------------
 # Working directory (repo ./tmp) + process management
@@ -191,6 +203,11 @@ resolve_flexaccess_keys_bin "$WORK"
 log "EndpointId: $ENDPOINT_ID"
 
 # ---------------------------------------------------------------------------
+# The address lookup service (shared by every scenario; relays come and go)
+# ---------------------------------------------------------------------------
+start_local_lookup "$WORK" "$BIN"
+
+# ---------------------------------------------------------------------------
 # Relay management (config files contain no secrets)
 # ---------------------------------------------------------------------------
 RELAY1_PID=""
@@ -243,13 +260,15 @@ start_server() {
     config="$(
         printf '%s\n' "$SECRET" |
             python3 -c '
-import json, sys
+import json, os, sys
 secret = sys.stdin.readline().rstrip("\n")
 iroh = {
     "secret": secret,
     "authorized_keys_file": sys.argv[1],
     "allowed_sources": {"tcp": ["127.0.0.0/8"]},
     "relay_urls": sys.argv[2:],
+    "lookup_url": os.environ["LOOKUP_URL"],
+    "lookup_secret": os.environ["LOOKUP_SECRET"],
 }
 print(json.dumps({"role": "server", "iroh": iroh}))
 ' "$WORK/authorized_keys" "$@"
@@ -299,7 +318,7 @@ start_client() {
     config="$(
         printf '%s\n' "$ENDPOINT_ID" |
             python3 -c '
-import json, sys
+import json, os, sys
 target_port = sys.argv[1]
 backend_port = sys.argv[2]
 endpoint_id = sys.stdin.readline().rstrip("\n")
@@ -309,6 +328,8 @@ iroh = {
     "target": f"127.0.0.1:{target_port}",
     "private_key_file": sys.argv[3],
     "relay_urls": sys.argv[4:],
+    "lookup_url": os.environ["LOOKUP_URL"],
+    "lookup_secret": os.environ["LOOKUP_SECRET"],
 }
 print(json.dumps({"role": "client", "iroh": iroh}))
 ' "$target_port" "$BACKEND_PORT" "$WORK/client.key" "$@"
@@ -389,6 +410,16 @@ expect_connect_failure() {
     return 0
 }
 
+# Which of the two relays the server's lookup record currently names, as a
+# number (1 or 2), or empty. Args: none.
+published_relay_num() {
+    if lookup_record_names_relay "$ENDPOINT_ID" "$RELAY1_URL"; then
+        echo 1
+    elif lookup_record_names_relay "$ENDPOINT_ID" "$RELAY2_URL"; then
+        echo 2
+    fi
+}
+
 # ---------------------------------------------------------------------------
 # Scenario bookkeeping
 # ---------------------------------------------------------------------------
@@ -439,6 +470,10 @@ record A1 "$rc"
 scenario A2 "server and client configured with ONLY the live relay (relay2) connect"
 rc=0
 expect_server_ready "$RELAY2_URL" || rc=1
+if [[ "$rc" -eq 0 ]] && ! lookup_record_names_relay "$ENDPOINT_ID" "$RELAY2_URL"; then
+    note "lookup record does not name relay2 (HTTP $(lookup_record_status "$ENDPOINT_ID"))"
+    rc=1
+fi
 if [[ "$rc" -eq 0 ]]; then
     connect_and_echo 3 "$RELAY2_URL" || rc=1
 fi
@@ -480,14 +515,24 @@ if [[ "$rc" -eq 0 ]]; then
     esac
     note "connection is via relay$CONNECTED_RELAY_NUM ($connected_url)"
 fi
+HOME_RELAY_NUM=""
+if [[ "$rc" -eq 0 ]]; then
+    HOME_RELAY_NUM="$(published_relay_num)"
+    if [[ -z "$HOME_RELAY_NUM" ]]; then
+        note "lookup record names neither relay (HTTP $(lookup_record_status "$ENDPOINT_ID"))"
+        rc=1
+    else
+        note "lookup record names relay$HOME_RELAY_NUM (the server's home relay)"
+    fi
+fi
 record B1 "$rc"
 
-scenario B2 "kill the relay carrying the connection: server survives, client reconnects via the survivor"
+scenario B2 "kill the server's home relay: server survives, republishes on the survivor, client reconnects"
 rc=0
-if [[ -n "$CONNECTED_RELAY_NUM" ]]; then
-    SURVIVOR_NUM=$(( 3 - CONNECTED_RELAY_NUM ))
+if [[ -n "$HOME_RELAY_NUM" ]]; then
+    SURVIVOR_NUM=$(( 3 - HOME_RELAY_NUM ))
     SURVIVOR_URL="$(eval echo "\$RELAY${SURVIVOR_NUM}_URL")"
-    stop_relay "$CONNECTED_RELAY_NUM"
+    stop_relay "$HOME_RELAY_NUM"
     # The old client's QUIC connection lingers until it times out; restart the
     # client instead (real deployments restart via a supervisor).
     kill_pid "$CLIENT_PID"; CLIENT_PID=""
@@ -497,9 +542,20 @@ if [[ -n "$CONNECTED_RELAY_NUM" ]]; then
         note "server exited when a relay died at runtime"
         rc=1
     fi
+    # The server needs a net_report re-probe cycle (~20-26s) to re-home onto
+    # the survivor; iroh then republishes the lookup record with the new
+    # relay. That republish is how clients that only knew the dead relay would
+    # find the server again.
+    if [[ "$rc" -eq 0 ]]; then
+        if wait_for_lookup_record "$ENDPOINT_ID" "$SURVIVOR_URL" 90; then
+            note "lookup record republished naming relay$SURVIVOR_NUM"
+        else
+            note "lookup record still does not name the survivor after 90s"
+            rc=1
+        fi
+    fi
     # The restarted client is configured with only the surviving relay: the
-    # startup probe would reject the dead one. The server needs a net_report
-    # re-probe cycle (~20-26s) to re-home onto it; retry.
+    # startup probe would reject the dead one.
     if [[ "$rc" -eq 0 ]]; then
         connect_and_echo 6 "$SURVIVOR_URL" || rc=1
     fi
@@ -525,6 +581,15 @@ start_relay 1
 start_relay 2
 # The server's relay actors reconnect with backoff; allow several attempts.
 connect_and_echo 8 "$RELAY1_URL" "$RELAY2_URL" || rc=1
+if [[ "$rc" -eq 0 ]]; then
+    home_after="$(published_relay_num)"
+    if [[ -z "$home_after" ]]; then
+        note "lookup record names neither restarted relay"
+        rc=1
+    else
+        note "lookup record names relay$home_after"
+    fi
+fi
 record B4 "$rc"
 kill_pid "$CLIENT_PID"; CLIENT_PID=""
 

@@ -1,4 +1,5 @@
-//! Secret key generation and management commands (iroh).
+//! Secret generation and management commands: the iroh server identity key
+//! and the address lookup service's secret.
 
 use anyhow::{Context, Result};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
@@ -8,6 +9,7 @@ use serde::Serialize;
 use std::path::Path;
 use std::time::SystemTime;
 
+use flexaccess_iroh::lookup::LookupSecret;
 use flexaccess_keys::rfc3339_utc;
 
 use crate::auth::report_public_half;
@@ -23,6 +25,12 @@ struct GeneratedServerKey {
 #[derive(Serialize)]
 struct ServerId {
     public_key: String,
+}
+
+/// A fresh lookup secret, as printed by `generate-lookup-secret --json`.
+#[derive(Serialize)]
+struct GeneratedLookupSecret {
+    lookup_secret: String,
 }
 
 fn generate_server_key() -> GeneratedServerKey {
@@ -122,6 +130,22 @@ pub fn generate_secret_json() -> Result<()> {
     Ok(())
 }
 
+/// Generate the secret for the self-hosted address lookup service and print
+/// it (bare, or as JSON). The format is the shared crate's: `lks1-` plus 39
+/// lowercase z-base-32 characters with a built-in checksum.
+pub fn generate_lookup_secret(json: bool) -> Result<()> {
+    let lookup_secret = LookupSecret::generate().to_string();
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string(&GeneratedLookupSecret { lookup_secret })?
+        );
+    } else {
+        println!("{lookup_secret}");
+    }
+    Ok(())
+}
+
 /// Show the EndpointId for an existing secret key file
 pub fn show_id(secret_file: &Path, json: bool) -> Result<()> {
     let secret = load_secret(secret_file)?;
@@ -168,6 +192,17 @@ mod tests {
         // The commented file still loads as a key, so it works as an inline secret.
         let secret = load_secret_from_string(&file).unwrap();
         assert_eq!(secret_to_endpoint_id(&secret).to_string(), generated.public_key);
+    }
+
+    #[test]
+    fn generated_lookup_secret_serializes_and_parses_back() {
+        let value = serde_json::to_value(GeneratedLookupSecret {
+            lookup_secret: LookupSecret::generate().to_string(),
+        })
+        .unwrap();
+        let text = value["lookup_secret"].as_str().unwrap();
+        assert!(text.starts_with("lks1-"));
+        LookupSecret::parse(text).expect("a generated secret must validate");
     }
 
     #[test]

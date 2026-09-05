@@ -1,8 +1,9 @@
 //! tunnel-rs's endpoints: what this program layers onto the shared
 //! [`flexaccess_iroh::endpoint`] builder — the tunnel ALPN, its QUIC transport
 //! tuning, the user-facing relay-only mode with its sequential relay dial,
-//! and the server's secret-key file. Relay configuration and startup
-//! validation come from the shared crate.
+//! and the server's secret-key file. Relay configuration, the address lookup
+//! service custom relays require, and startup validation (the per-relay
+//! probe, the foreground first publish) come from the shared crate.
 
 use anyhow::{Context, Result};
 use crate::error::TunnelError;
@@ -25,7 +26,7 @@ use crate::config::{
     CongestionController, TransportTuning, DEFAULT_SEND_WINDOW, DEFAULT_STREAM_RECEIVE_WINDOW,
 };
 
-pub use flexaccess_iroh::relay::{RelayConfig, RELAY_CONNECT_TIMEOUT};
+pub use flexaccess_iroh::relay::{RelayConfig, RelaySettings, RELAY_CONNECT_TIMEOUT};
 
 /// Fixed ALPN protocol identifier for tunnel connections.
 ///
@@ -202,12 +203,13 @@ fn build_quic_transport_config(tuning: &TransportTuning) -> Result<QuicTransport
 
 /// The shared base builder with tunnel-rs's QUIC transport tuning.
 ///
-/// Internet discovery follows the relay mode and `publish_address` (a
-/// persistent identity publishes to n0 pkarr on the default relays; an
-/// ephemeral client never advertises itself); mDNS is on unless `relay_only`,
-/// which drops the direct IP transports and every address lookup so the
-/// endpoint is reachable *only* over the configured relays — what makes
-/// tunnel-rs the reference for exercising a self-hosted relay end to end.
+/// Address lookup follows the relay mode and `publish_address` (a persistent
+/// identity publishes its relay URL, to n0 on the default relays and to the
+/// configured lookup service on custom ones; an ephemeral client never
+/// advertises itself); mDNS is on unless `relay_only`, which drops the direct
+/// IP transports and mDNS so the endpoint is reachable *only* over the
+/// configured relays — what makes tunnel-rs the reference for exercising a
+/// self-hosted relay and lookup service end to end.
 fn base_builder(
     relay_config: &RelayConfig,
     relay_only: bool,
@@ -224,8 +226,8 @@ fn base_builder(
     ))
 }
 
-/// A server endpoint builder: persistent identity (published on the default
-/// relays) and the tunnel ALPN.
+/// A server endpoint builder: persistent identity (published, so clients can
+/// resolve it) and the tunnel ALPN.
 fn server_builder(
     relay_config: &RelayConfig,
     relay_only: bool,
@@ -239,12 +241,13 @@ fn server_builder(
 
 /// Create the server endpoint with its persistent identity.
 ///
-/// With the default relays internet discovery is on, so the server publishes
-/// its current home relay and clients resolve it by endpoint ID. With custom
-/// relays discovery is off, so clients reach the server through the relay
-/// hints they attach to its `EndpointAddr` (see [`connect_to_server`]). Strict
-/// first-creation policy: every custom relay is probed and the endpoint must
-/// come online, both reported as [`TunnelError::connection`].
+/// The server publishes its current home relay — to n0 with the default
+/// relays, to the configured lookup service with custom ones — and clients
+/// resolve it by endpoint ID; with custom relays they also attach the relay
+/// list as hints (see [`connect_to_server`]). Strict first-creation policy:
+/// every custom relay is probed, the endpoint must come online, and the first
+/// publish to the lookup service must succeed, all reported as
+/// [`TunnelError::connection`].
 pub async fn create_server_endpoint(
     relay_config: &RelayConfig,
     relay_only: bool,
@@ -252,9 +255,13 @@ pub async fn create_server_endpoint(
     tuning: &TransportTuning,
 ) -> Result<Endpoint> {
     log_relay_only(relay_only);
-    create_endpoint(relay_config, server_builder(relay_config, relay_only, secret, tuning)?)
-        .await
-        .map_err(|e| TunnelError::connection(e).into())
+    create_endpoint(
+        relay_config,
+        server_builder(relay_config, relay_only, secret, tuning)?,
+        true,
+    )
+    .await
+    .map_err(|e| TunnelError::connection(e).into())
 }
 
 /// Create a client endpoint: ephemeral identity, never published (the client
@@ -266,9 +273,13 @@ pub async fn create_client_endpoint(
     tuning: &TransportTuning,
 ) -> Result<Endpoint> {
     log_relay_only(relay_only);
-    create_endpoint(relay_config, base_builder(relay_config, relay_only, false, tuning)?)
-        .await
-        .map_err(|e| TunnelError::connection(e).into())
+    create_endpoint(
+        relay_config,
+        base_builder(relay_config, relay_only, false, tuning)?,
+        false,
+    )
+    .await
+    .map_err(|e| TunnelError::connection(e).into())
 }
 
 /// QUIC send fairness across streams.
@@ -493,7 +504,13 @@ mod tests {
             err.to_string().contains("--relay-only requires"),
             "unexpected error: {err}"
         );
-        let custom = RelayConfig::from_urls(&[RELAY.to_string()]).unwrap();
+        let custom = RelayConfig::resolve(RelaySettings {
+            relay_urls: vec![RELAY.to_string()],
+            relay_auth_token: None,
+            lookup_url: Some("https://lookup.example.com".to_string()),
+            lookup_secret: Some(flexaccess_iroh::lookup::LookupSecret::generate().to_string()),
+        })
+        .unwrap();
         assert!(validate_relay_only(true, &custom).is_ok());
         assert!(validate_relay_only(false, &RelayConfig::Default).is_ok());
     }

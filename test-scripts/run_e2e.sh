@@ -28,11 +28,14 @@
 #                   path to the flexaccess-keys binary used for client
 #                   authentication keys (default: PATH, then a download of the
 #                   pinned release)
-#   RELAY_URL       custom relay URL for both sides. Custom relays disable
-#                   internet discovery automatically (the binary handles it),
-#                   so custom-relay runs need no public iroh infrastructure.
-#                   When unset, the default public relay + discovery server are
-#                   used (requires internet access).
+#   RELAY_URL       custom relay URL for both sides. Custom relays replace n0's
+#                   address lookup with a self-hosted one, so custom-relay runs
+#                   also need a lookup service (LOOKUP_URL + LOOKUP_SECRET, or
+#                   --local-lookup) and no public iroh infrastructure. When
+#                   unset, the default public relay + discovery server are used
+#                   (requires internet access).
+#   LOOKUP_URL      scheme and host of the lookup service (fallback for
+#   LOOKUP_SECRET   --lookup-url / --lookup-secret).
 #   KEEP_LOGS       set to 1 to keep the temp working directory after the run.
 #   READY_TIMEOUT   seconds to wait for each process to become ready (default: 60).
 #
@@ -47,6 +50,9 @@ READY_TIMEOUT="${READY_TIMEOUT:-60}"
 # ---------------------------------------------------------------------------
 declare -a RELAY_URLS=()
 RELAY_ONLY=0
+LOOKUP_URL_ARG=""
+LOOKUP_SECRET_ARG=""
+LOCAL_LOOKUP=0
 
 usage() {
     cat <<'USAGE'
@@ -59,14 +65,20 @@ default iroh discovery server (requires internet access), no relay override.
 
 Options:
   --relay-url URL   Custom relay URL for both sides (repeatable). Custom relays
-                    disable internet discovery automatically.
-                    May also be given as --relay-url=URL.
+                    need a lookup service: give --lookup-url/--lookup-secret or
+                    --local-lookup. May also be given as --relay-url=URL.
+  --lookup-url URL  Scheme and host of the address lookup service, e.g. a
+                    Cloudflare-tunnelled iroh-dns-server (see self-hosting.md).
+  --lookup-secret S The lookup service's lks1-... secret.
+  --local-lookup    Start a local iroh-dns-server behind caddy for this run,
+                    gated by a fresh secret (needs both binaries).
   --relay-only      Force all traffic through the relay, disabling direct P2P.
                     Requires at least one --relay-url.
   -h, --help        Show this help and exit.
 
-Environment overrides: TUNNEL_RS_BIN, READY_TIMEOUT, KEEP_LOGS, RELAY_URL
-(RELAY_URL is a fallback used only when no --relay-url flag is given).
+Environment overrides: TUNNEL_RS_BIN, READY_TIMEOUT, KEEP_LOGS, RELAY_URL,
+LOOKUP_URL, LOOKUP_SECRET (the env vars are fallbacks used only when the
+matching flag is not given).
 USAGE
 }
 
@@ -79,6 +91,25 @@ while [[ $# -gt 0 ]]; do
             ;;
         --relay-url=*)
             RELAY_URLS+=("${1#*=}")
+            ;;
+        --lookup-url)
+            shift
+            [[ $# -gt 0 ]] || { echo "ERROR: --lookup-url requires a value" >&2; exit 2; }
+            LOOKUP_URL_ARG="$1"
+            ;;
+        --lookup-url=*)
+            LOOKUP_URL_ARG="${1#*=}"
+            ;;
+        --lookup-secret)
+            shift
+            [[ $# -gt 0 ]] || { echo "ERROR: --lookup-secret requires a value" >&2; exit 2; }
+            LOOKUP_SECRET_ARG="$1"
+            ;;
+        --lookup-secret=*)
+            LOOKUP_SECRET_ARG="${1#*=}"
+            ;;
+        --local-lookup)
+            LOCAL_LOOKUP=1
             ;;
         --relay-only)
             RELAY_ONLY=1
@@ -103,6 +134,23 @@ fi
 
 if [[ "$RELAY_ONLY" == "1" && ${#RELAY_URLS[@]} -eq 0 ]]; then
     echo "ERROR: --relay-only requires at least one --relay-url" >&2
+    exit 2
+fi
+
+# The lookup service: flags, then env, then --local-lookup (started later,
+# once the work dir and binary exist). Custom relays require one.
+LOOKUP_URL="${LOOKUP_URL_ARG:-${LOOKUP_URL:-}}"
+LOOKUP_SECRET="${LOOKUP_SECRET_ARG:-${LOOKUP_SECRET:-}}"
+if [[ "$LOCAL_LOOKUP" == "1" && ( -n "$LOOKUP_URL" || -n "$LOOKUP_SECRET" ) ]]; then
+    echo "ERROR: --local-lookup cannot be combined with --lookup-url/--lookup-secret" >&2
+    exit 2
+fi
+if [[ ${#RELAY_URLS[@]} -gt 0 && "$LOCAL_LOOKUP" == "0" && ( -z "$LOOKUP_URL" || -z "$LOOKUP_SECRET" ) ]]; then
+    echo "ERROR: custom relays require a lookup service: pass --lookup-url and --lookup-secret, or --local-lookup" >&2
+    exit 2
+fi
+if [[ ${#RELAY_URLS[@]} -eq 0 && ( "$LOCAL_LOOKUP" == "1" || -n "$LOOKUP_URL" || -n "$LOOKUP_SECRET" ) ]]; then
+    echo "ERROR: a lookup service is only used with custom relays (--relay-url)" >&2
     exit 2
 fi
 
@@ -274,16 +322,28 @@ fi
 log "Server key EndpointId header, stdout default, and 0600 permissions: PASS"
 log "EndpointId: $ENDPOINT_ID"
 
-# Optional custom-relay configuration and matching --relay-only CLI args
-# (relay_only is CLI-only, not config).
+# Optional custom-relay configuration (with its mandatory lookup service) and
+# matching --relay-only CLI args (relay_only is CLI-only, not config).
 RELAY_CONFIG="{}"
 declare -a RELAY_ONLY_ARGS=()
 if [[ ${#RELAY_URLS[@]} -gt 0 ]]; then
+    source "$SCRIPT_DIR/lookup_dev.sh"
+    if [[ "$LOCAL_LOOKUP" == "1" ]]; then
+        start_local_lookup "$WORK" "$BIN"
+    fi
     RELAY_CONFIG="$(
         printf '%s\0' "${RELAY_URLS[@]}" |
-            python3 -c 'import json, sys; urls = [value.decode() for value in sys.stdin.buffer.read().split(b"\0") if value]; print(json.dumps({"relay_urls": urls}))'
+            LOOKUP_URL="$LOOKUP_URL" LOOKUP_SECRET="$LOOKUP_SECRET" python3 -c '
+import json, os, sys
+urls = [value.decode() for value in sys.stdin.buffer.read().split(b"\0") if value]
+print(json.dumps({
+    "relay_urls": urls,
+    "lookup_url": os.environ["LOOKUP_URL"],
+    "lookup_secret": os.environ["LOOKUP_SECRET"],
+}))'
     )"
-    log "Using custom relay(s) (internet discovery auto-disabled): ${RELAY_URLS[*]}"
+    log "Using custom relay(s): ${RELAY_URLS[*]}"
+    log "Using address lookup service: $LOOKUP_URL (secret-gated; nothing goes to n0)"
 else
     log "Using default relay + iroh discovery server (needs internet)"
 fi
@@ -325,6 +385,40 @@ log "Starting tunnel-rs server..."
 start_tunnel server "$SERVER_CONFIG" "$WORK/server.log"
 unset SERVER_CONFIG
 wait_for_log "$WORK/server.log" "Waiting for clients to connect" "$READY_TIMEOUT"
+
+# With custom relays the server must have published its relay URL to the
+# lookup service before it reports ready, and the record must be readable
+# through the secret-gated URL (and only through it): that is the path a
+# client takes to find a server that moved relays.
+if [[ ${#RELAY_URLS[@]} -gt 0 ]]; then
+    if ! grep -q "Published address record to the lookup service" "$WORK/server.log"; then
+        echo "ERROR: server did not report publishing its address record" >&2
+        cat "$WORK/server.log" >&2 || true
+        exit 1
+    fi
+    RECORD_STATUS="$(lookup_record_status "$ENDPOINT_ID")"
+    if [[ "$RECORD_STATUS" != "200" ]]; then
+        echo "ERROR: lookup record for $ENDPOINT_ID not readable through the gate (HTTP $RECORD_STATUS)" >&2
+        exit 1
+    fi
+    published_relay=""
+    for relay_url in "${RELAY_URLS[@]}"; do
+        if lookup_record_names_relay "$ENDPOINT_ID" "$relay_url"; then
+            published_relay="$relay_url"
+            break
+        fi
+    done
+    if [[ -z "$published_relay" ]]; then
+        echo "ERROR: lookup record does not name any configured relay" >&2
+        exit 1
+    fi
+    UNGATED_STATUS="$(http_status "$LOOKUP_URL/pkarr/$(endpoint_id_z32 "$ENDPOINT_ID")")"
+    if [[ "$UNGATED_STATUS" != "404" ]]; then
+        echo "ERROR: lookup record is reachable without the secret (HTTP $UNGATED_STATUS)" >&2
+        exit 1
+    fi
+    log "Lookup record published (relay $published_relay), readable only through the secret-gated URL: PASS"
+fi
 
 # ---------------------------------------------------------------------------
 # tunnel-rs clients (one per protocol; in-memory JSON configs piped to stdin)

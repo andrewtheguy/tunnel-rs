@@ -333,8 +333,10 @@ secret_file = "./server.key"
 | `--authorized-keys-file` | required | Path to SSH-like file containing authorized Ed25519 public keys. Required unless the keys come from `[iroh].authorized_keys_file` or, with `--config-stdin`, an inline `[iroh].authorized_keys` |
 | `--max-sessions` | 100 | Maximum concurrent sessions |
 | `--secret-file` | - | Path to secret key file for persistent server identity |
-| `--relay-url` | public | Custom relay server URL(s), repeatable. Every one must be reachable at startup |
+| `--relay-url` | public | Custom relay server URL(s), repeatable. Every one must be reachable at startup. Requires `--lookup-url` and `--lookup-secret` |
 | `--relay-auth-token` | - | Shared bearer token for the custom relay(s); requires `--relay-url` |
+| `--lookup-url` | - | Scheme and host of the self-hosted [address lookup service](#self-hosting) custom relays require, e.g. `https://lookup.example.com`; requires `--relay-url` |
+| `--lookup-secret` | - | The lookup service's `lks1-…` secret (from `generate-lookup-secret`); requires `--relay-url` |
 | `--relay-only` | false | Force all traffic through relay (CLI-only; not supported in config files) |
 
 **Environment variables** (for containers and automation scripts):
@@ -344,6 +346,8 @@ secret_file = "./server.key"
 | `TUNNEL_RS_AUTHORIZED_KEYS_FILE` | Path to the server authorized-keys file |
 | `TUNNEL_RS_SECRET` | Base64-encoded secret key for persistent server identity, either the bare key or a whole generated key file (use this or `--secret-file`) |
 | `TUNNEL_RS_RELAY_AUTH_TOKEN` | Shared bearer token for the custom relay(s) (use this instead of `--relay-auth-token` to keep it out of the process list) |
+| `TUNNEL_RS_LOOKUP_URL` | Scheme and host of the address lookup service (use this or `--lookup-url`) |
+| `TUNNEL_RS_LOOKUP_SECRET` | The lookup service's secret (use this instead of `--lookup-secret` to keep it out of the process list) |
 
 ### client
 
@@ -356,8 +360,10 @@ secret_file = "./server.key"
 | `--source`, `-s` | required | Source address to request from server (tcp://host:port or udp://host:port) |
 | `--target`, `-t` | required | Local address to listen on |
 | `--private-key-file` | required | Path to compact Ed25519 authentication private key. Required unless the key comes from `[iroh].private_key_file` or, with `--config-stdin`, an inline `[iroh].private_key` |
-| `--relay-url` | public | Custom relay server URL(s), repeatable. Every one must be reachable at startup |
+| `--relay-url` | public | Custom relay server URL(s), repeatable. Every one must be reachable at startup. Requires `--lookup-url` and `--lookup-secret` |
 | `--relay-auth-token` | - | Shared bearer token for the custom relay(s); requires `--relay-url` |
+| `--lookup-url` | - | Scheme and host of the self-hosted [address lookup service](#self-hosting) custom relays require; requires `--relay-url` |
+| `--lookup-secret` | - | The lookup service's `lks1-…` secret, the same value the server uses; requires `--relay-url` |
 | `--relay-only` | false | Force all traffic through relay (CLI-only; not supported in config files) |
 
 **Environment variables** (for containers and automation scripts):
@@ -366,6 +372,8 @@ secret_file = "./server.key"
 |---------|-------------|
 | `TUNNEL_RS_PRIVATE_KEY_FILE` | Path to the compact Ed25519 authentication private key |
 | `TUNNEL_RS_RELAY_AUTH_TOKEN` | Shared bearer token for the custom relay(s) (use this instead of `--relay-auth-token` to keep it out of the process list) |
+| `TUNNEL_RS_LOOKUP_URL` | Scheme and host of the address lookup service (use this or `--lookup-url`) |
+| `TUNNEL_RS_LOOKUP_SECRET` | The lookup service's secret (use this instead of `--lookup-secret` to keep it out of the process list) |
 
 ## Configuration Files
 
@@ -389,7 +397,10 @@ role = "server"
 
 [iroh]
 secret_file = "./server.key"
-# relay_urls = ["https://relay.example.com"]
+# Custom relays come with their address lookup service (see Self-Hosting):
+# relay_urls = ["https://relay1.example.com", "https://relay2.example.com"]
+# lookup_url = "https://lookup.example.com"
+# lookup_secret = "lks1-..."
 max_sessions = 100
 
 # Ed25519 public keys, one per line with optional trailing comments
@@ -423,7 +434,10 @@ role = "client"
 server_node_id = "2xnbkpbc7izsilvewd7c62w7wnwziacmpfwvhcrya5nt76dqkpga"
 request_source = "tcp://127.0.0.1:22"
 target = "127.0.0.1:2222"
-# relay_urls = ["https://relay.example.com"]
+# Custom relays come with their address lookup service (see Self-Hosting):
+# relay_urls = ["https://relay1.example.com", "https://relay2.example.com"]
+# lookup_url = "https://lookup.example.com"
+# lookup_secret = "lks1-..."
 
 # Compact Ed25519 authentication private key
 private_key_file = "~/.config/tunnel-rs/client.key"
@@ -630,6 +644,24 @@ tunnel-rs show-server-id --secret-file ./server.key --json
 # Output: {"public_key":"..."}
 ```
 
+### generate-lookup-secret
+
+The secret that gates the self-hosted address lookup service custom relays
+require (see [Self-Hosting](#self-hosting)). Put the printed value in the
+reverse proxy in front of `iroh-dns-server` and in every server's and client's
+`lookup_secret`. It is `lks1-` plus 39 lowercase characters with a built-in
+checksum, so a mistyped copy is rejected at startup rather than failing as a
+404 at runtime.
+
+```bash
+tunnel-rs generate-lookup-secret
+# Output: lks1-...
+
+# Machine-readable form
+tunnel-rs generate-lookup-secret --json
+# Output: {"lookup_secret":"lks1-..."}
+```
+
 ## Security
 
 - All traffic is encrypted using QUIC/TLS 1.3
@@ -700,11 +732,17 @@ the iroh transport docs shared with
 (the design). tunnel-rs is the **reference program for relay-only setups** — use
 its relay-only e2e script to validate a freshly deployed relay.
 
-Two behaviors are worth reading up on before configuring relays, both covered in
-[relays and address lookup](https://github.com/flexaccessdev/iroh-common-architecture/blob/main/relays-and-address-lookup.md):
-custom relays disable internet discovery (configure **both** sides with the full
-relay list), and every configured relay must come online at startup or the
-process refuses to start.
+Custom relays come as a set: **at least two relays** plus **one address
+lookup service** (an `iroh-dns-server` behind a reverse proxy, the same
+Cloudflare Tunnel pattern as the relays), all covered in
+[self-hosting](https://github.com/flexaccessdev/iroh-common-architecture/blob/main/self-hosting.md).
+Custom relays replace n0's address lookup with that service: servers publish
+their current relay there and clients resolve it, which is what lets a server
+move to another relay without every client being reconfigured. Both sides get
+the full relay list plus the same `lookup_url` and `lookup_secret`; `tunnel-rs
+generate-lookup-secret` prints a fresh secret (checksummed, so a typo fails at
+startup). Every configured relay must come online at startup, and a server must get its
+first publish to the lookup service accepted, or the process refuses to start.
 
 The one tunnel-rs-specific knob is `--relay-only`, which forces every byte
 through the relays instead of attempting direct paths. It is **CLI-only** and not
