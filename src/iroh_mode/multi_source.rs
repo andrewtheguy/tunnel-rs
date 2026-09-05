@@ -95,6 +95,7 @@ use crate::iroh_mode::endpoint::{
     RelayConfig, TUNNEL_ALPN, connect_to_server, create_client_endpoint, create_server_endpoint,
     validate_relay_only, watch_connection_paths,
 };
+use flexaccess_iroh::endpoint::CreatedEndpoint;
 use flexaccess_iroh::relay_failover::fail_over_home_relay;
 use iroh::Endpoint;
 use crate::iroh_mode::helpers::{
@@ -163,7 +164,7 @@ pub async fn run_multi_source_server(config: MultiSourceServerConfig) -> Result<
     log::info!("==================================");
     log::info!("Creating iroh endpoint...");
 
-    let endpoint = create_server_endpoint(
+    let CreatedEndpoint { endpoint, relays_left_out } = create_server_endpoint(
         &config.relay_config,
         relay_only,
         config.secret,
@@ -204,10 +205,12 @@ pub async fn run_multi_source_server(config: MultiSourceServerConfig) -> Result<
     // lost for a minute without iroh re-homing on its own, the failover moves
     // the endpoint onto another configured relay in place. Nothing is torn
     // down: the identity, direct paths and established connections all stay.
-    // With the default relays the failover future is pending forever.
+    // Relays the startup probe could not connect (the endpoint was bound
+    // without them) are put back by the same failover once they are. With
+    // the default relays the failover future is pending forever.
     tokio::select! {
         () = accept_loop(&endpoint, &mut connection_tasks, &serve) => {}
-        () = fail_over_home_relay(&endpoint, &config.relay_config) => {}
+        () = fail_over_home_relay(&endpoint, &config.relay_config, &relays_left_out) => {}
     }
 
     // Wait for remaining tasks to complete
